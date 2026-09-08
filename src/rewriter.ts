@@ -1,6 +1,6 @@
 // Port of Minifier/rewriter.fs
 import * as Ast from "./ast.js";
-import type { BlockLevel, Decl, DeclElt, Expr, FunctionType, Ident as IdentT, Location, MapEnv, Stmt, TopLevel, Type, VarDecl } from "./ast.js";
+import type { BlockLevel, Decl, DeclElt, Expr, FunctionType, Ident as IdentT, Location, MapEnv, Stmt, StructOrInterfaceBlock, TopLevel, Type, VarDecl } from "./ast.js";
 import {
   Block, DeclStmt, Dot, ExprStmt, Float, ForD, ForE, FunCall, DoWhile, Function as FunctionTL, Ident, If, Int, Jump, OpCall,
   TLDecl, TLDirective, TLVerbatim, Var, Verbatim, Directive,
@@ -75,8 +75,88 @@ enum OptimizationPass {
 
 type Assignment = { name: IdentT; target: Expr | null; expr: Expr };
 
+const nonStructType: Type = makeType(Ast.TypeName(new Ident("float")), [], []);
+
 class RewriterImpl {
-  constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass) {}
+  // --webgl support (port addition): what ANGLE rejects depends on struct-ness and void-ness, which
+  // upstream never tracks, so the declarations of the file are indexed once per pass.
+  private readonly structs = new Map<string, StructOrInterfaceBlock>();
+  private readonly voidFunctions = new Set<string>();
+  private readonly voidSequenceForbidden: boolean;
+
+  constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass, code: readonly TopLevel[] = []) {
+    for (const tl of code) {
+      if (tl.kind === "TypeDecl" && tl.block.name !== null) this.structs.set(tl.block.name.name, tl.block);
+      else if (tl.kind === "Function" && tl.funcType.retType.name.kind === "TypeName" && tl.funcType.retType.name.ident.name === "void") this.voidFunctions.add(tl.funcType.fName.name);
+    }
+    // Only ES 3.00 rejects void operands in a sequence, but the `#version 300 es` line is usually
+    // prepended at runtime (shadertoy, three.js), so the source can't tell us which rules apply.
+    this.voidSequenceForbidden = options.webgl;
+  }
+
+  private isStructType(ty: Type): boolean {
+    if (ty.name.kind === "TypeBlock") return true;
+    const n = ty.name.ident.name;
+    return !Builtin.builtinTypes.has(n) && !Builtin.isSamplerType(n);
+  }
+
+  // Best-effort static type; null means unknown.
+  private typeOf(e: Expr): Type | null {
+    switch (e.kind) {
+      case "Int": case "Float": return nonStructType;
+      case "Var": return e.ident.declaration.kind === "Variable" ? e.ident.declaration.decl.ty : null;
+      case "Subscript": return this.typeOf(e.arr);
+      case "Dot": {
+        const t = this.typeOf(e.expr);
+        if (t === null) return null;
+        if (!this.isStructType(t)) return nonStructType;
+        const block = t.name.kind === "TypeBlock" ? t.name.block : this.structs.get(t.name.ident.name);
+        if (block === undefined) return null;
+        for (const m of block.members) {
+          if (m.kind === "MemberVariable" && m.decl[1].some((d) => d.name.name === e.field.name)) return m.decl[0];
+        }
+        return null;
+      }
+      case "FunCall": {
+        if (e.fn.kind === "Op") {
+          if (e.fn.op === "?:") return this.typeOf(e.args[1]);
+          if (Builtin.assignOps.has(e.fn.op)) return this.typeOf(e.args[0]);
+          if (e.fn.op === ",") return this.typeOf(e.args[e.args.length - 1]);
+          return nonStructType; // structs only support == and !=, which yield bool
+        }
+        if (e.fn.kind !== "Var") return null;
+        const d = e.fn.ident.declaration;
+        if (d.kind === "UserFunction") return d.decl.funcType.retType;
+        if (d.kind === "BuiltinFunction" || Builtin.builtinTypes.has(e.fn.ident.name)) return nonStructType;
+        const s = this.structs.get(e.fn.ident.name);
+        return s === undefined ? null : makeType(Ast.TypeName(s.name!), [], []);
+      }
+      default: return null;
+    }
+  }
+
+  private mayBeStruct(e: Expr): boolean {
+    const t = this.typeOf(e);
+    return t === null || this.isStructType(t);
+  }
+
+  private structTernaryForbidden(blockLevel: BlockLevel, e1: Expr, e2: Expr): boolean {
+    if (!this.options.webgl) return false;
+    if (blockLevel.kind === "FunctionRoot") return this.isStructType(blockLevel.fn.retType);
+    return this.mayBeStruct(e1) || this.mayBeStruct(e2);
+  }
+
+  private hasVoidOperand(e: Expr): boolean {
+    const op = asOpCall(e);
+    if (op !== null && op.op === ",") return op.args.some((a) => this.hasVoidOperand(a));
+    if (e.kind !== "FunCall" || e.fn.kind !== "Var") return false;
+    const d = e.fn.ident.declaration;
+    const name = e.fn.ident.name;
+    if (d.kind === "UserFunction") return d.decl.funcType.retType.name.kind === "TypeName" && d.decl.funcType.retType.name.ident.name === "void";
+    if (d.kind === "BuiltinFunction") return false;
+    // overloads, or a macro that looks like a call: assume void unless it names something known
+    return this.voidFunctions.has(name) || !(Builtin.builtinFunctions.has(name) || Builtin.builtinTypes.has(name) || this.structs.has(name));
+  }
 
   // Remove useless spaces in macros
   private stripSpaces(str: string): string {
@@ -713,6 +793,7 @@ class RewriterImpl {
       // Try to remove blocks by using the comma operator
       if (canOptimize) {
         const li = b.flatMap((s) => (s.kind === "Expr" ? [s.expr] : []));
+        if (this.voidSequenceForbidden && li.some((e) => this.hasVoidOperand(e))) return stmt;
         const returnStmt = b.find((s) => s.kind === "Jump" && s.keyword === "return");
         const returnExp = returnStmt !== undefined && returnStmt.kind === "Jump" ? returnStmt.expr : null;
         if (returnExp === null) {
@@ -1045,6 +1126,7 @@ class RewriterImpl {
             // float m=14;m=58.;  ->  float m=58.;
             if (es.length === 0) return [DeclStmt([ty, [{ ...declElt, init: init2 }]])];
             // float m=f();m=58.;  ->  float m=(f(),58.);
+            if (this.voidSequenceForbidden && es.some((e) => this.hasVoidOperand(e))) return null;
             return [DeclStmt([ty, [{ ...declElt, init: commaSeparatedExprs([...es, init2]) }]])];
           }
           if (count === 1 && (declElt.init === null || Effects.isPure(declElt.init)) && Effects.isPure(init2)) {
@@ -1066,6 +1148,7 @@ class RewriterImpl {
         const sideEffects = Effects.sideEffects(s.expr);
         if (sideEffects.length === 0) return []; // Remove pure statements.
         if (sideEffects.length === 1) return [ExprStmt(sideEffects[0])];
+        if (this.voidSequenceForbidden && sideEffects.some((e) => this.hasVoidOperand(e))) return sideEffects.map(ExprStmt);
         return [ExprStmt(commaSeparatedExprs(sideEffects))];
       }
       return [s];
@@ -1101,7 +1184,8 @@ class RewriterImpl {
         const s = list[i];
         const next = list[i + 1];
         if (s.kind === "If" && s.else === null && s.then.kind === "Jump" && s.then.keyword === "return" && s.then.expr !== null &&
-          next !== undefined && next.kind === "Jump" && next.keyword === "return" && next.expr !== null) {
+          next !== undefined && next.kind === "Jump" && next.keyword === "return" && next.expr !== null &&
+          !this.structTernaryForbidden(blockLevel, s.then.expr, next.expr)) {
           out.push(Jump("return", OpCall("?:", [s.cond, s.then.expr, next.expr])));
           return out;
         }
@@ -1200,7 +1284,7 @@ class RewriterImpl {
           const cT = tryCollapseToAssignment(eT);
           const cF = tryCollapseToAssignment(eF);
           // turn if-else of assignments into assignment of ternary
-          if (cT !== null && cF !== null && cT[0].name === cF[0].name) {
+          if (cT !== null && cF !== null && cT[0].name === cF[0].name && !(this.options.webgl && this.mayBeStruct(Var(cT[0])))) {
             // if(c)x=y;else x=z;  ->  x=c?y:z;
             return ExprStmt(OpCall("=", [Var(cT[0]), OpCall("?:", [cond, cT[1], cF[1]])]));
           }
@@ -1336,7 +1420,7 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   }
   const didInline = { value: false };
   const before = Printer.print(code);
-  const rewriter = new RewriterImpl(options, optimizationPass);
+  const rewriter = new RewriterImpl(options, optimizationPass, code);
   code = Ast.visitor(options, rewriter.simplifyExpr(didInline), rewriter.simplifyStmt).mapTopLevel(code);
 
   // now that the functions were inlined, we can remove them
@@ -1401,5 +1485,5 @@ export function simplify(options: Options, li: TopLevel[]): TopLevel[] {
   let code = processPragmas(options, li);
   code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code);
   code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code);
-  return new RewriterImpl(options, OptimizationPass.First).cleanup(code);
+  return new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
 }

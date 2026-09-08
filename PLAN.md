@@ -188,6 +188,15 @@ the fixed form wins the length contest. The five `x(0.);` lines in
    which is invalid. The port applies the same guard to prefix `+`/`-`
    (`- --a`). `-(-a)` itself is always folded by the simplifier, so no
    golden observes the difference (found by the phase 4 re-parse check).
+5. *`--webgl` flag.* Two upstream rewrites produce code ANGLE rejects
+   (verified in Chrome, WebGL 1 and 2): `if(c)return a;return b;` ->
+   `return c?a:b;` when the type is a struct (`ed-209`), and folding a
+   void call into a comma sequence (`endeavour`, ES 3.00 rule). `--webgl`
+   skips both, using the declarations of the file to tell struct-typed
+   and void-returning expressions apart (unknown counts as unsafe). The
+   ES 3.00 sequence rule is applied regardless of `#version`, because the
+   header is usually prepended at runtime. Default off so the goldens stay
+   byte-identical; the build plugin (phase 5) turns it on.
 - Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int64 parse
   first, else decimal; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
   L h H. Verify exponent literals against `numbers.frag` golden.
