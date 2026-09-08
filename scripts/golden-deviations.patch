@@ -1,0 +1,31 @@
+diff --git a/tests/unit/decimals.frag b/tests/unit/decimals.frag
+index 48de84b..bdc8769 100644
+--- a/tests/unit/decimals.frag
++++ b/tests/unit/decimals.frag
+@@ -2,9 +2,9 @@
+ void test () {
+   x(3.141592653589793);
+   x(3.1415927);
+-  //x(1e308);
+-  //x(3e38);
+-  //x(1e37);
++  x(1e308);
++  x(3e38);
++  x(1e37);
+   x(1e28);
+   x(125.663704/180.);
+   x(.6981316889);
+diff --git a/tests/unit/decimals.frag.expected b/tests/unit/decimals.frag.expected
+index f0cc95c..fdb6526 100644
+--- a/tests/unit/decimals.frag.expected
++++ b/tests/unit/decimals.frag.expected
+@@ -2,6 +2,9 @@ void test()
+ {
+   x(acos(-1.));
+   x(3.1415927);
++  x(1e308);
++  x(3e38);
++  x(1e37);
+   x(1e28);
+   x(125.663704/180.);
+   x(.6981316889);

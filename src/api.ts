@@ -50,3 +50,24 @@ export class Minifier {
 
 export const getSize = (shaders: readonly Shader[]): number =>
   shaders.reduce((acc, s) => acc + Printer.print(s.code).length, 0);
+
+export interface MinifyResult {
+  shaders: Shader[];
+  exportedNames: ExportedName[];
+  /** The minified code, in the plain `text` format. */
+  code: string;
+  format(outputFormat?: Options_.OutputFormat): string;
+}
+
+/** Library entry point: minify one shader string or several named files. */
+export function minify(input: string | readonly { name: string; content: string }[], options: Partial<Options> = {}): MinifyResult {
+  const files: InputFile[] = typeof input === "string" ? [["shader", input]] : input.map((f): InputFile => [f.name, f.content]);
+  const opts: Options = { ...Options_.defaultOptions(), ...options };
+  const minifier = new Minifier(opts, files);
+  return {
+    shaders: minifier.shaders,
+    exportedNames: minifier.exportedNames,
+    code: minifier.format({ ...opts, outputFormat: "text" }),
+    format: (outputFormat = opts.outputFormat) => minifier.format({ ...opts, outputFormat }),
+  };
+}
