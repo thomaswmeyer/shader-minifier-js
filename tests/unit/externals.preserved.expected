@@ -1,0 +1,20 @@
+// Generated with  (https://github.com/laurentlb/Shader_Minifier/)
+#ifndef EXTERNALS_PRESERVED_EXPECTED_
+# define EXTERNALS_PRESERVED_EXPECTED_
+
+const char *externals_frag =
+ "uniform int i,n,e;"
+ "int H()"
+ "{"
+   "return i;"
+ "}"
+ "int G()"
+ "{"
+   "return n;"
+ "}"
+ "int F()"
+ "{"
+   "return e;"
+ "}";
+
+#endif // EXTERNALS_PRESERVED_EXPECTED_

@@ -1,0 +1,27 @@
+#version 450
+
+out vec4 O;
+int k;
+float f0()
+{
+  return 2.;
+}
+float f1()
+{
+  float b=1.;
+  return b=2.;
+}
+void main()
+{
+  int d=0,e=0;
+  k==0?
+    sin(O.x),d=1:
+    (cos(O.x),e=2);
+  O.x=float(d);
+  O.y=float(e);
+}
+int f2()
+{
+  k++;
+  return k;
+}

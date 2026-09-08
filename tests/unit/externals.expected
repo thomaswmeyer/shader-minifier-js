@@ -1,0 +1,23 @@
+// Generated with  (https://github.com/laurentlb/Shader_Minifier/)
+#ifndef EXTERNALS_EXPECTED_
+# define EXTERNALS_EXPECTED_
+# define VAR_e "I"
+# define VAR_i "i"
+# define VAR_n "J"
+
+const char *externals_frag =
+ "uniform int i,J,I;"
+ "int H()"
+ "{"
+   "return i;"
+ "}"
+ "int G()"
+ "{"
+   "return J;"
+ "}"
+ "int F()"
+ "{"
+   "return I;"
+ "}";
+
+#endif // EXTERNALS_EXPECTED_

@@ -1,0 +1,22 @@
+// Generated with  (https://github.com/laurentlb/Shader_Minifier/)
+#ifndef QUALIFIERS_EXPECTED_
+# define QUALIFIERS_EXPECTED_
+# define VAR_foo "f"
+
+const char *qualifiers_frag =
+ "#version 130\n"
+ "in vec3 f;"
+ "float v(float f)"
+ "{"
+   "return f;"
+ "}"
+ "float M(const float f)"
+ "{"
+   "return f;"
+ "}"
+ "float L(inout float f)"
+ "{"
+   "return f;"
+ "}";
+
+#endif // QUALIFIERS_EXPECTED_

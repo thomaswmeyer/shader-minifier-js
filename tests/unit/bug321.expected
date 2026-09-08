@@ -1,0 +1,11 @@
+float n;
+float a(float s)
+{
+  s=3.;
+  n=2.;
+  return s;
+}
+float b()
+{
+  return a(1.)+a(5.);
+}

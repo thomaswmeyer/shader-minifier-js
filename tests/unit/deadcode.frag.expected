@@ -1,0 +1,19 @@
+int f()
+{
+  
+#if FOO
+
+  return 2;
+  
+#else
+
+  return 4;
+  
+#endif
+
+}
+void main()
+{
+  f();
+  return;
+}

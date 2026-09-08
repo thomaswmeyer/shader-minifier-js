@@ -1,0 +1,232 @@
+#extension GL_EXT_gpu_shader4:enable
+
+vec4 Y;
+uniform vec2 resolution;
+uniform float time;
+vec4 artifactPos;
+vec3 lightPos,lightDir,ro,rd;
+float FAR,EXPLOSIONTIME,pi;
+float saturate(float x)
+{
+  return clamp(x,0.,1.);
+}
+float ftime(float t,float s,float e)
+{
+  return(t-s)/(e-s);
+}
+vec3 rotateY(vec3 v,float x)
+{
+  return vec3(cos(x)*v.x-sin(x)*v.z,v.y,sin(x)*v.x+cos(x)*v.z);
+}
+vec3 rotateX(vec3 v,float x)
+{
+  return vec3(v.x,v.y*cos(x)-v.z*sin(x),v.y*sin(x)+v.z*cos(x));
+}
+float rnd(vec2 x)
+{
+  int n=int(x.x*40.+x.y*64e2);
+  n^=n<<13;
+  return 1.-float(n*(n*n*15731+789221)+1376312589&2147483647)/1073741824.;
+}
+float norm(float x)
+{
+  return x*.5+.5;
+}
+float caustic(float u,float v,float t)
+{
+  return pow((norm(sin(pi*2.*(u+v+Y.z*t)))+norm(sin(pi*(v-u-Y.z*t)))+norm(sin(pi*(v+Y.z*t)))+norm(sin(pi*3.*(u-Y.z*t))))*.3,2.);
+}
+float smoothrnd(vec2 x)
+{
+  x=mod(x,1e3);
+  vec2 a=fract(x);
+  x-=a;
+  a=a*a*(3.-2.*a);
+  return mix(mix(rnd(x+vec2(0)),rnd(x+vec2(1,0)),a.x),mix(rnd(x+vec2(0,1)),rnd(x+vec2(1)),a.x),a.y);
+}
+float height(vec2 x)
+{
+  float maxV=Y.z-EXPLOSIONTIME;
+  maxV=mix(1.,max(0.,artifactPos.w-artifactPos.y),1.-(maxV>0.&&length(x-artifactPos.xz)<maxV?
+    1.:
+    0.))/pow(1./max(0.,1.-length(artifactPos.xz-x)*.8),2.);
+  x+=length(x-ro.xy);
+  x*=min(length(x-ro.xy)*5.,4.);
+  return caustic(x.x+Y.z*.75,x.y*.5,.3)*.006+caustic(x.x*.1+Y.z*.2,x.y*.1,.02)*.125-.15-maxV*2.;
+}
+vec3 getWaterNormal(vec3 p)
+{
+  return normalize(vec3(caustic(p.x*160.-12.*cos(10.*p.z),p.z*140.,4.),8,caustic(p.z*160.-12.*sin(10.*p.x),p.x*140.,4.))*2.-1.);
+}
+int traceTerrain(vec3 ro,vec3 rd,float maxt,out float depth)
+{
+  float lh,ly,delt=0.;
+  for(float t=.1;t<maxt;t+=delt)
+    {
+      ro+=rd*delt;
+      depth=height(ro.xz);
+      if(ro.y<=depth)
+        return depth=t-delt+delt*(lh-ly)/(ro.y-depth+lh-ly),1;
+      lh=depth;
+      ly=ro.y;
+      delt=.002+t/(40.*clamp(rd.y+1.,0.,1.));
+    }
+  return 0;
+}
+vec3 calculateSkySub(vec3 rd)
+{
+  return norm(smoothrnd(abs(rd.xy*rd.z+rd.y*2.)))*vec3(.15)+norm(smoothrnd(1.5*abs(rd.xy*rd.z+rd.y+10.)))*vec3(.15)+norm(smoothrnd(2.5*abs(rd.xy*rd.z+rd.y+20.)))*vec3(.15);
+}
+vec4 calcPlanet(vec3 ro,vec3 rd)
+{
+  vec4 color=vec4(0);
+  vec3 planetPos=vec3(70,20,100);
+  float dist=dot(rd,normalize(planetPos-ro))-.95;
+  if(dist>0.)
+    {
+      dist=length(planetPos-ro)-dist*8e2;
+      vec3 p=ro+rd*dist,n=normalize(planetPos-p);
+      vec2 uv=.5+.5*vec2(atan(n.z,n.x),acos(n.y))/pi*vec2(5,50);
+      color.xyz=max(0.,.2+dot(normalize(p-lightPos),n))*(caustic(uv.x*.5+Y.z*.1,uv.y*.5,0.)+.5)*.15*vec3(1,0,1);
+      color.w=1.;
+    }
+  else
+     dist=FAR*99.;
+  vec3 pN=vec3(-.96,.96,-.2);
+  float t=dot(pN,planetPos-ro)/dot(pN,rd);
+  if(t>0.&&t<dist)
+    {
+      float d=length(planetPos-ro-rd*t);
+      if(d>52.&&d<80.)
+        color.xyz=mix(color.xyz,vec3(.8,.64,.4),t/2e2*norm(sin((d-50.)/30.*smoothrnd(vec2(d,3)))));
+      color.w=color.w<1.?
+        3.*length(color):
+        color.w;
+    }
+  return vec4(max(vec3(0),color.xyz*.3)*clamp(dot(rd,vec3(0,1,0))*8.,0.,1.),color.w);
+}
+vec3 calculateSky(vec3 ro,vec3 rd,int addPlanet)
+{
+  vec3 color=max(vec3(0),(max(vec3(0),pow(dot(lightDir,rd),6.))*.7-rd.y)*mix(vec3(1,.5,0),vec3(1),min(1.,lightDir.y*1.5))+lightDir.y*3.);
+  float phi=atan(rd.x,rd.z),theta=acos(rd.y/length(rd));
+  phi=smoothstep(0.,.5,norm(.5*smoothrnd(3e2*vec2(phi,theta)))+norm(.75*smoothrnd(5e2*vec2(phi,theta)))-1.25)*saturate(1.-lightDir.y*5.);
+  if(addPlanet>0)
+    {
+      vec4 p=calcPlanet(ro,rd);
+      color+=phi*saturate(1.-p.w)+p.xyz;
+    }
+  rd.xy+=ro.xy*1e-4;
+  return color+(calculateSkySub(normalize(rd+vec3(sin(Y.z*.1),0,cos(Y.z*.1))*.1)*3.)+calculateSkySub(normalize(rd+vec3(sin(Y.z*.1),0,cos(Y.z*.1))*.2)*5.)*.1+calculateSkySub(normalize(rd+vec3(sin(Y.z*.1),0,cos(Y.z*.1))*.4)*7.)*.1-calculateSkySub(normalize(rd+vec3(sin(Y.z*.2),0,0)*.5))*1.5)*saturate(rd.y+.5);
+}
+float isoSurface(vec3 p)
+{
+  float b=Y.z>80.&&Y.z<112.?
+    1.:
+    0.;
+  p=rotateX(rotateY(rotateX(rotateY(p-artifactPos.xyz,3.*Y.z),3.*Y.z),b*sin(3.*Y.z+3.*p.y)),b*sin(3.*Y.z+3.*p.x))*(4.+10.*max(0.,Y.z-EXPLOSIONTIME));
+  return-.4+p.x*p.x*p.x*p.x*p.x*p.x*p.x*p.x+p.y*p.y*p.y*p.y*p.y*p.y*p.y*p.y+p.z*p.z*p.z*p.z*p.z*p.z*p.z*p.z;
+}
+float traceIso(vec3 ro,vec3 rd,float mint,float maxt)
+{
+  float lt,liso,exact,delt=(maxt-mint)/99.;
+  for(float t=mint;t<maxt;t+=delt)
+    {
+      vec3 p=ro+t*rd;
+      float iso=isoSurface(p);
+      if(iso<=0.)
+        {
+          for(int i=0;i<9;i++)
+            {
+              exact=(lt+t)/2.;
+              if(isoSurface(ro+exact*rd)<0.)
+                t=exact;
+              else
+                 lt=exact;
+            }
+          return exact;
+        }
+      lt=t;
+      liso=iso;
+    }
+  return FAR;
+}
+void calcBurn(vec2 x,vec3 normal,inout vec3 color)
+{
+  float gd=length(x-artifactPos.xz),maxV=Y.z-EXPLOSIONTIME;
+  if(maxV>0.&&gd<maxV)
+    {
+      float minV=maxV*.9;
+      if(gd<maxV-maxV+minV)
+        {
+          float strength=saturate((gd-minV)/(maxV-(maxV-minV)*2.-minV));
+          color=color*(1.-strength*1.5)+(1.-strength*.8)*pow(norm(normal.x)+norm(normal.y),2.*norm(smoothrnd(.4*Y.z+x*20.))*norm(smoothrnd(10.+x*5.))+1.)*vec3(1.5,.75,.5);
+        }
+      if(gd>maxV-(maxV-minV)*2.)
+        color+=cos((gd-minV)/(maxV-minV)*pi*.5)*vec3(1.5,.75,.5);
+    }
+}
+vec3 calcScene(vec3 ro,vec3 rd)
+{
+  float upperPlane=(.1-ro.y)/rd.y,finalDepth=2e2;
+  vec3 color=calculateSky(ro,rd,1);
+  if(rd.y<-.01&&traceTerrain(ro+rd*upperPlane,rd,finalDepth,finalDepth)>0)
+    {
+      finalDepth+=upperPlane;
+      vec3 pos=ro+rd*finalDepth,normal=normalize(normalize(vec3(height(pos.xz-vec2(1e-4,0))-height(pos.xz+vec2(1e-4,0)),2e-4,height(pos.xz-vec2(0,1e-4))-height(pos.xz+vec2(0,1e-4))))+(getWaterNormal(pos*.2)*1.5+getWaterNormal(pos*.1))*max(0.,1.-finalDepth/FAR*7.));
+      color=max(0.,dot(normal,lightDir)+pow(max(0.,dot(normal,normalize(lightDir-rd))),2.))*calculateSky(pos,reflect(rd,normal),1);
+      calcBurn(pos.xz,normal,color);
+      color=mix(color,calculateSky(ro,rd,0),saturate(finalDepth/FAR*1.6+saturate(dot(normalize(normal+rd*.2),rd))));
+    }
+  return color;
+}
+void main()
+{
+  FAR=9.;
+  EXPLOSIONTIME=127.;
+  pi=3.1416;
+  Y.xy=-1.+2.*gl_FragCoord.xy/resolution.xy;
+  Y.z=time;
+  rd=normalize(vec3(Y.xy-.5,1));
+  artifactPos=vec4(10,norm(sin(Y.z+4.)),13,0);
+  ro=vec3(0,.25,0);
+  float t=Y.z;
+  if(t<16.)
+    t=1.-pow(1.-ftime(t,0.,16.),2.),lightPos=vec3(-400,1e2-t*450.,1e3),t=(t-1.)*.7,rd=rotateX(rd,-t);
+  else if(t<32.)
+    t=1.-pow(1.-ftime(t,16.,32.),2.),lightPos=vec3(-400,-350.+t*6e2,1e3),ro.y-=t*.1;
+  else if(t<40.)
+    lightPos=vec3(-400,250,1e3),ro.y-=.1;
+  else if(t<64.)
+    {
+      int scene=int((t-40.)/6.);
+      if(scene>=3)
+        artifactPos.w=1.;
+      lightPos=vec3(-400,min(250.,norm(rnd(vec2(scene,2)))*4e2),1e3);
+      ro.xz+=vec2(.1,20)*vec2(rnd(vec2(scene,5)),rnd(vec2(scene,7)));
+      ro=mix(ro+vec3(.008)*abs(vec3(rnd(vec2(scene,8)),0,rnd(vec2(scene,10)))),ro+vec3(.75)*abs(vec3(rnd(vec2(scene,11)),0,rnd(vec2(scene,13)))),t-40.-float(scene));
+      ro.y=.2;
+      rd=rotateY(rd,rnd(vec2(scene,14))*pi);
+    }
+  else
+    {
+      artifactPos.w=1.;
+      lightPos=vec3(-400,norm(sin(t+10.))*250.,1e3);
+      float i=smoothstep(118.,120.,t);
+      ro.xz=artifactPos.xz+mix(vec2(sin(t*.6),cos(t*.6))*mix(sin(t*1.5+10.)+2.,2.,i),vec2(0,2.+.75*(t-EXPLOSIONTIME)),smoothstep(-1.,1.,t-EXPLOSIONTIME));
+      ro.y=mix(norm(sin(t*3.)*(1.-i))*.3,0.,smoothstep(-1.,1.,t-EXPLOSIONTIME))+.2;
+      vec2 dir=normalize(artifactPos.xz-ro.xz);
+      rd=rotateY(rd,atan(dir.y,dir.x)-pi/2.);
+    }
+  lightDir=normalize(lightPos-ro);
+  t=length(ro-artifactPos.xyz)-1.;
+  t=artifactPos.w==1.?
+    traceIso(ro,rd,t,t+2.):
+    FAR;
+  if(t<FAR)
+    {
+      ro+=t*rd;
+      vec3 n=normalize(vec3(isoSurface(vec3(ro.x-1e-4,ro.yz))-isoSurface(vec3(ro.x+1e-4,ro.yz)),isoSurface(vec3(ro.x,ro.y-1e-4,ro.z))-isoSurface(vec3(ro.x,ro.y+1e-4,ro.z)),isoSurface(vec3(ro.xy,ro.z-1e-4))-isoSurface(vec3(ro.xy,ro.z+1e-4))));
+      rd=reflect(rd,n);
+    }
+  gl_FragColor=vec4(calcScene(ro,rd)*saturate(sin(Y.z/150.*pi)*10.),1);
+}

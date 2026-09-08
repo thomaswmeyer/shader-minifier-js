@@ -1,0 +1,118 @@
+float globalFloat=6.,shadowedVar=0.,glob;
+float a()
+{
+  return 5.;
+}
+float b(float g)
+{
+  return(g+10.)*20.+30.+((g+10.1)*20.1+30.1);
+}
+float c()
+{
+  return 154.;
+}
+float d()
+{
+  return 54.;
+}
+float e()
+{
+  return 84.;
+}
+float shadowedFunc(inout float notinlinable)
+{
+  notinlinable=1.;
+  return-1.;
+}
+float notShadowedFunc(inout float notinlinable)
+{
+  notinlinable=2.;
+  return-2.;
+}
+float A1_PRESERVED()
+{
+  return shadowedVar;
+}
+float A3_PRESERVED()
+{
+  float a=10.;
+  return shadowedFunc(a);
+}
+float B1_PRESERVED(float x)
+{
+  return pow(2.,x);
+}
+float C1_PRESERVED()
+{
+  float x=sin(0.);
+  x++;
+  return 3.+x;
+}
+float D3_PRESERVED(float d,float dd)
+{
+  return d+d;
+}
+float watchout(out float x)
+{
+  return x=9.;
+}
+float inuit(inout float greenland)
+{
+  return greenland++;
+}
+float E1_PRESERVED(float bad1,float ok)
+{
+  return bad1++;
+}
+float E3_PRESERVED(float bad3,float ok)
+{
+  return bad3+=1.;
+}
+float E4_PRESERVED(float bad4,float ok)
+{
+  return watchout(bad4);
+}
+float E5_PRESERVED(float bad5,float ok)
+{
+  return inuit(bad5);
+}
+float F2_PRESERVED(out float ff)
+{
+  return 7.;
+}
+float F3_PRESERVED(inout float f)
+{
+  return 7.;
+}
+float PRAGMA_PRESERVED()
+{
+  return 9.;
+}
+float setup()
+{
+  return shadowedVar++;
+}
+float f()
+{
+  float shadowedVar=-1.,shadowedFunc=-2.,_A3=A3_PRESERVED(),_A4=notShadowedFunc(globalFloat);
+  int sep;
+  sep++;
+  sep++;
+  float four=4.,five=5.,_D1=four+four,_D2=four+five,_D3=D3_PRESERVED(four+1.,sin(five));
+  four++,five++;
+  sep++;
+  float six=6.,ten=10.,_E1=E1_PRESERVED(six,ten),_E2=six+watchout(glob)-glob--*(glob*=ten)+inuit(glob),_E3=E3_PRESERVED(six,ten),_E4=E4_PRESERVED(six,ten),_E5=E5_PRESERVED(six,ten);
+  six++,ten++;
+  sep++;
+  float o,_F2=F2_PRESERVED(o);
+  o=F3_PRESERVED(o);
+  sep++;
+  setup();
+  shadowedVar++;
+  shadowedFunc++;
+  return shadowedVar+shadowedFunc+four+five+six+ten+A1_PRESERVED()+1.+_A3+_A4+(B1_PRESERVED(3.)+B1_PRESERVED(4.))+4.+C1_PRESERVED()+(3.+sin(0.))+_D1+_D2+_D3+_E1+_E2+_E3+_E4+_E5+7.+_F2+o+(vec3(9).x+vec3(8).x)+PRAGMA_PRESERVED();
+}
+float g()
+{
+  return 1.;
+}

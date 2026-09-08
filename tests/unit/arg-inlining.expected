@@ -1,0 +1,99 @@
+#version 300 es
+
+precision highp float;
+out vec4 fragColor;
+uniform sampler2D samp;
+float noinline_canInlineWhenResolvable()
+{
+  return 11.;
+}
+float noinline_cannotInlineWhenNotResolvable(float a)
+{
+  return a+11.;
+}
+float noinline_cannotInlineWhenNotResolvable(vec2 a)
+{
+  return length(a)+11.;
+}
+float noinline_canInlineWhenInParameter()
+{
+  return 21.;
+}
+float noinline_cannotInlineWhenOutParameter(out float a)
+{
+  return a+21.;
+}
+float noinline_cannotInlineWhenInOutParameter(inout float a)
+{
+  return a+22.;
+}
+float noinline_canInlineWhenArgIsAlwaysTheSame()
+{
+  return 31.;
+}
+float noinline_cannotInlineWhenArgsAreDifferent(float a)
+{
+  return a+31.;
+}
+float noinline_canInlineWhenArgIsInlinable1()
+{
+  return 20.;
+}
+float noinline_canInlineWhenArgIsInlinable2()
+{
+  return float(-18)+40.;
+}
+float noinline_canInlineWhenArgIsInlinable3()
+{
+  return 496.;
+}
+float noinline_canInlineWhenArgIsInlinable4()
+{
+  return vec3(9).x;
+}
+float noinline_canInlineWhenArgIsInlinable5()
+{
+  return acos(-1.)+40.;
+}
+float noinline_canInlineWhenArgIsInlinable6()
+{
+  return 1./3.+40.;
+}
+float noinline_cannotInlineWhenArgIsNotInlinable(float a)
+{
+  return a+41.;
+}
+float f()
+{
+  float s=0.;
+  s+=s+noinline_canInlineWhenResolvable();
+  s+=s+noinline_cannotInlineWhenNotResolvable(1.);
+  s+=s+noinline_canInlineWhenInParameter();
+  s+=s+noinline_cannotInlineWhenOutParameter(s);
+  s+=s+noinline_cannotInlineWhenInOutParameter(s);
+  s+=s+noinline_canInlineWhenArgIsAlwaysTheSame();
+  s+=s+noinline_cannotInlineWhenArgsAreDifferent(1.);
+  s+=s+noinline_cannotInlineWhenArgsAreDifferent(2.);
+  s+=s+noinline_canInlineWhenArgIsInlinable1();
+  s+=s+noinline_canInlineWhenArgIsInlinable2();
+  s+=s+noinline_canInlineWhenArgIsInlinable3();
+  s+=s+noinline_canInlineWhenArgIsInlinable4();
+  s+=s+noinline_canInlineWhenArgIsInlinable5();
+  s+=s+noinline_canInlineWhenArgIsInlinable6();
+  s+=s+noinline_cannotInlineWhenArgIsNotInlinable(s);
+  return s+s+noinline_cannotInlineWhenArgIsNotInlinable(acos(s));
+}
+vec3 dof()
+{
+  float f=10.;
+  for(;;)
+    {
+      vec3 a=texture(samp,vec2(0)).xyz;
+      return a.zyx+a.xyz*(f*=f);
+    }
+}
+void main()
+{
+  f();
+  fragColor.xyz=dof();
+}

@@ -1,0 +1,23 @@
+// Generated with  (https://github.com/laurentlb/Shader_Minifier/)
+#ifndef FUNCTION_COMMA_EXPECTED_
+# define FUNCTION_COMMA_EXPECTED_
+
+const char *function_comma_frag =
+ "float min(float a,float b)"
+ "{"
+   "return a<b?"
+     "a:"
+     "b;"
+ "}"
+ "float foo()"
+ "{"
+   "float a=1.2;"
+   "return min((a=1.,2.3+a),0.);"
+ "}"
+ "float bar()"
+ "{"
+   "float b=2.3;"
+   "return min(b+=1.2,(1.2,b));"
+ "}";
+
+#endif // FUNCTION_COMMA_EXPECTED_

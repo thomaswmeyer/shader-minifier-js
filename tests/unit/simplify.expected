@@ -1,0 +1,35 @@
+#version 330
+
+int i;
+out vec3 outputvar;
+in vec3 camPos;
+float bar(float x)
+{
+  float a=6.+x,b=34.+x,arr[2]=float[2](5.,float(float[2](7.,8.).length()));
+  x=(a*=10,a*=20,a*=30,b++,arr[1]+arr[i++]);
+  return a+b+x;
+}
+float baz(float a)
+{
+  a=a+4.+sin(a);
+  a=a+5.+sin(a);
+  return a-a-a;
+}
+void notMain(float x)
+{
+  outputvar.xyz=vec3(92)+vec3(bar(x)+baz(x));
+}
+int foo442(float x)
+{
+  return x>=1.&&x<=8.?
+    1:
+    2;
+}
+float len()
+{
+  return length(camPos);
+}
+float main450()
+{
+  return len()+len();
+}

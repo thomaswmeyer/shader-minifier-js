@@ -1,0 +1,129 @@
+#version 420
+
+float result;
+layout(binding=0)uniform atomic_uint hydrogen;
+vec4 fragColor247,fragColor248;
+float arr[]=float[](3.4,4.2);
+uniform int time;
+flat in int sync;
+float glo;
+void main()
+{
+  result=.15;
+}
+int arithmetic()
+{
+  return 40;
+}
+int vars(int arg,int arg2)
+{
+  return arg*(arg+arg2);
+}
+int arithmetic2()
+{
+  return 40;
+}
+int unusedVars()
+{
+  return 30;
+}
+int unusedVars2()
+{
+  return 18;
+}
+int multiPass()
+{
+  return 3;
+}
+float multiPass2()
+{
+  return 9.;
+}
+uint builtin_with_or_without_side_effects(uint x)
+{
+  uint not_inlined=atomicCounterIncrement(hydrogen);
+  atomicCounterIncrement(hydrogen);
+  return x+max(x*x,x+1)+not_inlined;
+}
+float dmin(float a,float b)
+{
+  return a+b+a*b;
+}
+float reduce_consecutive_assignments(float x)
+{
+  float dmat=dmin(dmin(dmin(dmin(dmin(34.+x,.2),.2),.3),.4),.2);
+  dmat+=dmat*dmat;
+  return dmat+x;
+}
+int dont_inline_lvalue()
+{
+  return 3;
+}
+void main247()
+{
+  fragColor247=vec4(3);
+}
+void main248()
+{
+  fragColor248=vec4(3);
+}
+void lvalues()
+{
+  arr[1]=2.;
+}
+int dependOnConst()
+{
+  return(time+sync)*2*3;
+}
+float noinl179(float x)
+{
+  float old=x;
+  x=1e2;
+  return old+x;
+}
+float inlineWithShadowing(float x)
+{
+  if(x<0.)
+    {
+      float inl=3.4;
+      inl++;
+    }
+  return sin(2.5);
+}
+float inline_uninitialized()
+{
+  float c;
+  return c;
+}
+float noinline_readsTheGlobal()
+{
+  return glo;
+}
+float dontCompressAssigments()
+{
+  glo=10.;
+  glo=50.+noinline_readsTheGlobal();
+  return glo*glo;
+}
+vec3 repro(vec2 fragCoord,float iTime)
+{
+  iTime+=(fragCoord.xy/(fragCoord*2.).xy).x*10.;
+  vec3 used_many_times=vec3((fragCoord.y+sin(iTime*.5)*.4-fragCoord.x+iTime*.5)*normalize(vec3(0,0,1))),col=used_many_times,sky=col+used_many_times;
+  vec4 cc=vec4(used_many_times-used_many_times,1);
+  sky+=pow(max(dot(sky,used_many_times),0.),20.)*.03;
+  col=vec3(dot(col+mix(sky,cc.xyz,cc.w)+used_many_times,used_many_times));
+  return col+pow(max(dot(sky,used_many_times),0.),6.)*.2;
+}
+vec3 g(float x)
+{
+  float y=x*x;
+  {
+    float b=23.*x;
+    y+=b*b+30.;
+  }
+  return vec3(10.*x*x)*2.+vec3(y);
+}
+vec3 vecs(float x)
+{
+  return vec3(0)+vec3(4,3,4)+vec3(3,3,g(8.)*g(9.));
+}
