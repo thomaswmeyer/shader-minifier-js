@@ -183,6 +183,11 @@ the fixed form wins the length contest. The five `x(0.);` lines in
    `--no-pi-substitution` disables it. Default stays on to match upstream
    and the goldens (`pi.frag`, `decimals.frag`, `geometry.hlsl`); the WebGL
    build plugin (phase 5) defaults it off.
+4. *Prefix sign spacing.* Upstream only guards binary `+`/`-` against
+   merging into `++`/`--` (`printer.fs:142`), so `-(--a)` prints as `---a`,
+   which is invalid. The port applies the same guard to prefix `+`/`-`
+   (`- --a`). `-(-a)` itself is always folded by the simplifier, so no
+   golden observes the difference (found by the phase 4 re-parse check).
 - Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int64 parse
   first, else decimal; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
   L h H. Verify exponent literals against `numbers.frag` golden.

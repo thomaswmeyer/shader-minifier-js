@@ -4,20 +4,29 @@
   "description": "TypeScript port of Shader Minifier: a GLSL/HLSL minifier for size-constrained WebGL and demoscene shaders",
   "type": "module",
   "license": "Apache-2.0",
-  "engines": { "node": ">=20" },
-  "bin": { "shader-minifier": "bin/shader-minifier.js" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "shader-minifier": "bin/shader-minifier.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "bin"],
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "golden": "tsx test/golden-cli.ts",
     "golden:update": "tsx test/golden-cli.ts --update-golden",
+    "webgl-page": "tsx scripts/webgl-compile-page.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@shaderfrog/glsl-parser": "^7.0.1",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
