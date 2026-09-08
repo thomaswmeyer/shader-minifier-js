@@ -68,7 +68,7 @@ const prec = (op: string): number => {
   return p;
 };
 
-const isIdentChar = (c: string): boolean => /[a-zA-Z0-9_]/.test(c);
+const isIdentChar = (c: string): boolean => /[\p{L}\p{Nd}_]/u.test(c); // Char.IsLetterOrDigit
 const endsWithIdentChar = (s: string): boolean => s.length > 0 && isIdentChar(s[s.length - 1]);
 const startsWithIdentChar = (s: string): boolean => s.length > 0 && isIdentChar(s[0]);
 
@@ -154,7 +154,7 @@ class PrinterImpl {
             const res = `${this.exprToSLevel(indent, p + 1, args[0])}?` +
               // The middle expression of ?: is parsed as if grouped: precedence doesn't apply to it.
               `${this.nl(indent + 1)}${this.exprToSLevel(indent + 1, 0, args[1])}` +
-              `${this.nl(indent + 1)}:${this.exprToSLevel(indent + 1, p, args[2])}`;
+              `:${this.nl(indent + 1)}${this.exprToSLevel(indent + 1, p, args[2])}`;
             return p < level ? `(${res})` : res;
           }
           if (args.length === 1) {

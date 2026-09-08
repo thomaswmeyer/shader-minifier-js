@@ -150,7 +150,9 @@ says so. Every site must be ported deliberately:
   pick the shorter, fixed wins ties, fixed limited to 16 fraction digits)
   reproduces all 41 + 30 cases with zero mismatches. Constant folds are
   rounded to 15 significant digits afterwards so `1.1+2.2` prints `3.3`.
-  No decimal dependency.
+  Verified: an exact .NET-decimal emulation passes the same 96 goldens and
+  only differs on 16-digit results (e.g. `2.*3.141592653589793`), where
+  both round to the same float32. No decimal dependency.
 - `Int`: JS number with `Number.isSafeInteger` guard on folds (skip the fold
   when unsafe). `/` truncates toward zero via `Math.trunc`, `%` follows the
   dividend (JS matches). `useInts` int32 range check -> keep float.
