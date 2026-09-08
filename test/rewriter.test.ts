@@ -33,6 +33,16 @@ describe("--webgl", () => {
     expect(minify(src)).toContain("f(a),a+=1.;");
     expect(minify(src, { webgl: true })).toContain("{f(a);a+=1.;}");
   });
+  it("rejects a struct ternary already present in the input", () => {
+    const src = "struct S{float d;};S pick(S a,S b){return a.d<b.d?a:b;}void main(){S x;x.d=1.;gl_FragColor=vec4(pick(x,x).d);}";
+    expect(() => minify(src)).not.toThrow();
+    expect(() => minify(src, { webgl: true })).toThrow(/ternary operator on struct/);
+  });
+  it("rejects a void call in a sequence already present in the input", () => {
+    const src = "float g;void f(float x){g=x;}void main(){float a=1.;for(int i=0;i<2;i++)f(a),a+=1.;gl_FragColor=vec4(a+g);}";
+    expect(() => minify(src)).not.toThrow();
+    expect(() => minify(src, { webgl: true })).toThrow(/void call in a comma sequence/);
+  });
   it("still sequences non-void calls", () => {
     const src = "float g;float f(float x){g=x;return x;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
     expect(minify(src, { webgl: true })).toContain("f(a),a+=1.;");

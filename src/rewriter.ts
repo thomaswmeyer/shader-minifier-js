@@ -146,6 +146,24 @@ class RewriterImpl {
     return this.mayBeStruct(e1) || this.mayBeStruct(e2);
   }
 
+  // Under --webgl the output must not contain what ANGLE rejects, whether it came from the input or
+  // from a rewrite the guards missed: failing here beats emitting a shader that won't compile.
+  webglCheck(code: readonly TopLevel[]): void {
+    const check = (_env: MapEnv, e: Expr): Expr => {
+      const op = asOpCall(e);
+      if (op === null) return e;
+      if (op.op === "?:" && op.args.length === 3) {
+        const t = this.typeOf(op.args[1]) ?? this.typeOf(op.args[2]);
+        if (t !== null && this.isStructType(t)) throw new Error(`--webgl: WebGL rejects the ternary operator on struct values: ${Printer.exprToS(e)}`);
+      } else if (op.op === ",") {
+        const v = op.args.find((a) => a.kind === "FunCall" && a.fn.kind === "Var" && a.fn.ident.declaration.kind === "UserFunction" && this.hasVoidOperand(a));
+        if (v !== undefined) throw new Error(`--webgl: WebGL (ES 3.00) rejects a void call in a comma sequence: ${Printer.exprToS(v)} in ${Printer.exprToS(e)}`);
+      }
+      return e;
+    };
+    Ast.visitor(this.options, check).iterTopLevel(code);
+  }
+
   private hasVoidOperand(e: Expr): boolean {
     const op = asOpCall(e);
     if (op !== null && op.op === ",") return op.args.some((a) => this.hasVoidOperand(a));
@@ -1485,5 +1503,7 @@ export function simplify(options: Options, li: TopLevel[]): TopLevel[] {
   let code = processPragmas(options, li);
   code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code);
   code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code);
-  return new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
+  const out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
+  if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
+  return out;
 }

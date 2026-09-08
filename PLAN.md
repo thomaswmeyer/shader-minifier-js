@@ -113,9 +113,9 @@ an informational timing only).
   runs verbatim.
 - Library API: `minify(files: {name, content}[], options): {shaders,
   exportedNames, format(fmt)}`.
-- Later (phase 5): rollup/vite/esbuild plugin with spglsl's option names
-  (`mangle_global_map` -> `--no-renaming-list` + JSON mappings), so it drops in
-  where spglsl was used.
+- Later (phase 5): a Vite plugin with its own options mirroring the CLI flags
+  (not a drop-in for spglsl; decided 2026-09-08). Defaults to
+  `--webgl --preserve-externals --no-overloading --no-pi-substitution`.
 
 ## 5. Porting pitfalls
 
