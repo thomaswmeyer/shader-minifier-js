@@ -1,0 +1,2 @@
+#version 300 es
+precision highp float;in vec2 vUv;uniform sampler2D uInk,uPaperTex;uniform vec2 uCRes;out vec4 frag;void main(){float v=texture(uInk,vUv).x*mix(.66,1.,texture(uPaperTex,vUv*uCRes/150.).x);frag=vec4(vec3(23,19,13)/255.*v,v);}

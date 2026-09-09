@@ -1,0 +1,2 @@
+#version 300 es
+in vec2 aCorner,iPos,iVel;in float iAng,iSeed;in vec3 iAux;uniform vec2 uRes;uniform float uSc;out vec2 vL;out float vLen,vHW,vNav,vHov,vBl;void main(){if(iAux.y<0.){gl_Position=vec4(2,2,2,1);return;}float v=iAux.y>0.?iAux.y:uSc;vNav=iAux.x;vHov=iAux.z;vBl=iAux.x>.5?1.:clamp(v/.6,.45,1.);float i=4.*v+length(iVel)*2.6;vec2 x=vec2(cos(iAng),sin(iAng));v=1.2*v*(.8+.4*iSeed);float f=v+4.5,n=(aCorner.y*.5+.5)*(i+2.*f)-f;f*=aCorner.x;x=iPos-x*i*.5+x*n+vec2(-x.y,x)*f;vL=vec2(f,n);vLen=i;vHW=v;gl_Position=vec4(x.x/uRes.x*2.-1.,1.-x.y/uRes.y*2.,0,1);}

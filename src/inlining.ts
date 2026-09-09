@@ -467,11 +467,12 @@ export class ArgumentInlining {
       // Port addition (--inline-single-use): an argument that is a read of a never-written
       // global (a uniform, typically) is substituted into the body outright, rather than
       // declared as a local first, when that is not longer: n uses of the global's name
-      // against a declaration plus n uses of a one-letter local.
+      // against a declaration plus n uses of a one-letter local. The parameter must never
+      // be written: the local would be a writable copy, the global is not.
       if (this.options.inlineSingleUse) {
         const uses = countReferences(this.options, [body]);
         for (const inl of argInlinings) {
-          if (inl.func !== f) continue;
+          if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl) continue;
           const r = resolvedVariableUse(inl.argExpr);
           if (r === null) continue;
           const n = uses.get(inl.varDecl) ?? 0;

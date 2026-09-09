@@ -1,0 +1,2 @@
+#version 300 es
+precision highp float;in vec2 vL;in float vLen,vHW,vNav,vHov,vBl;out vec4 frag;void main(){float v=vL.y,W=length(vec2(vL.x,v-clamp(v,0.,vLen)))-vHW,m=max(.7,vBl);v=clamp((1.-smoothstep((-1.+vNav*.3)*m,(1.4-vNav*.4)*m,W))*(1.+vHov*.35)+(1.-smoothstep(0.,mix(4.5,3.15,vNav)*vBl,max(W,0.)))*.16*(1.-vNav*.35),0.,1.)*(.9+vHov*.1);if(v<=.002)discard;frag=vec4(v);}

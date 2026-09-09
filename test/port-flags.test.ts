@@ -69,6 +69,13 @@ describe("--inline-single-use", () => {
     expect(out).not.toContain("float t=uT;");
     expect(out).toContain("uT*.3");
   });
+  it("keeps the local when the body writes the parameter", () => {
+    // a uniform is not an l-value; the local copy was what made `n++` legal (spglsl corpus, loop-with-side-effects)
+    const src = "uniform int uZero;int f(int n){n++;return n;}void main(){gl_FragColor=vec4(float(f(uZero)));}";
+    const out = minify(src, { inlineSingleUse: true });
+    expect(out).toContain("int n=uZero;");
+    expect(out).not.toContain("uZero++");
+  });
   it("keeps the local for a long uniform name used often", () => {
     const src = "uniform float uSomeLongName;float flow(vec2 p,float t){return sin(p.x+t)+cos(p.y-t)+sin(p.x+t)+cos(p.y*t);}void main(){gl_FragColor=vec4(flow(gl_FragCoord.xy,uSomeLongName));}";
     expect(minify(src, { inlineSingleUse: true })).toContain("float t=uSomeLongName;");

@@ -94,6 +94,18 @@ The spglsl corpus test and the WebGL page look for spglsl's shaders in
 `../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
 `PORTING.md` has the module map and the porting notes.
 
+Two tests guard real-world output rather than upstream parity:
+
+- `test/tomto/` holds tom.to's six ink shaders (a WebGL2 particle engine: transform
+  feedback, instanced strokes, a composite) as model inputs, minified with the
+  Vite plugin's defaults and pinned to `.expected` goldens so a size regression
+  fails the build. `UPDATE_GOLDEN=1 npm test` rewrites them.
+- `test/angle-compile.test.ts` compiles every minified output with ANGLE, the
+  GLSL ES compiler behind Chrome's WebGL, through the `spglsl` package. It
+  covers `test/tomto`, the spglsl corpus, and the GLSL ES files among upstream's
+  unit tests; sources ANGLE itself rejects (desktop GLSL, which is most of the
+  demoscene corpus) and libraries without `main()` are skipped.
+
 ## License
 
 Apache-2.0, like upstream; see `LICENSE` and `NOTICE`. The test corpus in
