@@ -104,7 +104,9 @@ Two tests guard real-world output rather than upstream parity:
   GLSL ES compiler behind Chrome's WebGL, through the `spglsl` package. It
   covers `test/tomto`, the spglsl corpus, and the GLSL ES files among upstream's
   unit tests; sources ANGLE itself rejects (desktop GLSL, which is most of the
-  demoscene corpus) and libraries without `main()` are skipped.
+  demoscene corpus) and libraries without `main()` are skipped. `spglsl` is a
+  prebuilt wasm package but not a dependency of the port: the test skips unless
+  you `npm install --no-save spglsl` first.
 
 ## License
 

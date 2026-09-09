@@ -3,14 +3,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { Minifier } from "../src/api.js";
-import { toMinifierOptions } from "../src/vite.js";
-import { repoRoot } from "./golden.js";
-
-export const tomtoDir = path.join(repoRoot, "test/tomto");
-export const tomtoShaders = (): string[] => fs.readdirSync(tomtoDir).filter((f) => /\.(frag|vert)$/.test(f)).sort();
-export const minifyTomto = (name: string): string =>
-  new Minifier(toMinifierOptions(), [[name, fs.readFileSync(path.join(tomtoDir, name), "utf8")]]).format();
+import { minifyTomto, tomtoDir, tomtoShaders } from "./tomto.js";
 
 describe("tom.to ink shaders", () => {
   for (const name of tomtoShaders()) {

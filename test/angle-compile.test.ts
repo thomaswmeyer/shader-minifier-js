@@ -4,6 +4,9 @@
 // source ANGLE rejects (desktop GLSL, GLES 3.1) or a library without main() is skipped: there
 // is nothing to compare against. Any source that compiles and minifies to something that does
 // not is a bug.
+//
+// spglsl is not a dependency of the port: it is a prebuilt wasm package, but nothing else
+// needs it, so the test skips unless it has been installed (`npm install --no-save spglsl`).
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -12,10 +15,14 @@ import { hasMain, loadSpglslCorpus } from "../scripts/webgl-compile-page.js";
 import { Minifier } from "../src/api.js";
 import { toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
-import { minifyTomto, tomtoDir, tomtoShaders } from "./tomto.test.js";
+import { minifyTomto, readTomto, tomtoShaders } from "./tomto.js";
 
-const require = createRequire(import.meta.url);
-const { spglslAngleCompile } = require("spglsl") as typeof import("spglsl");
+type Spglsl = { spglslAngleCompile: (o: { mainSourceCode: string; mainFilePath: string; language: string; compileMode: string }) => Promise<{ valid: boolean; infoLog: { inspect(): string } }> };
+const loadSpglsl = (): Spglsl | null => {
+  try { return createRequire(import.meta.url)("spglsl") as Spglsl; } catch { return null; }
+};
+const spglsl = loadSpglsl();
+const { spglslAngleCompile } = spglsl ?? { spglslAngleCompile: () => Promise.reject(new Error("spglsl not installed")) };
 
 const stage = (src: string): "Vertex" | "Fragment" => (/\bgl_Position\b|\bgl_PointSize\b/.test(src) ? "Vertex" : "Fragment");
 
@@ -35,7 +42,7 @@ const withPlugin = (name: string, source: string): string => new Minifier(toMini
 
 const cases: Case[] = [];
 for (const name of tomtoShaders()) {
-  cases.push({ name: `tomto/${name}`, source: fs.readFileSync(path.join(tomtoDir, name), "utf8"), minified: () => minifyTomto(name) });
+  cases.push({ name: `tomto/${name}`, source: readTomto(name), minified: () => minifyTomto(name) });
 }
 for (const { name, source } of loadSpglslCorpus()) {
   if (hasMain(source)) cases.push({ name: `spglsl/${name}`, source, minified: () => withPlugin(name, source) });
@@ -47,6 +54,10 @@ for (const name of fs.readdirSync(unitDir).filter((f) => /\.(frag|vert)$/.test(f
 }
 
 describe("minified output compiles under ANGLE", () => {
+  if (spglsl === null) {
+    it.skip("spglsl not installed: `npm install --no-save spglsl` to run this", () => {});
+    return;
+  }
   for (const c of cases) {
     it(c.name, async (ctx) => {
       if ((await angleError(c.name, c.source)) !== null) { ctx.skip(); return; }
