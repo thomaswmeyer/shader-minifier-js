@@ -39,6 +39,8 @@ export interface Options {
   noPiSubstitution: boolean;
   /** Port addition: only emit constructs WebGL accepts (no ?: on structs; no void calls in comma sequences). */
   webgl: boolean;
+  /** Port addition: expand #define macros before parsing instead of keeping them verbatim. */
+  expandMacros: boolean;
 }
 
 export const helpTextMessage = `Shader Minifier ${version} - https://github.com/laurentlb/Shader_Minifier`;
@@ -66,6 +68,7 @@ export function defaultOptions(): Options {
     exportKkpSymbolMaps: false,
     noPiSubstitution: false,
     webgl: false,
+    expandMacros: false,
   };
 }
 
@@ -101,6 +104,7 @@ const usage: [string, string][] = [
   ["--export-kkp-symbol-maps", "Export kkpView symbol maps"],
   ["--no-pi-substitution", "Do not replace pi-like literals with acos(-1.) (port addition)"],
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
+  ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
 ];
@@ -159,6 +163,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--export-kkp-symbol-maps": options.exportKkpSymbolMaps = true; break;
       case "--no-pi-substitution": options.noPiSubstitution = true; break;
       case "--webgl": options.webgl = true; break;
+      case "--expand-macros": options.expandMacros = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);

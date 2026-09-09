@@ -14,6 +14,8 @@ export interface ShaderMinifierPluginOptions {
   noOverloading?: boolean;
   /** Leave pi-like literals alone (`--no-pi-substitution`). Default true. */
   noPiSubstitution?: boolean;
+  /** Expand `#define` macros so they vanish from the output (`--expand-macros`). Default true. */
+  expandMacros?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
@@ -47,6 +49,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     preserveExternals: o.preserveExternals ?? true,
     noOverloading: o.noOverloading ?? true,
     noPiSubstitution: o.noPiSubstitution ?? true,
+    expandMacros: o.expandMacros ?? true,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

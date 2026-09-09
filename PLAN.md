@@ -197,6 +197,13 @@ the fixed form wins the length contest. The five `x(0.);` lines in
    ES 3.00 sequence rule is applied regardless of `#version`, because the
    header is usually prepended at runtime. Default off so the goldens stay
    byte-identical; the build plugin (phase 5) turns it on.
+6. *`--expand-macros` flag.* Upstream keeps `#define` verbatim (they are
+   demoscene feature switches) and even forbids renaming macro names; spglsl
+   runs ANGLE's preprocessor first. On `island-not-found` that is the whole
+   size gap: 14094 B vs spglsl's 12080 with macros kept, 11607 with them
+   expanded. The flag expands object- and function-like macros in file
+   order, leaving alone macros defined inside `#if` blocks, macros named in
+   conditions, and `#`/`##` bodies. Default off; the plugin turns it on.
 - Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int64 parse
   first, else decimal; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
   L h H. Verify exponent literals against `numbers.frag` golden.

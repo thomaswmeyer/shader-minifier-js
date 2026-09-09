@@ -3,7 +3,7 @@ import * as Ast from "./ast.js";
 import { Ident } from "./ast.js";
 import * as Builtin from "./builtin.js";
 import { ParseError, renameField, type Options } from "./options.js";
-import { preprocess } from "./preprocessor.js";
+import { expandMacros, preprocess } from "./preprocessor.js";
 import * as Printer from "./printer.js";
 
 class Fail {
@@ -845,6 +845,7 @@ class ParserImpl {
 }
 
 export function runParser(options: Options, streamName: string, content: string): Ast.Shader {
-  const src = options.preprocess ? preprocess(streamName, content) : content;
+  let src = options.preprocess ? preprocess(streamName, content) : content;
+  if (options.expandMacros) src = expandMacros(src);
   return new ParserImpl(options, src, streamName).run();
 }
