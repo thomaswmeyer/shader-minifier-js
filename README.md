@@ -81,6 +81,34 @@ file pattern, and `options` passes any raw minifier option.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 
+## Results
+
+The six shaders in `test/tomto/` (tom.to's ink mark: a WebGL2 particle engine
+with a transform-feedback sim, instanced stroke quads and a composite pass;
+5,381 bytes of GLSL ES 3.00) minified by upstream Shader Minifier 1.5.1
+(.NET), by spglsl (Google ANGLE's compiler, C++ built to wasm) and by this
+port with the Vite plugin's defaults. Bytes of output; externals preserved
+in all three.
+
+| Shader | Source | Upstream (.NET) | spglsl (ANGLE) | Port |
+|---|--:|--:|--:|--:|
+| sim.vert | 2,094 | 1,034 | 1,034 | 986 |
+| sim.frag | 80 | 74 | 74 | 74 |
+| stroke.vert | 1,666 | 564 | 576 | 564 |
+| stroke.frag | 897 | 375 | 389 | 375 |
+| comp.vert | 166 | 136 | 136 | 136 |
+| comp.frag | 478 | 255 | 275 | 240 |
+| **total** | **5,381** | **2,438** | **2,484** | **2,375** |
+
+The port is 2.6% under upstream and 4.4% under spglsl. Where none of the
+port additions apply (the stroke shaders) its output is byte-identical to
+upstream's, as the goldens require. Upstream beats spglsl through its
+inlining of single-use locals into expressions; spglsl's only wins over
+upstream, dropping a vertex shader's default precision statement and folding
+a `const` used once, are `--drop-default-precision` and
+`--inline-single-use` here, which is what puts the port under both. Every
+output compiles under ANGLE (`test/angle-compile.test.ts`).
+
 ## Development
 
 ```sh
@@ -107,6 +135,45 @@ Two tests guard real-world output rather than upstream parity:
   demoscene corpus) and libraries without `main()` are skipped. `spglsl` is a
   prebuilt wasm package but not a dependency of the port: the test skips unless
   you `npm install --no-save spglsl` first.
+
+### Reproducing the comparison
+
+The port, with the plugin's flags spelled out (`-o /dev/stdout` prints the
+minified shader; the goldens in `test/tomto/*.expected` are the same output):
+
+```sh
+npm run build
+node bin/shader-minifier.js --format text --preserve-externals --no-overloading \
+  --no-pi-substitution --webgl --expand-macros --fold-builtins \
+  --drop-default-precision --inline-single-use test/tomto/sim.vert -o /dev/stdout | wc -c
+```
+
+spglsl, through the same package the compile test uses:
+
+```sh
+npm install --no-save spglsl
+node scripts/minify-with-spglsl.mjs test/tomto/*.vert test/tomto/*.frag
+```
+
+Upstream, from a clone of Shader Minifier at `../shader-minifier`, built and
+run in a .NET 8 SDK container so nothing is installed on the host (the two
+flags match the port's `--preserve-externals --no-overloading`; the rest of
+the plugin's flags are port additions):
+
+```sh
+docker run --rm -v "$PWD/../shader-minifier:/src" -v "$PWD/test/tomto:/glsl" -w /src \
+  mcr.microsoft.com/dotnet/sdk:8.0 bash -c '
+    dotnet build ShaderMinifier -c Release -nologo -v q &&
+    for f in /glsl/*.vert /glsl/*.frag; do
+      dotnet artifacts/bin/ShaderMinifier/release/ShaderMinifier.dll \
+        --format text --preserve-externals --no-overloading "$f" -o /tmp/out.glsl
+      printf "%s %s\n" "$(basename "$f")" "$(wc -c < /tmp/out.glsl)"
+    done'
+```
+
+If the pull hangs with Docker Desktop on macOS, it is waiting on the keychain
+credential helper; `DOCKER_CONFIG=$(mktemp -d)` with an empty `config.json`
+there sidesteps it, since the registry needs no credentials.
 
 ## License
 
