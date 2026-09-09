@@ -204,6 +204,19 @@ the fixed form wins the length contest. The five `x(0.);` lines in
    expanded. The flag expands object- and function-like macros in file
    order, leaving alone macros defined inside `#if` blocks, macros named in
    conditions, and `#`/`##` bodies. Default off; the plugin turns it on.
+7. *`--fold-builtins` flag.* Upstream folds operators on literals but not
+   builtin calls (`radians(45.)`, `sqrt(2.)`, `normalize(vec2(3.,4.))`);
+   ANGLE's `FoldExpressions` does, at float32. The flag evaluates pure
+   builtins whose arguments are all literals (component-wise on literal
+   vector constructors, plus `length`/`dot`/`distance`/`normalize`/`cross`),
+   at float32 precision, printing the shortest float32 round-trip digits,
+   and only when the result is shorter — upstream's own rule for constant
+   division, which is why `exp(1.)` stays. Under the flag, operator folds on
+   floats are rounded to float32 too, so `1./tan(.5*radians(45.))` collapses
+   all the way to `2.4142137`. Known interaction: a folded literal can make
+   upstream's inliner copy a long literal into several uses (`moutard.frag`
+   grows 7 bytes); measured net over the corpus is -200 bytes. Default off;
+   the plugin turns it on.
 - Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int64 parse
   first, else decimal; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
   L h H. Verify exponent literals against `numbers.frag` golden.

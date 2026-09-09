@@ -48,9 +48,9 @@ import frag from "./shader.frag"; // a minified string; `?raw` imports are minif
 
 Files matching `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` are minified at load
 time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
-`noOverloading`, `noPiSubstitution` and `expandMacros` are on, so uniform and
-attribute names are kept, macros are folded away, and the output only uses
-constructs ANGLE accepts. Every other
+`noOverloading`, `noPiSubstitution`, `expandMacros` and `foldBuiltins` are on,
+so uniform and attribute names are kept, macros and constant builtin calls are
+folded away, and the output only uses constructs ANGLE accepts. Every other
 upstream flag is available as a camelCased option (`noRenaming`,
 `noRenamingList`, `noInlining`, `aggressiveInlining`, `noSequence`,
 `noRemoveUnused`, `preprocess`, `moveDeclarations`), `include` overrides the
@@ -64,6 +64,9 @@ file pattern, and `options` passes any raw minifier option.
 - `--expand-macros`: expand `#define`s so neither the definitions nor the
   long macro names reach the output (upstream keeps them as feature switches).
   Macros used in `#if` conditions or defined inside `#if` blocks are left alone.
+- `--fold-builtins`: evaluate builtin calls on literals (`radians(45.)` →
+  `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) at float32 precision,
+  only when the result is shorter.
 - `--no-pi-substitution`: keep literals like `3.14159265` instead of
   `acos(-1.)`, which can cost precision under `mediump`.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.

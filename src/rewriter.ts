@@ -9,6 +9,7 @@ import {
 } from "./ast.js";
 import { Analyzer, Effects, IdentKind, VarVisitor, type FuncInfo, type VarUse } from "./analyzer.js";
 import * as Builtin from "./builtin.js";
+import { float32Literal, foldBuiltinCall } from "./fold-builtins.js";
 import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining.js";
 import { renameField, trace, type Options } from "./options.js";
 import * as Printer from "./printer.js";
@@ -92,6 +93,12 @@ class RewriterImpl {
     // Only ES 3.00 rejects void operands in a sequence, but the `#version 300 es` line is usually
     // prepended at runtime (shadertoy, three.js), so the source can't tell us which rules apply.
     this.voidSequenceForbidden = options.webgl;
+  }
+
+  // With --fold-builtins every folded constant is a float32, so a folded builtin feeding an
+  // operator keeps folding instead of stalling on a long double.
+  private foldFloat(x: number): number {
+    return this.options.foldBuiltins ? (float32Literal(x) ?? x) : x;
   }
 
   private isStructType(ty: Type): boolean {
@@ -415,12 +422,12 @@ class RewriterImpl {
       const i2 = a1.value;
       const su = a0.suffix;
       switch (op) {
-        case "-": return Float(decimalSub(i1, i2), su);
-        case "+": return Float(decimalAdd(i1, i2), su);
-        case "*": return Float(decimalMul(i1, i2), su);
+        case "-": return Float(this.foldFloat(decimalSub(i1, i2)), su);
+        case "+": return Float(this.foldFloat(decimalAdd(i1, i2)), su);
+        case "*": return Float(this.foldFloat(decimalMul(i1, i2)), su);
         case "/":
           if (i2 !== 0) {
-            const div = Float(i1 / i2, su);
+            const div = Float(this.foldFloat(i1 / i2), su);
             if (Printer.exprToS(e).length <= Printer.exprToS(div).length) return e;
             return div;
           }
@@ -635,6 +642,11 @@ class RewriterImpl {
     }
 
     if (e.kind === "FunCall" && e.fn.kind === "Op") return this.simplifyOperator(env, e);
+
+    if (this.options.foldBuiltins && e.kind === "FunCall" && e.fn.kind === "Var" && e.fn.ident.declaration.kind === "BuiltinFunction") {
+      const folded = foldBuiltinCall(e);
+      if (folded !== null) return folded;
+    }
 
     if (e.kind === "FunCall" && e.fn.kind === "Var" && e.args.length === 2 && e.fn.ident.name === "distance") {
       const len = new Ident("length", e.fn.ident.loc);

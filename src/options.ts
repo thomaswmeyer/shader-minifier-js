@@ -41,6 +41,8 @@ export interface Options {
   webgl: boolean;
   /** Port addition: expand #define macros before parsing instead of keeping them verbatim. */
   expandMacros: boolean;
+  /** Port addition: fold pure builtin calls on literals (float32 precision, only when shorter). */
+  foldBuiltins: boolean;
 }
 
 export const helpTextMessage = `Shader Minifier ${version} - https://github.com/laurentlb/Shader_Minifier`;
@@ -69,6 +71,7 @@ export function defaultOptions(): Options {
     noPiSubstitution: false,
     webgl: false,
     expandMacros: false,
+    foldBuiltins: false,
   };
 }
 
@@ -105,6 +108,7 @@ const usage: [string, string][] = [
   ["--no-pi-substitution", "Do not replace pi-like literals with acos(-1.) (port addition)"],
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
+  ["--fold-builtins", "Evaluate builtin calls on literals at float32 precision when shorter (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
 ];
@@ -164,6 +168,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--no-pi-substitution": options.noPiSubstitution = true; break;
       case "--webgl": options.webgl = true; break;
       case "--expand-macros": options.expandMacros = true; break;
+      case "--fold-builtins": options.foldBuiltins = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);
