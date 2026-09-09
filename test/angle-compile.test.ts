@@ -1,12 +1,8 @@
-// Minified output must still compile under ANGLE (spglsl: the compiler behind Chrome's WebGL),
-// wherever ANGLE can judge the source. Covers tom.to's shaders (test/tomto), the spglsl corpus
-// when the sibling checkout is present, and the GLSL ES files among upstream's unit tests. A
-// source ANGLE rejects (desktop GLSL, GLES 3.1) or a library without main() is skipped: there
-// is nothing to compare against. Any source that compiles and minifies to something that does
-// not is a bug.
-//
-// spglsl is not a dependency of the port: it is a prebuilt wasm package, but nothing else
-// needs it, so the test skips unless it has been installed (`npm install --no-save spglsl`).
+// Minified output must still compile under ANGLE (spglsl, the compiler behind Chrome's WebGL)
+// wherever ANGLE accepts the source: test/tomto, the spglsl corpus when present, and the GLSL
+// ES files among upstream's unit tests. Sources ANGLE rejects (desktop GLSL, GLES 3.1) and
+// libraries without main() are skipped. spglsl is not a dependency; the test skips unless it
+// is installed (`npm install --no-save spglsl`).
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -27,7 +23,7 @@ const { spglslAngleCompile } = spglsl ?? { spglslAngleCompile: () => Promise.rej
 const stage = (src: string): "Vertex" | "Fragment" => (/\bgl_Position\b|\bgl_PointSize\b/.test(src) ? "Vertex" : "Fragment");
 
 /** null when ANGLE accepts the shader, else its info log; "crash" when spglsl's wasm build
- * itself falls over (it does on a few inputs, e.g. tests/unit/suffix.frag), which is no verdict. */
+ * falls over (as on tests/unit/suffix.frag), which is no verdict. */
 async function angleError(name: string, source: string): Promise<string | null> {
   try {
     const r = await spglslAngleCompile({ mainSourceCode: source, mainFilePath: name, language: stage(source), compileMode: "Compile" });

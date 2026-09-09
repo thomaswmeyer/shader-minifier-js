@@ -1511,12 +1511,10 @@ export function processPragmas(options: Options, li: TopLevel[]): TopLevel[] {
   return res;
 }
 
-// Port addition (--drop-default-precision). GLSL ES gives every stage default precisions:
-// a vertex shader has highp float and int, a fragment shader mediump int (and no float
-// default), and samplers are lowp in both. A precision statement that restates the default
-// is a no-op and goes — unless an earlier statement for the same type overrode the default,
-// in which case it is the statement that restores it. The stage is read off the code: a
-// shader that writes gl_Position or gl_PointSize is a vertex shader.
+// --drop-default-precision (port addition). GLSL ES defaults: vertex highp float and int,
+// fragment mediump int (no float default), samplers lowp in both. A precision statement
+// restating the default is a no-op, unless an earlier one for the same type overrode it.
+// A shader that writes gl_Position or gl_PointSize is a vertex shader.
 const lowpSamplers = ["sampler2D", "sampler3D", "samplerCube", "samplerCubeShadow", "sampler2DShadow", "sampler2DArray", "sampler2DArrayShadow",
   "isampler2D", "isampler3D", "isamplerCube", "isampler2DArray", "usampler2D", "usampler3D", "usamplerCube", "usampler2DArray"];
 export function dropDefaultPrecision(options: Options, code: TopLevel[]): TopLevel[] {

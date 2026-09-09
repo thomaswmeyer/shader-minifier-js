@@ -197,11 +197,9 @@ export class VariableInlining {
     }
   }
 
-  // Port addition (--inline-single-use). Upstream only inlines a global whose init is a
-  // literal (or, with aggressive inlining, any const expression) — at every use, however
-  // many. A never-written global with a pure, const init that is referenced exactly once,
-  // outside any loop, can go into that use unconditionally: the declaration costs more
-  // than the expression it declares.
+  // --inline-single-use (port addition): a never-written global with a pure const init,
+  // referenced exactly once outside any loop, is inlined into that use. Upstream inlines
+  // globals only when the init is a literal, or anything const under aggressive inlining.
   private markSingleUseGlobals(li: readonly TopLevel[]): void {
     const allStmts: Stmt[] = [];
     const outsideLoops: Expr[] = [];
@@ -464,11 +462,10 @@ export class ArgumentInlining {
         const name = inl.varDecl.ty.name;
         if (name.kind === "TypeName" && Builtin.isSamplerType(name.ident.name)) inl.varDecl.decl.name.toBeInlined = true;
       }
-      // Port addition (--inline-single-use): an argument that is a read of a never-written
-      // global (a uniform, typically) is substituted into the body outright, rather than
-      // declared as a local first, when that is not longer: n uses of the global's name
-      // against a declaration plus n uses of a one-letter local. The parameter must never
-      // be written: the local would be a writable copy, the global is not.
+      // --inline-single-use (port addition): an argument that reads a never-written global
+      // is substituted into the body instead of declared as a local, when n uses of its name
+      // cost no more than the declaration plus n one-letter uses. The parameter must never
+      // be written: the local is a writable copy, the global is not.
       if (this.options.inlineSingleUse) {
         const uses = countReferences(this.options, [body]);
         for (const inl of argInlinings) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Minify shaders with spglsl (Google ANGLE compiled to wasm) for a size comparison
-// against the port: node scripts/minify-with-spglsl.mjs test/tomto/*.frag test/tomto/*.vert
-// Needs `npm install --no-save spglsl`. Writes nothing; prints source -> minified bytes.
+// Minify shaders with spglsl (Google ANGLE compiled to wasm) and print source -> minified
+// bytes, for comparison with the port. Needs `npm install --no-save spglsl`.
+//   node scripts/minify-with-spglsl.mjs test/tomto/*.vert test/tomto/*.frag
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
