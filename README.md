@@ -69,6 +69,15 @@ file pattern, and `options` passes any raw minifier option.
   only when the result is shorter.
 - `--no-pi-substitution`: keep literals like `3.14159265` instead of
   `acos(-1.)`, which can cost precision under `mediump`.
+- `--drop-default-precision`: drop precision statements that restate the
+  stage's default (`precision highp float;` in a vertex shader, `mediump int`
+  in a fragment shader, `lowp` samplers). The stage is read off the code: a
+  shader that writes `gl_Position` or `gl_PointSize` is a vertex shader.
+- `--inline-single-use`: inline a never-written global used exactly once
+  (outside loops) into that use, and substitute a global passed as an
+  always-identical argument straight into the function body instead of
+  declaring a local for it, when that is not longer. Upstream reserves both
+  for `--aggressive-inlining`, which also duplicates constants everywhere.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 

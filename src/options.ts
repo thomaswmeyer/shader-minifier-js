@@ -44,6 +44,10 @@ export interface Options {
   expandMacros: boolean;
   /** Fold pure builtin calls on literals (float32 precision, only when shorter). */
   foldBuiltins: boolean;
+  /** Drop precision statements that restate the stage's default (vertex: highp float/int; fragment: mediump int; samplers: lowp). */
+  dropDefaultPrecision: boolean;
+  /** Inline a never-written global used once, and substitute an always-identical global argument into a function body when that is not longer. */
+  inlineSingleUse: boolean;
 }
 
 export const helpTextMessage = `Shader Minifier ${version} - https://github.com/laurentlb/Shader_Minifier`;
@@ -73,6 +77,8 @@ export function defaultOptions(): Options {
     webgl: false,
     expandMacros: false,
     foldBuiltins: false,
+    dropDefaultPrecision: false,
+    inlineSingleUse: false,
   };
 }
 
@@ -110,6 +116,8 @@ const usage: [string, string][] = [
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
   ["--fold-builtins", "Evaluate builtin calls on literals at float32 precision when shorter (port addition)"],
+  ["--drop-default-precision", "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader (port addition)"],
+  ["--inline-single-use", "Inline a never-written global used once, and substitute a global passed as an always-identical argument when that is not longer (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
 ];
@@ -170,6 +178,8 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--webgl": options.webgl = true; break;
       case "--expand-macros": options.expandMacros = true; break;
       case "--fold-builtins": options.foldBuiltins = true; break;
+      case "--drop-default-precision": options.dropDefaultPrecision = true; break;
+      case "--inline-single-use": options.inlineSingleUse = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);

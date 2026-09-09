@@ -201,6 +201,24 @@ says so. Every site is ported deliberately:
    folded literal can make upstream's inliner copy a long literal into
    several uses (`moutard.frag` grows 7 bytes); net over the corpus is
    -250 bytes. Default off.
+8. *`--drop-default-precision`.* GLSL ES gives each stage default precisions
+   (ES 3.00 §4.5.4): vertex `highp float`/`highp int`, fragment `mediump int`
+   and no float default, samplers `lowp` in both. A statement restating the
+   default is a no-op; ANGLE (spglsl) drops it, upstream keeps it. The pass
+   runs after cleanup, reads the stage off `gl_Position`/`gl_PointSize`, and
+   keeps a statement that follows an earlier one for the same type, since
+   that one restores the default rather than restating it. Default off.
+9. *`--inline-single-use`.* Two cases upstream only handles under
+   `--aggressive-inlining` (which also copies every constant to every use):
+   a never-written global with a pure const init referenced exactly once,
+   outside loops, is inlined into that use (the declaration is longer than the
+   expression, and the rewriter parenthesises as needed); and when argument
+   inlining finds a parameter always passed the same never-written global,
+   the global is substituted into the body directly instead of via
+   `float t=uT;`, when `uses × name length` is no more than the declaration
+   plus a one-letter local per use. Substituting can then make the function a
+   single-expression inline candidate, as `flow(p, uT)` in tom.to's ink
+   shader is. Default off.
 
 ### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
 - `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse

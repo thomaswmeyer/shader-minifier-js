@@ -18,6 +18,10 @@ export interface ShaderMinifierPluginOptions {
   expandMacros?: boolean;
   /** Evaluate builtin calls on literals at float32 precision when shorter (`--fold-builtins`). Default true. */
   foldBuiltins?: boolean;
+  /** Drop precision statements that restate the stage's default (`--drop-default-precision`). Default true. */
+  dropDefaultPrecision?: boolean;
+  /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
+  inlineSingleUse?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
@@ -53,6 +57,8 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     noPiSubstitution: o.noPiSubstitution ?? true,
     expandMacros: o.expandMacros ?? true,
     foldBuiltins: o.foldBuiltins ?? true,
+    dropDefaultPrecision: o.dropDefaultPrecision ?? true,
+    inlineSingleUse: o.inlineSingleUse ?? true,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

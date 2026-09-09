@@ -1511,11 +1511,43 @@ export function processPragmas(options: Options, li: TopLevel[]): TopLevel[] {
   return res;
 }
 
+// Port addition (--drop-default-precision). GLSL ES gives every stage default precisions:
+// a vertex shader has highp float and int, a fragment shader mediump int (and no float
+// default), and samplers are lowp in both. A precision statement that restates the default
+// is a no-op and goes — unless an earlier statement for the same type overrode the default,
+// in which case it is the statement that restores it. The stage is read off the code: a
+// shader that writes gl_Position or gl_PointSize is a vertex shader.
+const lowpSamplers = ["sampler2D", "sampler3D", "samplerCube", "samplerCubeShadow", "sampler2DShadow", "sampler2DArray", "sampler2DArrayShadow",
+  "isampler2D", "isampler3D", "isamplerCube", "isampler2DArray", "usampler2D", "usampler3D", "usamplerCube", "usampler2DArray"];
+export function dropDefaultPrecision(options: Options, code: TopLevel[]): TopLevel[] {
+  if (options.hlsl) return code;
+  let vertex = false;
+  const spotStage = (_env: Ast.MapEnv, e: Expr): Expr => {
+    if (e.kind === "Var" && (e.ident.name === "gl_Position" || e.ident.name === "gl_PointSize")) vertex = true;
+    return e;
+  };
+  Ast.visitor(options, spotStage).iterTopLevel(code);
+  const defaults = new Map<string, string>(lowpSamplers.map((s) => [s, "lowp"]));
+  if (vertex) { defaults.set("float", "highp"); defaults.set("int", "highp"); }
+  else defaults.set("int", "mediump");
+  const seen = new Set<string>();
+  return code.filter((tl) => {
+    if (tl.kind !== "Precision" || tl.ty.name.kind !== "TypeName") return true;
+    const tyName = tl.ty.name.ident.name;
+    const prec = tl.ty.typeQ.find((q) => q === "lowp" || q === "mediump" || q === "highp");
+    const drop = !seen.has(tyName) && prec !== undefined && defaults.get(tyName) === prec;
+    seen.add(tyName);
+    if (drop) trace(options, `dropping 'precision ${prec} ${tyName};': the ${vertex ? "vertex" : "fragment"} stage's default`);
+    return !drop;
+  });
+}
+
 export function simplify(options: Options, li: TopLevel[]): TopLevel[] {
   let code = processPragmas(options, li);
   code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code);
   code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code);
-  const out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
+  let out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
+  if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out);
   if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
   return out;
 }

@@ -18,24 +18,48 @@ function isTrivialExpr(e: Expr): boolean { // "trivial" means "small enough to i
   }
 }
 
+// Return the list of variables used in the statements, with the number of references.
+function countReferences(options: Options, stmtList: readonly Stmt[]): Map<VarDecl, number> {
+  const counts = new Map<VarDecl, number>();
+  const collectLocalUses = (_env: Ast.MapEnv, e: Expr): Expr => {
+    const r = resolvedVariableUse(e);
+    if (r !== null) {
+      const vd = r[1];
+      counts.set(vd, (counts.get(vd) ?? 0) + 1);
+    }
+    return e;
+  };
+  for (const expr of stmtList) {
+    Ast.visitor(options, collectLocalUses).iterStmt(Ast.UnknownLevel, expr);
+  }
+  return counts;
+}
+
+// Collect the expressions under a statement, but do not look in loops.
+function collectExprsOutsideLoops(stmt: Stmt, out: Expr[]): void {
+  switch (stmt.kind) {
+    case "Decl":
+      for (const def of stmt.decl[1]) {
+        if (def.init !== null) out.push(def.init);
+      }
+      break;
+    case "Expr": out.push(stmt.expr); break;
+    case "Jump": if (stmt.expr !== null) out.push(stmt.expr); break;
+    case "If":
+      out.push(stmt.cond);
+      collectExprsOutsideLoops(stmt.then, out);
+      if (stmt.else !== null) collectExprsOutsideLoops(stmt.else, out);
+      break;
+    case "Block": for (const s of stmt.stmts) collectExprsOutsideLoops(s, out); break;
+    case "Directive": case "Verbatim": case "ForE": case "ForD": case "While": case "DoWhile": case "Switch": break;
+  }
+}
+
 export class VariableInlining {
   constructor(private readonly options: Options) {}
 
-  // Return the list of variables used in the statements, with the number of references.
   private countReferences(stmtList: readonly Stmt[]): Map<VarDecl, number> {
-    const counts = new Map<VarDecl, number>();
-    const collectLocalUses = (_env: Ast.MapEnv, e: Expr): Expr => {
-      const r = resolvedVariableUse(e);
-      if (r !== null) {
-        const vd = r[1];
-        counts.set(vd, (counts.get(vd) ?? 0) + 1);
-      }
-      return e;
-    };
-    for (const expr of stmtList) {
-      Ast.visitor(this.options, collectLocalUses).iterStmt(Ast.UnknownLevel, expr);
-    }
-    return counts;
+    return countReferences(this.options, stmtList);
   }
 
   private isEffectivelyConst(ident: Ident): boolean {
@@ -73,25 +97,7 @@ export class VariableInlining {
     }
     // List of all expressions under the current block, but do not look in loops.
     const localExprs: Expr[] = [];
-    const addLocalExprs = (stmt: Stmt): void => {
-      switch (stmt.kind) {
-        case "Decl":
-          for (const def of stmt.decl[1]) {
-            if (def.init !== null) localExprs.push(def.init);
-          }
-          break;
-        case "Expr": localExprs.push(stmt.expr); break;
-        case "Jump": if (stmt.expr !== null) localExprs.push(stmt.expr); break;
-        case "If":
-          localExprs.push(stmt.cond);
-          addLocalExprs(stmt.then);
-          if (stmt.else !== null) addLocalExprs(stmt.else);
-          break;
-        case "Block": for (const s of stmt.stmts) addLocalExprs(s); break;
-        case "Directive": case "Verbatim": case "ForE": case "ForD": case "While": case "DoWhile": case "Switch": break;
-      }
-    };
-    for (const stmt of block) addLocalExprs(stmt);
+    for (const stmt of block) collectExprsOutsideLoops(stmt, localExprs);
 
     const localReferences = this.countReferences(localExprs.map((e) => Ast.ExprStmt(e)));
     const allReferences = this.countReferences(block);
@@ -191,10 +197,48 @@ export class VariableInlining {
     }
   }
 
+  // Port addition (--inline-single-use). Upstream only inlines a global whose init is a
+  // literal (or, with aggressive inlining, any const expression) — at every use, however
+  // many. A never-written global with a pure, const init that is referenced exactly once,
+  // outside any loop, can go into that use unconditionally: the declaration costs more
+  // than the expression it declares.
+  private markSingleUseGlobals(li: readonly TopLevel[]): void {
+    const allStmts: Stmt[] = [];
+    const outsideLoops: Expr[] = [];
+    for (const tl of li) {
+      if (tl.kind === "Function") {
+        allStmts.push(tl.body);
+        collectExprsOutsideLoops(tl.body, outsideLoops);
+      } else if (tl.kind === "TLDecl") {
+        for (const def of tl.decl[1]) {
+          if (def.init !== null) { allStmts.push(Ast.ExprStmt(def.init)); outsideLoops.push(def.init); }
+        }
+      }
+    }
+    const allReferences = this.countReferences(allStmts);
+    const outsideLoopReferences = this.countReferences(outsideLoops.map((e) => Ast.ExprStmt(e)));
+    for (const tl of li) {
+      if (tl.kind !== "TLDecl") continue;
+      const [ty, defs] = tl.decl;
+      if (Ast.typeIsExternal(ty) || ty.arraySizes.length > 0) continue;
+      for (const def of defs) {
+        const varDecl = def.name.varDecl;
+        if (varDecl === null) throw new Error(`unresolved declaration: ${Printer.debugDecl(def)}`);
+        if (def.init === null || def.sizes.length > 0 || def.name.toBeInlined || def.name.doNotInline || varDecl.isEverWrittenAfterDecl) continue;
+        if ((allReferences.get(varDecl) ?? 0) !== 1 || (outsideLoopReferences.get(varDecl) ?? 0) !== 1) continue;
+        const isConst = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init)).every((i) => this.isEffectivelyConst(i));
+        if (!isConst || !Effects.isPure(def.init)) continue;
+        trace(this.options, `${locToS(def.name.loc)}: inlining global variable '${Printer.debugDecl(def)}' because it's const and used only once`);
+        def.name.toBeInlined = true;
+      }
+    }
+  }
+
   markInlinableVariables(li: readonly TopLevel[]): void {
     this.markSafelyInlinableVariables(li);
     // "simple" inlining must come after "safe" inlining, because it must check that it's not going to inline a var already being inlined.
     this.markSimpleInlinableVariables(li);
+    if (this.options.inlineSingleUse) this.markSingleUseGlobals(li);
   }
 }
 
@@ -419,6 +463,26 @@ export class ArgumentInlining {
       for (const inl of argInlinings) {
         const name = inl.varDecl.ty.name;
         if (name.kind === "TypeName" && Builtin.isSamplerType(name.ident.name)) inl.varDecl.decl.name.toBeInlined = true;
+      }
+      // Port addition (--inline-single-use): an argument that is a read of a never-written
+      // global (a uniform, typically) is substituted into the body outright, rather than
+      // declared as a local first, when that is not longer: n uses of the global's name
+      // against a declaration plus n uses of a one-letter local.
+      if (this.options.inlineSingleUse) {
+        const uses = countReferences(this.options, [body]);
+        for (const inl of argInlinings) {
+          if (inl.func !== f) continue;
+          const r = resolvedVariableUse(inl.argExpr);
+          if (r === null) continue;
+          const n = uses.get(inl.varDecl) ?? 0;
+          const nameLen = r[0].name.length;
+          const tyName = inl.varDecl.ty.name;
+          const tyLen = tyName.kind === "TypeName" ? tyName.ident.name.length : 5;
+          if (n * nameLen <= tyLen + 4 + nameLen + n) {
+            trace(this.options, `${locToS(inl.varDecl.decl.name.loc)}: substituting '${r[0].name}' for argument '${Printer.debugDecl(inl.varDecl.decl)}' rather than declaring it`);
+            inl.varDecl.decl.name.toBeInlined = true;
+          }
+        }
       }
       // Handle argument inlining for f. Insert in front of the body a declaration for each inlined argument.
       const decls = argInlinings
