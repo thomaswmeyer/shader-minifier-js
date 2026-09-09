@@ -1,0 +1,7 @@
+shader-minifier-js
+A TypeScript port of Shader Minifier (https://github.com/laurentlb/Shader_Minifier)
+by Laurent Le Brun / Ctrl-Alt-Test, licensed under the Apache License 2.0.
+
+The golden test corpus under tests/ is taken from that project unchanged
+except as recorded in tests/DEVIATIONS.md; its license is in
+tests/LICENSE-shader-minifier.

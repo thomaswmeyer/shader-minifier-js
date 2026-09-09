@@ -1,4 +1,4 @@
-// Port addition (--fold-builtins): evaluate pure builtin calls whose arguments are all literals.
+// --fold-builtins: evaluate pure builtin calls whose arguments are all literals.
 // Upstream folds operators only. Results are computed at float32 precision, like the GPU would,
 // and printed with the shortest digits that round-trip through float32; a fold is only applied
 // when it makes the expression shorter (upstream's rule for constant division).

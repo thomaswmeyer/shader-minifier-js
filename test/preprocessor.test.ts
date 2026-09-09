@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { parse } from "@shaderfrog/glsl-parser";
 import { describe, expect, it } from "vitest";
+import { spglslShaders } from "../scripts/webgl-compile-page.js";
 import { minify } from "../src/api.js";
 import { expandMacros } from "../src/preprocessor.js";
 
@@ -49,7 +50,7 @@ describe("expandMacros", () => {
 });
 
 describe("--expand-macros on the spglsl corpus", () => {
-  const island = "/Users/tom.meyer/projects/spglsl/project/test/shaders/custom/island-not-found.frag";
+  const island = `${spglslShaders}/custom/island-not-found.frag`;
   it.skipIf(!fs.existsSync(island))("beats spglsl on island-not-found and stays valid", () => {
     const src = fs.readFileSync(island, "utf8");
     const { code } = minify(src, { noRemoveUnused: true, expandMacros: true });

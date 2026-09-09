@@ -1,4 +1,4 @@
-// Phase 4 gate: every minified output must be valid GLSL. Two independent checks per output:
+// Every minified output must be valid GLSL. Two independent checks per output:
 // our own parser must re-parse it (and re-print it unchanged), and @shaderfrog/glsl-parser
 // (a strict GLSL ES grammar) must accept it.
 import * as fs from "node:fs";

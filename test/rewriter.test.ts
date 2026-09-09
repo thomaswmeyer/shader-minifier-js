@@ -1,4 +1,4 @@
-// Pins the float constant-folding rule chosen in PLAN.md section 5.2.
+// The float constant-folding rule (PORTING.md 5.2) and the --webgl guards.
 import { describe, expect, it } from "vitest";
 import { defaultOptions, type Options } from "../src/options.js";
 import { runParser } from "../src/parser.js";

@@ -119,7 +119,7 @@ export function preprocess(_streamName: string, content: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Port addition (--expand-macros): expand #define like a C preprocessor would, so the macro names
+// --expand-macros: expand #define like a C preprocessor would, so the macro names
 // and their definitions disappear from the output. Upstream keeps macros verbatim on purpose.
 // Left alone: macros defined inside #if blocks, macros named in #if/#ifdef conditions, and
 // bodies using # or ## - those stay for the compiler's preprocessor.

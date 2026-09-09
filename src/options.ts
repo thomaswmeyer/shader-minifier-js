@@ -35,13 +35,14 @@ export interface Options {
   moveDeclarations: boolean;
   preprocess: boolean;
   exportKkpSymbolMaps: boolean;
-  /** Port addition: disable replacing pi-like literals with acos(-1.) etc. */
+  // Not in upstream Shader Minifier:
+  /** Keep pi-like literals instead of replacing them with acos(-1.) etc. */
   noPiSubstitution: boolean;
-  /** Port addition: only emit constructs WebGL accepts (no ?: on structs; no void calls in comma sequences). */
+  /** Only emit constructs WebGL accepts (no ?: on structs; no void calls in comma sequences). */
   webgl: boolean;
-  /** Port addition: expand #define macros before parsing instead of keeping them verbatim. */
+  /** Expand #define macros before parsing instead of keeping them verbatim. */
   expandMacros: boolean;
-  /** Port addition: fold pure builtin calls on literals (float32 precision, only when shorter). */
+  /** Fold pure builtin calls on literals (float32 precision, only when shorter). */
   foldBuiltins: boolean;
 }
 

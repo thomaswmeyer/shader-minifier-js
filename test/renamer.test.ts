@@ -1,4 +1,4 @@
-// Unit tests for the renamer primitives called out in PLAN.md section 5.
+// The renamer's ordering primitives (PORTING.md 5.3, 5.4, 5.6).
 import { describe, expect, it } from "vitest";
 import { defaultOptions } from "../src/options.js";
 import { runParser } from "../src/parser.js";

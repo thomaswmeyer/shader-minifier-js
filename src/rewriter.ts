@@ -62,7 +62,7 @@ function isKnownToBeScalar(e: Expr): boolean {
 }
 
 // Upstream folds Float constants with .NET decimal; rounding the double result to 15 significant
-// digits gives the same float32 in every case tried and keeps 1.1+2.2 printing as 3.3 (PLAN 5.2).
+// digits gives the same float32 in every case tried and keeps 1.1+2.2 printing as 3.3.
 const fold15 = (x: number): number => (Number.isFinite(x) ? Number(x.toPrecision(15)) : x);
 const decimalAdd = (a: number, b: number): number => fold15(a + b);
 const decimalSub = (a: number, b: number): number => fold15(a - b);
@@ -79,8 +79,8 @@ type Assignment = { name: IdentT; target: Expr | null; expr: Expr };
 const nonStructType: Type = makeType(Ast.TypeName(new Ident("float")), [], []);
 
 class RewriterImpl {
-  // --webgl support (port addition): what ANGLE rejects depends on struct-ness and void-ness, which
-  // upstream never tracks, so the declarations of the file are indexed once per pass.
+  // For --webgl: what ANGLE rejects depends on struct-ness and void-ness, which upstream never
+  // tracks, so the declarations of the file are indexed once per pass.
   private readonly structs = new Map<string, StructOrInterfaceBlock>();
   private readonly voidFunctions = new Set<string>();
   private readonly voidSequenceForbidden: boolean;

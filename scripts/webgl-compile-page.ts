@@ -6,7 +6,7 @@ import { Minifier } from "../src/api.js";
 import * as Printer from "../src/printer.js";
 import { loadCommands, repoRoot } from "../test/golden.js";
 
-export const spglslShaders = "/Users/tom.meyer/projects/spglsl/project/test/shaders";
+export const spglslShaders = process.env.SPGLSL_SHADERS ?? path.resolve(repoRoot, "../spglsl/project/test/shaders");
 
 // GLES 3.1 features (atomic counters, images, multiview...) are outside WebGL 1/2, the port's target.
 const outOfScope = /-(GLES3_1|WEBGL3)\.(frag|vert)$/;
@@ -15,6 +15,7 @@ const walk = (dir: string): string[] =>
   fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
 
 export function loadSpglslCorpus(): { name: string; source: string }[] {
+  if (!fs.existsSync(spglslShaders)) return [];
   return walk(spglslShaders)
     .filter((f) => /\.(frag|vert)$/.test(f) && !outOfScope.test(f))
     .sort()

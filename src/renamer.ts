@@ -413,7 +413,7 @@ function chooseIdent(contextTable: ContextTable, ident: number, candidates: read
   let bestScore = -10000;
   let bestWord = "";
   // For performance, consider at most 26 candidates.
-  // Upstream's Seq.take 26 throws when fewer than 26 candidates remain (PLAN 5.6).
+  // Upstream's Seq.take 26 throws when fewer than 26 candidates remain.
   if (candidates.length < 26) throw new Error("Not enough names available for renaming (fewer than 26 candidates left)");
   for (const word of candidates.slice(0, 26)) {
     const firstLetter = word.charCodeAt(0);
@@ -617,7 +617,7 @@ class RenamerImpl {
     // for analyzing the frequency of each letter in the shader.
     const exportedNames = this.assignUniqueIds(shaders);
 
-    // Port deviation (PLAN 5.2 #2): forbidden names are combined from all shaders, not only the first.
+    // Unlike upstream, forbidden names are combined from all shaders, not only the first.
     const forbiddenNames = new Set(shaders.flatMap((s) => s.forbiddenNames));
 
     // Then, compute the ordered list of variable names to use.

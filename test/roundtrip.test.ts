@@ -1,4 +1,4 @@
-// Phase 1 gate: parse -> print -> parse -> print must be a fixpoint for every shader in the corpus.
+// parse -> print -> parse -> print must be a fixpoint for every shader in the corpus.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";

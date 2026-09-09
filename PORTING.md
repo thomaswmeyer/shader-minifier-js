@@ -1,0 +1,248 @@
+# Porting notes
+
+How this port relates to upstream Shader Minifier (Ctrl-Alt-Test, F#, Apache
+2.0), what was changed on purpose, and where a naive port would silently
+diverge. Upstream: `~/projects/shader-minifier` @ `tests/UPSTREAM`
+(9653515, 2026-05-06), version 1.5.1.
+
+## 1. What is ported
+
+Upstream is 4,182 lines of F# in 12 modules. Pipeline per file:
+
+```
+preprocess (opt, --preprocess)
+  -> parse (own AST; forward decls dropped + flag reorderFunctions)
+  -> reorderFunctions (topological, only if forward decls were seen)
+  -> simplify:
+       processPragmas (#pragma function inline|noinline)
+       iterateSimplifyAndInline pass FIRST  (fixpoint on Printer.print, max 20)
+       iterateSimplifyAndInline pass SECOND (adds var-reuse)
+       cleanup (strip inlined decls/functions, squeeze + reorder TL decls)
+  -> rename (unless --no-renaming; done across all files at once)
+  -> format (text | indented | c-variables | c-array | js | nasm | rust | json)
+```
+
+Each iterate step: removeUnusedFunctions -> drop anonymous struct TypeDecls ->
+Analyzer.resolve -> Analyzer.markWrites -> mark inlinable functions/variables ->
+mapTopLevel(simplifyExpr, simplifyStmt) -> drop inlined functions ->
+ArgumentInlining.apply -> repeat while printed output changed.
+
+Renamer: (1) rename every identifier to a unique 4-digit id, (2) build the
+name list from letter frequency of the printed text, (3) rename again using a
+bigram context table with shadowing-based name reuse; multi-file mode keeps
+externals consistent across files.
+
+### Module map (1:1 with upstream)
+
+| upstream          | port                        | notes |
+|-------------------|-----------------------------|-------|
+| ast.fs            | src/ast.ts                  | types, `Ident` class, `VarDecl`/`FunDecl`, `MapEnv` visitor |
+| builtin.fs        | src/builtin.ts              | keyword/type/function sets, swizzles |
+| options.fs        | src/options.ts, src/cli.ts  | hand-written arg parser replacing Argu; flags match upstream exactly |
+| preprocessor.fs   | src/preprocessor.ts         | line-based; evaluates `#if 0/1`, `#ifdef` of known defines; plus `--expand-macros` |
+| parse.fs          | src/parser.ts               | recursive descent + precedence climbing replacing FParsec |
+| printer.fs        | src/printer.ts              | precedence-based paren insertion, `\0`/`\t` indent encoding, kkp `.sym` writer |
+| formatter.fs      | src/formatter.ts            | the 8 output formats |
+| analyzer.fs       | src/analyzer.ts             | VarVisitor, Effects, resolve, markWrites, findFuncInfos |
+| inlining.fs       | src/inlining.ts             | variable / function / argument inlining marks |
+| rewriter.fs       | src/rewriter.ts             | simplifyOperator, simplifyVec, simplifyBlock, var reuse, unused-assignment removal, cleanup; plus `--webgl` guards |
+| renamer.fs        | src/renamer.ts              | Env, RenamerVisitor, context-table naming, shadowing |
+| api.fs, main.fs   | src/api.ts, src/index.ts    | `Minifier` class, `minify()`, library entry |
+| Checker/main.fs   | test/golden.ts              | commands.txt runner |
+| —                 | src/fold-builtins.ts        | `--fold-builtins` |
+| —                 | src/vite.ts                 | Vite plugin |
+
+## 2. Own parser, not @shaderfrog/glsl-parser
+
+- Every pass pattern-matches on Shader Minifier's AST: operators are
+  `FunCall(Op "+", [a; b])`, parentheses are not stored, `i++` is `Op "$++"`,
+  declarations are `(Type, DeclElt list)`. The peggy AST is a different shape
+  with whitespace, parens and literal tokens preserved. Adapting means
+  rewriting every pass, not porting it, and the golden files would stop being
+  an oracle.
+- Shader Minifier's parser is deliberately lax: unknown text in `//[ ... //]`
+  verbatim blocks, `#define`/`#if` directives as statements, HLSL semantics,
+  casts, templates, attributes, `layout(...)` kept as an opaque string.
+  glsl-parser is a strict GLSL ES 1.00/3.00 grammar and rejects the HLSL tests
+  and several desktop GLSL inputs in `tests/real`.
+
+glsl-parser is used as an independent re-parse oracle in `test/reparse.test.ts`
+(every minified GLSL output must parse). Dev dependency only.
+
+## 3. Tests: the upstream corpus is the oracle
+
+Vendored into `tests/` (Apache 2.0, with upstream's LICENSE and a
+`tests/UPSTREAM` file holding the commit hash; `scripts/sync-tests.sh`
+re-copies and re-applies `tests/DEVIATIONS.md`).
+
+1. **Golden tests** (`test/golden.test.ts`). `tests/commands.txt` has 96
+   commands (8 HLSL). The runner ports `Checker/main.fs`: same quote-aware
+   `splitArgs`, run in-process with the arg array, read the `-o` target as
+   expected, normalise both with `cleanString` (CRLF -> LF, trim, strip
+   `\bShader Minifier \d(\.\d+)+`). The banner therefore reads
+   `Shader Minifier <numeric version>`. Also writes
+   `tests/out/<dir>/<name>.minind.<ext>` like upstream. `--update-golden`
+   regenerates.
+2. **Round-trip idempotence** (`test/roundtrip.test.ts`): for every
+   `tests/unit/*` and `tests/real/*` source, `print(parse(src))` parses again
+   and prints identically.
+3. **Re-parse validity** (`test/reparse.test.ts`), the port's equivalent of
+   upstream's glslang check (`tests/compile.txt`): every minified output
+   re-parses with our parser and is accepted by @shaderfrog/glsl-parser.
+   `npm run webgl-page` additionally compiles every corpus shader in Chrome.
+4. **spglsl corpus** (`test/spglsl-corpus.test.ts`, `../spglsl/project/test/shaders`
+   or `$SPGLSL_SHADERS`; skipped when absent): the WebGL 1/2 subset minifies,
+   re-parses, and a size table is written against spglsl's `#expected-size`
+   annotations.
+5. **Unit tests** for the primitives in section 5: float formatting, constant
+   folding, name-list ordering, precedence/parens, macro expansion, the Vite
+   plugin in a real build.
+
+Excluded: Crinkler compression tests (Windows DLL), the performance test.
+
+## 4. Language and tooling
+
+- TypeScript, ESM, Node >= 20, strict mode. No runtime dependency. Dev:
+  vitest, tsx, tsc, @shaderfrog/glsl-parser, vite.
+- `bin/shader-minifier` takes upstream's exact flags, so `commands.txt` runs
+  verbatim.
+- Library API: `minify(files, options)` and the `Minifier` class.
+- `src/vite.ts`: a Vite plugin with its own options mirroring the CLI flags
+  (not a drop-in for spglsl). Defaults to
+  `--webgl --preserve-externals --no-overloading --no-pi-substitution
+  --expand-macros --fold-builtins`.
+
+## 5. Porting pitfalls
+
+Principle: replicate .NET/F# behaviour only where a golden test observes it.
+Everywhere else use plain JavaScript semantics. Floats are JS doubles with a
+shortest-round-trip printer. Sorted iteration is used in the renamer because
+it fixes the expected identifier names; other maps stay insertion-ordered.
+HLSL support is kept (small); WebGL is the focus.
+
+### 5.1 Equality semantics
+F# uses structural equality on records/unions and reference identity where it
+says so. Every site is ported deliberately:
+- `ty1 = ty2` (Type, incl. Ident by `Name`) in squeezeDeclarations,
+  groupDeclarations (`Dictionary<Type,_>` key), reuseExistingVarDecl,
+  declsCanBeSqueezed -> `typeEquals`.
+- `declElt1.sizes = declElt2.sizes`, `semantics` -> `exprListEquals`.
+- `Set.contains t unused` on TopLevel, `inl.func = func` -> object identity
+  (nodes are the same instances, so it is equivalent).
+- `List.contains d.name` on Ident -> compare `.name`.
+- `LanguagePrimitives.PhysicalEquality` -> `===`.
+- `Printer.exprToS e1 = Printer.exprToS e2` -> string compare.
+
+### 5.2 Numbers
+- `Float`: JS double. Upstream's `floatToS` converts decimal -> double before
+  formatting, so a shortest-round-trip printer (fixed form vs exponent form,
+  pick the shorter, fixed wins ties, fixed limited to 16 fraction digits)
+  reproduces all 41 + 30 literals in `decimals.frag` and `float.frag`.
+  Constant folds are rounded to 15 significant digits so `1.1+2.2` prints
+  `3.3`; an exact .NET-decimal emulation passes the same goldens and only
+  differs on 16-digit results (e.g. `2.*3.141592653589793`), where both round
+  to the same float32.
+- `Int`: JS number with `Number.isSafeInteger` guard on folds (skip the fold
+  when unsafe). `/` truncates toward zero, `%` follows the dividend.
+  `useInts` int32 range check -> keep float.
+- Nonzero floats below ~5e-17 print as `0.` because the fixed form wins the
+  length contest, as upstream. The five `x(0.);` lines in
+  `decimals.frag.expected` stay.
+- Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int parse
+  first, else float; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
+  L h H.
+
+**Deliberate deviations from upstream:**
+
+1. *Literal range.* Upstream cannot parse float literals above ~7.9e28 (.NET
+   decimal overflow; `3e38`, `1e37`, `1e308` are commented out in
+   `decimals.frag`). The port accepts the full double range; the golden edit
+   is recorded in `tests/DEVIATIONS.md`.
+2. *Forbidden names across files.* Upstream builds the renamer's forbidden
+   list (macro names, struct names, `if`/`in`/`do`) from the first shader
+   only (`renamer.fs`, "TODO: combine from all shaders"). The port takes the
+   union over all input files. Invisible to the multi-file goldens.
+3. *Pi substitution flag.* Upstream replaces float literals that round to
+   pi, tau or pi/2 at 8 decimals with `acos(-1.)`, `2.*acos(-1.)`,
+   `acos(0.)`. Under mediump on mobile GPUs this can cost precision.
+   `--no-pi-substitution` disables it. Default stays on to match the goldens
+   (`pi.frag`, `decimals.frag`, `geometry.hlsl`); the Vite plugin turns it off.
+4. *Prefix sign spacing.* Upstream only guards binary `+`/`-` against
+   merging into `++`/`--` (`printer.fs:142`), so `-(--a)` prints as `---a`,
+   which is invalid. The port applies the same guard to prefix `+`/`-`
+   (`- --a`). `-(-a)` itself is always folded by the simplifier, so no
+   golden observes the difference.
+5. *`--webgl`.* Two upstream rewrites produce code ANGLE rejects (verified in
+   Chrome, WebGL 1 and 2): `if(c)return a;return b;` -> `return c?a:b;`
+   when the type is a struct (`ed-209`), and folding a void call into a comma
+   sequence (`endeavour`, ES 3.00 rule). `--webgl` skips both, using the
+   declarations of the file to tell struct-typed and void-returning
+   expressions apart (unknown counts as unsafe), and fails if the output
+   would still contain either. The sequence rule is applied regardless of
+   `#version`, because the header is usually prepended at runtime. Default
+   off so the goldens stay byte-identical.
+6. *`--expand-macros`.* Upstream keeps `#define` verbatim (they are demoscene
+   feature switches) and even forbids renaming macro names; spglsl runs
+   ANGLE's preprocessor first. On spglsl's `island-not-found` that is the
+   whole size gap: 14094 B vs spglsl's 12080 with macros kept, 11607 with
+   them expanded. The flag expands object- and function-like macros in file
+   order, leaving alone macros defined inside `#if` blocks, macros named in
+   conditions, `#`/`##` bodies, and macros whose expansion would grow the
+   output; kept macros transitively keep what they reference. Default off.
+7. *`--fold-builtins`.* Upstream folds operators on literals but not builtin
+   calls (`radians(45.)`, `sqrt(2.)`, `normalize(vec2(3.,4.))`); ANGLE's
+   `FoldExpressions` does, at float32. The flag evaluates pure builtins whose
+   arguments are all literals (component-wise on literal vector constructors,
+   plus `length`/`dot`/`distance`/`normalize`/`cross`) at float32 precision,
+   printing the shortest float32 round-trip digits, and only when the result
+   is shorter (upstream's rule for constant division, so `exp(1.)` stays).
+   Under the flag operator folds are rounded to float32 too, so
+   `1./tan(.5*radians(45.))` collapses to one literal. Known interaction: a
+   folded literal can make upstream's inliner copy a long literal into
+   several uses (`moutard.frag` grows 7 bytes); net over the corpus is
+   -250 bytes. Default off.
+
+### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
+- `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse
+  picks the alphabetically-first function name. Ported with sorted iteration.
+- `Map.partition` in shadowVariables, `Map.ofSeq` in json output (sorted keys),
+  `Seq.sort exportedNames` (record compare: prefix, name, newName), F# string
+  `<` is ordinal.
+- `computeListOfNames`: `List.sortBy count |> List.rev` is a stable ascending
+  sort then reverse, so equal-count letters come out in *reverse* alphabetical
+  order. Replicated exactly; it fixes every renamed identifier.
+- `List.distinct`, `List.except` keep first-occurrence order.
+
+### 5.4 Ident identity and mutation
+`Ident` is a mutable object: `Rename`, `Declaration`, `ToBeInlined`,
+`DoNotInline`, `isVarWrite`, `Loc`. The renamer renames by mutating the shared
+instance reached from all use sites; `inlineFn` creates fresh Idents for
+non-argument vars precisely because of this. Ported as a class; Idents are
+never copied in the visitor. Unique ids from pass 1 are printed as
+`String.fromCharCode(1000+n)` and the context table is built on that text
+with printable chars 32..127. Because those ids are Unicode letters, the
+printer's identifier test is Unicode-aware like `Char.IsLetterOrDigit`; an
+ASCII-only test changes the spacing, the bigram table, and every chosen name.
+
+### 5.5 Text/regex
+- `mangleToUnicode` uses .NET `\W` (Unicode-aware): JS needs
+  `/[^\p{L}\p{N}_]/gu`; `mangleToAscii` is `[^a-zA-Z_0-9]`. Exercised by
+  `file name with-weird caractères.frag`.
+- Printer indent encoding: `\0` = optional newline, `\t` = indent level;
+  `stripIndentation` removes both; formatter splits on `\0`. The ternary
+  emits `:` before the newline marker (`printer.fs:122`).
+- `keyword` = literal not followed by letter/digit/`_`, then whitespace.
+  Comments are whitespace, except `//[`...`//]` which is a verbatim node.
+- Parse errors are exceptions (`ParseError`) with position; the rewriter uses
+  `failwith` for inlining contradictions. Kept as thrown `Error`s.
+
+### 5.6 Behaviours kept even though they look odd
+- `Seq.take 26` in chooseIdent throws if fewer than 26 candidates remain;
+  guarded and pinned by a test.
+- The fixpoint loop stops after 20 passes with a trace.
+- `--aggressive-inlining` is ignored when `--no-inlining` is set.
+- `MINIFIER_DEBUG=yes` env: dropped (Windows-only user-store lookup); use `--debug`.
+- `Array.Parallel.map` becomes sequential (deterministic anyway).
+- The renamer's overload reuse can collide (`renamer.fs:293`, upstream's own
+  "bug, may cause conflicts"); `--no-overloading` avoids it, and the Vite
+  plugin sets it.

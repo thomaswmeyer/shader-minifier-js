@@ -1,4 +1,4 @@
-// Phase 5 gate: the plugin runs in a real vite build.
+// The plugin must work in a real vite build, not only through its hooks.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { build } from "vite";

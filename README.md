@@ -7,7 +7,7 @@ and demoscene shaders. Zero runtime dependencies, Node >= 20, ESM.
 The port tracks upstream version 1.5.1 module for module and is validated by
 upstream's own golden test corpus: all 96 commands in `tests/commands.txt`
 produce byte-identical output. Deliberate deviations are listed in
-`PLAN.md` section 5.2 and, where they touch a golden file, `tests/DEVIATIONS.md`.
+`PORTING.md` section 5.2 and, where they touch a golden file, `tests/DEVIATIONS.md`.
 
 ## CLI
 
@@ -81,4 +81,11 @@ npm run webgl-page       # writes tests/out/webgl-compile.html; open in Chrome t
 scripts/sync-tests.sh    # re-vendor tests/ from ../shader-minifier and re-apply tests/DEVIATIONS.md
 ```
 
-The test corpus in `tests/` is upstream's, under `tests/LICENSE-shader-minifier`.
+The spglsl corpus test and the WebGL page look for spglsl's shaders in
+`../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
+`PORTING.md` has the module map and the porting notes.
+
+## License
+
+Apache-2.0, like upstream; see `LICENSE` and `NOTICE`. The test corpus in
+`tests/` is upstream's, under `tests/LICENSE-shader-minifier`.

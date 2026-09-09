@@ -1,4 +1,4 @@
-// Pins the printer primitives called out in PLAN.md section 5: float formatting and paren insertion.
+// Float formatting and paren insertion (PORTING.md 5.2, 5.5).
 import { describe, expect, it } from "vitest";
 import { defaultOptions } from "../src/options.js";
 import { runParser } from "../src/parser.js";

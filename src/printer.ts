@@ -161,7 +161,7 @@ class PrinterImpl {
             // Unary operators. _++ is prefix and $++ is postfix
             if (op[0] === "$") return `${this.exprToSLevel(indent, prec(op), args[0])}${op.slice(1)}`;
             const e = this.exprToSLevel(indent, prec("_" + op), args[0]);
-            // Upstream only guards binary +/-; "-(--a)" would print as "---a". Port fix, see PLAN 5.2.
+            // Upstream only guards binary +/-, so "-(--a)" would print as "---a".
             return (op === "+" || op === "-") && e.startsWith(op) ? `${op} ${e}` : `${op}${e}`;
           }
           if (args.length === 2) {

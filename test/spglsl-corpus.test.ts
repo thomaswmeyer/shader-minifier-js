@@ -1,4 +1,4 @@
-// Phase 4: the spglsl shader corpus must minify, re-parse, and parse with an independent GLSL ES grammar.
+// The spglsl shader corpus must minify, re-parse, and parse with an independent GLSL ES grammar.
 import { parse } from "@shaderfrog/glsl-parser";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -23,7 +23,9 @@ interface Row { name: string; source: number; minified: number; gzip: number; sp
 const rows: Row[] = [];
 
 describe("spglsl corpus", () => {
-  for (const { name, source } of loadSpglslCorpus()) {
+  const corpus = loadSpglslCorpus();
+  if (corpus.length === 0) it.skip("spglsl corpus not found (../spglsl or $SPGLSL_SHADERS)", () => {});
+  for (const { name, source } of corpus) {
     it(name, () => {
       const reason = unsupportedInput[name];
       if (reason !== undefined) {
