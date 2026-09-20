@@ -62,6 +62,8 @@ export interface Options {
   removeUnusedDeclarations: boolean;
   /** Remove a varying no fragment shader of the run reads, and a fragment input nothing reads. Needs both stages in one run. */
   removeUnusedVaryings: boolean;
+  /** Remove a plain uniform no shader of the run reads. Needs both stages in one run; the application must tolerate a null location. */
+  removeUnusedUniforms: boolean;
 }
 
 export const helpTextMessage = `Shader Minifier ${version} - https://github.com/laurentlb/Shader_Minifier`;
@@ -95,6 +97,7 @@ export function defaultOptions(): Options {
     inlineSingleUse: false,
     removeUnusedDeclarations: false,
     removeUnusedVaryings: false,
+    removeUnusedUniforms: false,
   };
 }
 
@@ -136,6 +139,7 @@ const usage: [string, string][] = [
   ["--inline-single-use", "Inline a never-written global used once, and substitute a global passed as an always-identical argument when that is not longer (port addition)"],
   ["--remove-unused-declarations", "Remove unused globals (uniforms and other externals stay), unused struct types and precision statements for sampler types never declared (port addition)"],
   ["--remove-unused-varyings", "Remove a varying no fragment shader of the run reads, and a fragment input nothing reads; needs the vertex and fragment shader in one run (port addition)"],
+  ["--remove-unused-uniforms", "Remove a plain uniform no shader of the run reads; needs the vertex and fragment shader in one run, and the application must tolerate a null location (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
 ];
@@ -205,6 +209,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--inline-single-use": options.inlineSingleUse = true; break;
       case "--remove-unused-declarations": options.removeUnusedDeclarations = true; break;
       case "--remove-unused-varyings": options.removeUnusedVaryings = true; break;
+      case "--remove-unused-uniforms": options.removeUnusedUniforms = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);

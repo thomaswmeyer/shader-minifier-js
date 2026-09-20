@@ -7,7 +7,7 @@ import * as Options_ from "./options.js";
 import { runParser } from "./parser.js";
 import * as Printer from "./printer.js";
 import { rename } from "./renamer.js";
-import { removeUnusedVaryings, reorderFunctions, simplify, type StagedCode } from "./rewriter.js";
+import { removeUnusedUniforms, removeUnusedVaryings, reorderFunctions, simplify, type StagedCode } from "./rewriter.js";
 
 export type InputFile = [name: string, content: string];
 
@@ -26,9 +26,10 @@ export class Minifier {
     // Parsed first, all of them, because --remove-unused-varyings compares the stages against
     // each other before either is rewritten.
     const parsed = files.map(([filename, content]) => ({ filename, shader: runParser(options, filename, content) }));
-    if (options.removeUnusedVaryings) {
+    if (options.removeUnusedVaryings || options.removeUnusedUniforms) {
       const staged: StagedCode[] = parsed.map(({ filename, shader }) => ({ stage: options.stage ?? Options_.stageOfFilename(filename), code: shader.code }));
-      removeUnusedVaryings(options, staged);
+      if (options.removeUnusedVaryings) removeUnusedVaryings(options, staged);
+      if (options.removeUnusedUniforms) removeUnusedUniforms(options, staged);
       parsed.forEach(({ shader }, i) => { shader.code = staged[i].code; });
     }
     this.shaders = parsed.map(({ filename, shader }) => {

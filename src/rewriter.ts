@@ -1871,23 +1871,54 @@ export interface StagedCode { stage: Stage | null; code: TopLevel[] }
 // it, and any read of the varying by the vertex shader itself. The second is not hypothetical:
 // three.js writes `vDisplacementMapUv` and then samples the displacement map with it in the same
 // shader, so removing it on the strength of the fragment shader alone does not compile.
+const namesReadBy = (options: Options, code: readonly TopLevel[]): Set<string> => {
+  const analyzer = new Analyzer(options);
+  const used = new Set<string>();
+  for (const tl of code) {
+    if (tl.kind === "Function") for (const i of analyzer.identUsesInStmt(IdentKind.Var, tl.body)) used.add(i.name);
+    else if (tl.kind === "TLDecl") for (const d of tl.decl[1]) for (const e of [...d.sizes, ...(d.init === null ? [] : [d.init])]) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(e))) used.add(i.name);
+  }
+  return used;
+};
+const hasQualifier = (tl: TopLevel, qs: string[]): boolean => tl.kind === "TLDecl" && qs.some((q) => tl.decl[0].typeQ.includes(q));
+/** The text of a file the minifier cannot read: a name mentioned in it may be used there. */
+const opaqueText = (code: readonly TopLevel[]): string[] =>
+  code.flatMap((tl) => (tl.kind === "TLVerbatim" ? [tl.text] : tl.kind === "TLDirective" ? [tl.parts.join(" ")] : []));
+const namedInText = (texts: string[], name: string): boolean => texts.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+
+// --remove-unused-uniforms: a uniform no shader of the run reads. Opt-in and separate from the
+// varyings, because the risk is different: a varying is private to the program, but an application
+// looks a uniform up by name and may treat a null location as an error rather than a no-op. Like
+// the varyings it acts only when the run holds both stages, since a uniform this file ignores may
+// be the one its partner reads.
+//
+// Plain `uniform T name;` only. A uniform block is left alone: its members are looked up through
+// the block and removing one changes the layout the application uploads.
+export function removeUnusedUniforms(options: Options, files: StagedCode[]): void {
+  if (!files.some((f) => f.stage === "fragment") || !files.some((f) => f.stage === "vertex")) return;
+  const read = new Set<string>();
+  const texts: string[] = [];
+  for (const f of files) {
+    for (const n of namesReadBy(options, f.code)) read.add(n);
+    texts.push(...opaqueText(f.code));
+  }
+  for (const f of files) {
+    f.code = f.code.flatMap((tl) => {
+      if (!hasQualifier(tl, ["uniform"]) || tl.kind !== "TLDecl" || tl.decl[0].name.kind !== "TypeName") return [tl];
+      const keep = tl.decl[1].filter((d) => d.name.hiddenUses || read.has(d.name.name) || namedInText(texts, d.name.name));
+      if (keep.length === tl.decl[1].length) return [tl];
+      trace(options, "removing uniforms no shader of the run reads: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
+      return keep.length === 0 ? [] : [TLDecl([tl.decl[0], keep])];
+    });
+  }
+}
+
 export function removeUnusedVaryings(options: Options, files: StagedCode[]): void {
   const frags = files.filter((f) => f.stage === "fragment");
   const verts = files.filter((f) => f.stage === "vertex");
   if (frags.length === 0 || verts.length === 0) return;
-  const analyzer = new Analyzer(options);
-  const namesUsed = (code: readonly TopLevel[]): Set<string> => {
-    const used = new Set<string>();
-    for (const tl of code) {
-      if (tl.kind === "Function") for (const i of analyzer.identUsesInStmt(IdentKind.Var, tl.body)) used.add(i.name);
-      else if (tl.kind === "TLDecl") for (const d of tl.decl[1]) for (const e of [...d.sizes, ...(d.init === null ? [] : [d.init])]) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(e))) used.add(i.name);
-      else if (tl.kind === "TLVerbatim") used.add(tl.text); // opaque: matched loosely below
-    }
-    return used;
-  };
-  const hasQualifier = (tl: TopLevel, qs: string[]): boolean => tl.kind === "TLDecl" && qs.some((q) => tl.decl[0].typeQ.includes(q));
-  const verbatim = (code: readonly TopLevel[]): string[] => code.flatMap((tl) => (tl.kind === "TLVerbatim" ? [tl.text] : tl.kind === "TLDirective" ? [tl.parts.join(" ")] : []));
-  const namedInText = (texts: string[], name: string): boolean => texts.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+  const namesUsed = (code: readonly TopLevel[]): Set<string> => namesReadBy(options, code);
+  const verbatim = opaqueText;
 
   // A fragment input the shader never reads.
   const kept = new Set<string>();

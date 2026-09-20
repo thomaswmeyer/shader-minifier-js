@@ -26,6 +26,8 @@ export interface ShaderMinifierPluginOptions {
   removeUnusedDeclarations?: boolean;
   /** Remove varyings no fragment shader reads (`--remove-unused-varyings`); needs both stages in one run, so the plugin cannot use it and it defaults false. */
   removeUnusedVaryings?: boolean;
+  /** Remove uniforms no shader of the run reads (`--remove-unused-uniforms`); needs both stages, and the application must tolerate a null location. Default false. */
+  removeUnusedUniforms?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
@@ -65,6 +67,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     inlineSingleUse: o.inlineSingleUse ?? true,
     removeUnusedDeclarations: o.removeUnusedDeclarations ?? true,
     removeUnusedVaryings: o.removeUnusedVaryings ?? false,
+    removeUnusedUniforms: o.removeUnusedUniforms ?? false,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

@@ -113,6 +113,14 @@ file pattern, and `options` passes any raw minifier option.
   back, or whose value has an effect, stays. Unlike the other removals this
   one should change what the GPU does, since a varying costs an interpolator
   slot and the vertex work behind it whatever the driver can prove.
+- `--remove-unused-uniforms`: remove a plain uniform no shader of the run
+  reads. Like the varyings it needs both stages together, since a uniform one
+  file ignores may be the one its partner reads, and a uniform block is left
+  alone because its members are looked up through the block. Opt-in and off
+  by default: an application looks a uniform up by name and may treat a null
+  location as an error rather than a no-op. Worth 2.9% of the three.js
+  programs and 4.0% of the PlayCanvas ones raw, and slightly *more* bytes
+  after compression, since what it removes is text those programs shared.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader. Upstream rules that could

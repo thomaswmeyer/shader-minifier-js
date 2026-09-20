@@ -332,7 +332,24 @@ uniforms (section 7) over macro extraction or rerolling.
   becomes dead), which is `removeUnusedDeclarations` plus a cross-file set
   of names. Worth measuring against three.js, whose chunks write
   `vViewPosition` and friends into every material.
-- **Unused uniforms.** What ANGLE still drops and the port keeps, since the
+- **Unused uniforms: done.** `--remove-unused-uniforms` (`PORTING.md` item
+  30) removes a plain uniform no shader of the run reads, under the same
+  both-stages gate as the varyings. Measured over the engine pairs:
+
+  | corpus | raw | compressed |
+  |---|--:|--:|
+  | three.js | -3,890 (2.9%) | +53 |
+  | PlayCanvas | -1,941 (4.0%) | +66 |
+  | Babylon.js | -25 | +14 |
+
+  The third time the compressed column has changed a verdict, and the most
+  interesting of the three: the raw win is the largest of any optimisation
+  here, and it still costs bytes on the wire. Each program's dead uniforms
+  are a different subset, so removing them desynchronises programs that were
+  compressing against each other. Worth having for a shader shipped alone,
+  or for the raw comparison against ANGLE; not for a bundle.
+
+- **Unused uniforms, the original note.** What ANGLE still drops and the port keeps, since the
   application looks uniforms up by name. Opt-in only, for applications that
   tolerate a null location (three.js does). Same machinery as the varyings
   once the cross-file name set exists.

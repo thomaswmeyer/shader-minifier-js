@@ -85,7 +85,7 @@ describe("open source shader corpus renders the same", () => {
 // the flag that needs both halves and whose mistakes are exactly what this test can see.
 describe("engine programs link and draw the same after minification", () => {
   const flat = (px: number[]): boolean => px.every((v, i) => v === px[i % 4]);
-  const pairVariants: [string, Partial<Options>][] = [["plugin", {}], ["plugin +remove-unused-varyings", { removeUnusedVaryings: true }]];
+  const pairVariants: [string, Partial<Options>][] = [["plugin", {}], ["plugin +remove-unused varyings and uniforms", { removeUnusedVaryings: true, removeUnusedUniforms: true }]];
   const allPrograms = [...programs(threeShaders()).map((p) => ({ ...p, corpus: "three" })), ...programs(babylonShaders()).map((p) => ({ ...p, corpus: "babylon" })), ...programs(playcanvasShaders()).map((p) => ({ ...p, corpus: "playcanvas" }))];
   for (const { corpus, name, vert, frag } of allPrograms) for (const [label, extra] of pairVariants) {
     it(`${corpus}/${name} [${label}]`, async (ctx) => {

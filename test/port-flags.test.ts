@@ -311,6 +311,37 @@ describe("--remove-unused-varyings", () => {
   });
 });
 
+describe("--remove-unused-uniforms", () => {
+  const vert = "uniform mat4 mvp;uniform float vertOnly;uniform float both;uniform float deadEverywhere;in vec3 p;out float v;void main(){v=vertOnly*both;gl_Position=mvp*vec4(p,1);}";
+  const frag = "uniform float fragOnly;uniform float both;uniform float deadEverywhere;in float v;out vec4 o;void main(){o=vec4(v*fragOnly*both);}";
+  const run = (files: [string, string][], extra: Partial<Options> = {}): string[] => {
+    const o = { ...defaultOptions(), noRenaming: true, noInlining: true, ...extra };
+    return new Minifier(o, files).shaders.map((s) => Printer.print(s.code));
+  };
+  it("is off by default", () => {
+    expect(run([["a.vert", vert], ["a.frag", frag]])[0]).toContain("deadEverywhere");
+  });
+  it("removes a uniform no shader of the run reads, from every shader that declares it", () => {
+    const [v, f] = run([["a.vert", vert], ["a.frag", frag]], { removeUnusedUniforms: true });
+    expect(v).toBe("uniform mat4 mvp;uniform float vertOnly,both;in vec3 p;out float v;void main(){v=vertOnly*both;gl_Position=mvp*vec4(p,1);}");
+    expect(f).toBe("uniform float fragOnly,both;in float v;out vec4 o;void main(){o=vec4(v*fragOnly*both);}");
+  });
+  it("keeps a uniform the other stage reads", () => {
+    // `fragOnly` is dead in the vertex shader but alive in its partner, so the program needs it.
+    const v2 = "uniform float fragOnly;in vec3 p;void main(){gl_Position=vec4(p,1);}";
+    const [, f] = run([["a.vert", v2], ["a.frag", frag]], { removeUnusedUniforms: true });
+    expect(f).toContain("fragOnly");
+  });
+  it("leaves a uniform block alone, since its members are looked up through the block", () => {
+    const v3 = "uniform Light0{vec4 unreadHere;}light0;in vec3 p;void main(){gl_Position=vec4(p,1);}";
+    const [v] = run([["a.vert", v3], ["a.frag", frag]], { removeUnusedUniforms: true });
+    expect(v).toContain("unreadHere");
+  });
+  it("does nothing without both stages in the run", () => {
+    expect(run([["a.vert", vert]], { removeUnusedUniforms: true })[0]).toContain("deadEverywhere");
+  });
+});
+
 describe("--webgl across files", () => {
   it("treats a struct declared in another file as unknown, so the rewrites stay conservative", () => {
     const a = "struct S{float d;};";

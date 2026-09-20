@@ -463,7 +463,16 @@ says so. Every site is ported deliberately:
     of the name, and `Analyzer.checkScopes` gained a rule for finished code:
     every use must have a declaration in scope.
 
-29. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+29. *Unused uniforms.* `--remove-unused-uniforms` removes a plain
+    `uniform T name;` that no shader of the run reads, from every shader
+    that declares it. Upstream keeps every uniform, since it minifies one
+    file at a time and cannot know. Gated on both stages being present, for
+    the same reason as the varyings, and confined to plain declarations: a
+    uniform block's members are looked up through the block and removing one
+    changes the layout the application uploads. Off by default, because an
+    application may treat the null location it then gets as an error.
+
+30. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -499,7 +508,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 29, `test/port-flags.test.ts`).
+  (item 30, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.
