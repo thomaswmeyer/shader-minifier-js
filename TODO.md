@@ -343,6 +343,18 @@ optimisations most likely to still pay are the ones that remove *unique*
 text rather than repeated text, which is an argument for unused varyings and
 uniforms (section 7) over macro extraction or rerolling.
 
+`npm run metrics` reports gzip -9 beside brotli -q 11, because the two
+disagree about how much redundancy there is to find: brotli's window spans a
+whole corpus, gzip's 32 KB window does not, so three.js source is 23 KB under
+one and 196 KB under the other. Every verdict recorded here was re-checked
+under gzip and none of them moved, which is the useful part. Unused uniforms
+still costs bytes compressed under both codecs (three.js +53 brotli, +24
+gzip; PlayCanvas +66 and +220), and pi substitution is still worth about 30
+bytes under both. What does change is the presentation: compressing a corpus
+as one blob is the compressor's best case, since it assumes every shader sits
+beside its near-twin, so treat brotli-on-a-blob as the lower bound on what
+minification is worth.
+
 ## 7. Optimizations not done yet
 
 - **Unused varyings: done, and small on three.js.**

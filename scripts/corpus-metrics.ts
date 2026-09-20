@@ -71,14 +71,19 @@ const pct = (a: number, b: number): string => (b === 0 ? "" : `${(100 * (b - a) 
 // the number that matters is the compression of their concatenation, not the sum of compressing
 // each alone. It also counts what the shaders share, which is most of an engine's chunk text.
 // Brotli at quality 11 is what a CDN serves a static asset with.
+// Brotli at quality 11 is what a CDN serves a static asset with; gzip -9 is what an older server
+// or a proxy without brotli gives. The two disagree here, and the reason is the window: gzip looks
+// back 32 KB, brotli much further, so gzip cannot compress one shader against another once a
+// corpus is bigger than its window. Any claim about "compressed size" has to say which.
 const brotli = (parts: string[]): number =>
   zlib.brotliCompressSync(Buffer.from(parts.join("\n"), "utf8"), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
+const gzip = (parts: string[]): number => zlib.gzipSync(Buffer.from(parts.join("\n"), "utf8"), { level: 9 }).length;
 const rows: string[] = [];
 rows.push(`| corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |`);
 rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|`);
-const compressed: string[] = [];
-compressed.push(`| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |`);
-compressed.push(`|---|--:|--:|--:|--:|--:|--:|`);
+const header = `| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|`;
+const compressed: string[] = [header];
+const compressedGz: string[] = [header];
 const largest: string[] = [];
 for (const corpus of corpora) {
   let source = 0, up = 0, pl = 0, sp = 0, spSource = 0, upSource = 0, plSource = 0, refusedUp = 0, refusedPl = 0, refusedSp = 0;
@@ -93,9 +98,11 @@ for (const corpus of corpora) {
     if (a === null) refusedSp++; else { sp += a.length; spSource += s.source.length; texts.sp.push(a); }
     perShader.push([s.name, s.source.length, u === null ? null : u.length, p === null ? null : p.length, a === null ? null : a.length]);
   }
-  const brSource = brotli(texts.source), brUp = brotli(texts.up), brPl = brotli(texts.pl);
-  const brSp = spglsl === null ? null : brotli(texts.sp);
-  compressed.push(`| ${corpus.name} | ${brSource.toLocaleString("en")} | ${brUp.toLocaleString("en")} | ${brPl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(brPl, brUp) : ""} | ${brSp === null ? "n/a" : brSp.toLocaleString("en")} | ${brSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(brPl, brSp) : ""} |`);
+  for (const [rows, z] of [[compressed, brotli], [compressedGz, gzip]] as [string[], (p: string[]) => number][]) {
+    const cSource = z(texts.source), cUp = z(texts.up), cPl = z(texts.pl);
+    const cSp = spglsl === null ? null : z(texts.sp);
+    rows.push(`| ${corpus.name} | ${cSource.toLocaleString("en")} | ${cUp.toLocaleString("en")} | ${cPl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(cPl, cUp) : ""} | ${cSp === null ? "n/a" : cSp.toLocaleString("en")} | ${cSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(cPl, cSp) : ""} |`);
+  }
   const note = (n: number) => (n > 0 ? ` (${n} refused)` : "");
   rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${up.toLocaleString("en")}${note(refusedUp)} | ${pl.toLocaleString("en")}${note(refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${spglsl === null ? "n/a" : sp.toLocaleString("en") + note(refusedSp)} | ${spglsl !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(pl, sp) : ""} |`);
   perShader.sort((x, y) => y[1] - x[1]);
@@ -104,6 +111,8 @@ for (const corpus of corpora) {
 console.log(rows.join("\n"));
 console.log("\nAfter brotli -q 11, each corpus compressed as one bundle:\n");
 console.log(compressed.join("\n"));
+console.log("\nAfter gzip -9, the same:\n");
+console.log(compressedGz.join("\n"));
 console.log("\nLargest shaders of each corpus:\n");
 console.log("| shader | source | upstream rewrites | plugin defaults | spglsl |\n|---|--:|--:|--:|--:|");
 console.log(largest.join("\n"));

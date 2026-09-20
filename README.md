@@ -256,8 +256,11 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | PlayCanvas | 20 | 191,012 | 36,026 (5 refused) | 48,662 | | 60,037 | 18.9% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
-Shaders ship compressed, so the same corpora compressed as one bundle each
-(brotli at quality 11, which is what a CDN serves a static asset with):
+Shaders ship compressed, so the same corpora compressed as one bundle each,
+under brotli at quality 11 (what a CDN serves a static asset with) and gzip
+at level 9 (an older server, or a proxy without brotli):
+
+**brotli -q 11**
 
 | corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
@@ -268,31 +271,33 @@ Shaders ship compressed, so the same corpora compressed as one bundle each
 | PlayCanvas | 8,444 | 1,886 (5 refused) | 5,278 | | 5,254 | -0.5% |
 | upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
 
-The second table is the one to believe, and it says two things. Minifying is
-still worth roughly half the bytes on the wire (three.js 22,926 to 12,760,
-shadertoy 25,952 to 14,000), and the order of the three minifiers does not
-change under compression, so none of the choices here are ones the
-compressor would have made for free. But the raw numbers overstate the
-margins about twofold wherever a corpus repeats itself: three.js source is
-1.3 MB raw and 23 KB compressed, a 58-fold ratio, because its 56 programs
-are assembled from the same chunks, and the plugin's 39.8% raw win over
-upstream's rewrites is 16.0% once the compressor has had its turn. Read the
-raw table for what a single shader embedded in a bundle costs, and the
-compressed one for what a user downloads.
+**gzip -9**
 
-Three things the raw table says. The plugin's additions are worth 2 to 3% on
-hand-written shaders and 41% on three.js, where `--expand-macros` and
-`--preprocess` fold away the chunk machinery and
-`--remove-unused-declarations` the sampler precision statements, packing
-constants and light structs the chunks leave behind. ANGLE was ahead on
-three.js by 6.5% before that flag; what it still drops and the minifier
-keeps for the application's sake is unused uniforms. Roughly 5,700 bytes of
-the three.js total are the struct type names and interface block fields the
-port keeps so that a vertex and a fragment shader minified separately still
-link (`PORTING.md` item 22); every three.js pair is linked in the test suite.
-And one shader,
-gl-transitions' InvertedPageCurl, comes out 58 bytes larger under the plugin
-than under upstream's rewrites, which `TODO.md` lists to investigate.
+| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|
+| tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,213 | 4.7% |
+| gl-transitions | 35,330 | 16,518 | 16,109 | 2.5% | 17,470 | 7.8% |
+| three.js | 196,245 | 21,310 | 17,050 | 20.0% | 19,536 | 12.7% |
+| Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 8,901 | 11.3% |
+| PlayCanvas | 24,421 | 2,298 (5 refused) | 7,072 | | 7,276 | 2.8% |
+| upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 11,962 | |
+
+Three things these say. The order of the three minifiers never changes, under
+either codec, so none of the choices here are ones a compressor would have
+made for free. The plugin's margin is consistently *larger* under gzip, 20.0%
+against 16.0% on three.js and 12.7% against 6.9% versus ANGLE, so brotli's
+numbers are the conservative ones. And the two codecs disagree wildly about
+the *source*: three.js is 23 KB under brotli and 196 KB under gzip, an
+eight-fold gap, because brotli's window spans the whole corpus and sees 56
+near-identical programs where gzip's 32 KB window cannot.
+
+That gap is what to hold on to when reading any compressed number here.
+Compressing a corpus as one blob is the compressor's best case: it assumes
+every shader sits next to its near-twin. A real bundle spreads them through
+hundreds of kilobytes of JavaScript, where even brotli will not have them in
+view of each other. So the brotli column is a lower bound on what
+minification is worth, the raw column an upper bound, and any given site
+lands between them.
 
 ### Reproducing the comparison
 
