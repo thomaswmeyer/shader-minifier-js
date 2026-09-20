@@ -143,7 +143,7 @@ sources against 3.2 ms minified, about 60%. `--remove-unused-declarations`
 accounts for none of it on its own (3.0 ms without it, inside the noise).
 
 
-- **three.js: now 12.5% below ANGLE**, after `--remove-unused-declarations`
+- **three.js: now 8.5% below ANGLE**, after `--remove-unused-declarations`
   (PORTING.md item 21) took out the sampler precision statements, packing
   constants and light structs the chunks left behind; before it ANGLE was
   6.5% ahead. What remains on ANGLE's side: it drops unused uniforms, which
@@ -156,6 +156,18 @@ accounts for none of it on its own (3.0 ms without it, inside the noise).
   it saves there; bisect by flag.
 - **Two shadertoy shaders spglsl refuses** (ed-209's struct ternary, and one
   more) keep that column's total from comparing; list them per shader.
+
+## 6b. Two `--preprocess` gaps
+
+Both make a condition undecidable that the file actually decides, so the
+chunk machinery stays in the output:
+
+- **A comment after a define's value.** `#define N 1 // count` then `#if N`:
+  the value is read with `/^\s*(\d+)[uU]?\s*$/`, which a trailing `//`
+  comment fails, so `N` has no integer value and the whole conditional is
+  kept. Engine shaders comment their defines. Strip a trailing comment when
+  reading the value.
+- **Hex literals.** `#define N 0x10` is not read as 16, for the same reason.
 
 ## 7. Optimizations not done yet
 
