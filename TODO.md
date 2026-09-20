@@ -176,8 +176,20 @@ conditional standing where one expression does, and they are what is left:
    `test/preprocessor.test.ts` rewritten to reach the parser, and round-trip
    idempotence for the new node.
 
-Until then `--preprocess` is the way; item 16 of `PORTING.md` lists what it
-now decides.
+Until then `--preprocess` is the way, but it has a gap of its own worth
+fixing first. It reads a macro the file does not define as 0, as C does,
+while the GL compiler predefines several that shaders branch on. Cesium's
+`#ifdef GL_FRAGMENT_PRECISION_HIGH` therefore takes the `#else` and the whole
+shader drops from `highp` to `mediump`; four of the 32 Cesium shaders render
+wrong under `--preprocess` for this reason alone. `__VERSION__` (300 for
+`#version 300 es`) and `GL_ES` are knowable from the source and should be
+predefined. The extension macros (`GL_EXT_frag_depth`,
+`GL_OES_standard_derivatives`) are not: whether they are defined depends on
+the device, so guessing 0 is as wrong as guessing 1, and the honest answer is
+to leave a conditional that reads one unevaluated rather than fold it either
+way. `GL_FRAGMENT_PRECISION_HIGH` sits in between — always defined in
+practice for ES 3.0 fragment shaders — so it wants a flag rather than a
+guess. Item 16 of `PORTING.md` lists what `--preprocess` now decides.
 
 **Refinement left over from the statement-level work.** A declaration inside
 `#if`/`#else` is never inlined, because the minifier does not know which

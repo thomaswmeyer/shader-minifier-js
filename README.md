@@ -338,12 +338,22 @@ program against another rather than anything inside a program. That is what
 makes them excellent for finding bugs and poor for judging size.
 
 CesiumJS is the one corpus where ANGLE's minifier is far ahead (spglsl is
-40% smaller per shader). That is not a rewrite this port is missing: Cesium's
-shaders carry their `#define`s inside, so spglsl evaluates the conditionals
-and drops every branch that is not taken, while the plugin keeps them all
-because the same source is compiled with different defines. `--preprocess`
-would close most of the gap for a shader whose defines are fixed at build
-time.
+40% smaller per shader). None of that is a rewrite this port is missing.
+Cesium's shaders carry their `#define`s inside, so spglsl, being a compiler
+front end, evaluates the conditionals and drops every branch not taken; the
+plugin keeps them all, because in general the defines arrive at runtime and
+one minified file has to serve every variant. Minifying this corpus with
+`--preprocess`, which is the comparable thing to do since these shaders are
+the final source the engine handed the driver, gives 41,236 bytes against
+spglsl's 43,750 — 5.7% smaller, not 62% larger.
+
+That is a measurement, not a recommendation: `--preprocess` currently renders
+4 of the 32 Cesium shaders wrong, because it reads a macro the file does not
+define as 0, as C does. The GL compiler predefines several, and Cesium
+branches on them: `#ifdef GL_FRAGMENT_PRECISION_HIGH` takes the `#else`, so
+the whole shader drops from `highp` to `mediump` and every pixel differs.
+`__VERSION__ == 300`, `GL_EXT_frag_depth` and `GL_OES_standard_derivatives`
+are the same class. TODO.md item 1 covers it.
 
 ### Reproducing the comparison
 
