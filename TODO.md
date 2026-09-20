@@ -3,6 +3,27 @@
 What is known to be missing or limited, with the plan for each. `PORTING.md`
 section 5.2 records what has been changed and why; this file is what has not.
 
+## 0. Known bug: a struct type shared by two stages is renamed apart
+
+GL requires the *type name* of a struct-typed uniform or varying to match
+between the vertex and the fragment shader. `--preserve-externals` keeps the
+uniform's own name and its field names (`PORTING.md` item 17) but renames the
+struct type, and each file is minified on its own, so the two halves get
+different names and the program fails to link:
+
+    Structure names of uniform 'directionalLightShadows' differ between VERTEX and FRAGMENT
+
+Eleven of the twenty-eight three.js programs fail this way under the plugin's
+defaults (every lit material). A multi-file run does not help: the two files
+still get different generated names. Nothing catches it because the pixel test
+runs each shader against a generated partner, never a real pair (section 3).
+
+The fix is the same rule that already covers the fields: a struct type named
+in an external declaration keeps its name under `--preserve-externals`. Cost
+is a few bytes per program. The test that would have caught it is the vertex
+and fragment pair of section 3; a cheaper one is to link each corpus pair in
+the harness and assert the link succeeds.
+
 ## 1. Directives inside expressions (a fuller parser)
 
 Engine shaders put `#if` blocks inside argument lists, parameter lists and
@@ -112,7 +133,17 @@ fragment-only comparison already is the real pair.
 - The upstream candidates of `PORTING.md`, filed upstream with their
   reproducing shaders.
 
-## 6. Size, from `npm run metrics`
+## 6. Size and speed, from `npm run metrics`
+
+Compile time, measured in headless Chromium (ANGLE on SwiftShader) over the
+six largest three.js fragment shaders, median of 25 compiles each: 8.1 ms for
+the sources, 3.2 ms minified, so minifying is worth about 60% of compile time.
+`--remove-unused-declarations` accounts for none of that on its own (3.0 ms
+without it, inside the noise at this resolution), and it cannot speed up a
+*running* shader: a driver already eliminates code nothing reaches, which is
+why the pass buys bytes and nothing else. Unused varyings (section 7) are the
+case where removal should show up at runtime, and are unmeasured.
+
 
 - **three.js: now 12.5% below ANGLE**, after `--remove-unused-declarations`
   (PORTING.md item 21) took out the sampler precision statements, packing
@@ -127,3 +158,55 @@ fragment-only comparison already is the real pair.
   it saves there; bisect by flag.
 - **Two shadertoy shaders spglsl refuses** (ed-209's struct ternary, and one
   more) keep that column's total from comparing; list them per shader.
+
+## 7. Optimizations not done yet
+
+- **Unused varyings.** The one removal below with a plausible runtime effect.
+  A varying an engine's vertex shader writes but the
+  fragment shader never reads costs an interpolator slot, the vertex work
+  that computes it, and the per-fragment interpolation, none of which a
+  driver can remove while the declaration matches across the two stages.
+  It is also the only one that needs both halves of a program at once: the minifier
+  sees one file at a time, so it needs the pair (section 3) or an explicit
+  list of varyings to keep. In the plugin the pair is known when a `.vert`
+  and a `.frag` are imported together; on the CLI it is the multi-file run.
+  Removing a varying means removing its declaration in both shaders and,
+  in the vertex shader, the assignments that feed it (and anything that then
+  becomes dead), which is `removeUnusedDeclarations` plus a cross-file set
+  of names. Worth measuring against three.js, whose chunks write
+  `vViewPosition` and friends into every material.
+- **Unused uniforms.** What ANGLE still drops and the port keeps, since the
+  application looks uniforms up by name. Opt-in only, for applications that
+  tolerate a null location (three.js does). Same machinery as the varyings
+  once the cross-file name set exists.
+- **Redundant precision qualifiers.** `highp` on a declaration where the
+  default precision for that type is already `highp`. ANGLE drops these;
+  `dropDefaultPrecision` only handles the `precision` statements themselves.
+
+## 8. Flag surface
+
+The port's flags grew one per discovery and are all off in the CLI so the
+goldens stay byte-identical, which is why reproducing the plugin's output
+from the command line takes nine of them. What that should become:
+
+- **`-O0` to `-O3`, or a `--webgl-preset`.** One flag that sets a coherent
+  group: `-O0` upstream's rewrites only (what the goldens pin), `-O1` the
+  safe port additions, `-O2` the plugin's current defaults, `-O3` the
+  lossy ones a shader must be checked for. Individual flags stay, applied
+  after the level, so `-O2 --no-fold-builtins` works.
+- **Split `--fold-builtins`.** It carries two unrelated things: evaluating
+  builtin calls on literals (a size optimization) and doing the operator
+  folds at float32 precision instead of upstream's decimal arithmetic (a
+  correctness property). The second should be its own flag, or the default,
+  since a minifier that shifts a float32 value is wrong for everyone; the
+  cost is a handful of recorded golden deviations.
+- **Level, not boolean, for inlining and for unused removal.**
+  `--inline-single-use` is a middle rung between upstream's default and
+  `--aggressive-inlining`, and it also carries a second rewrite (argument
+  substitution) the name does not mention. `--no-remove-unused` and
+  `--remove-unused-declarations` are three levels (none, functions, all)
+  spelled as two booleans that can contradict each other.
+- **`--no-pi-substitution` may not need to exist.** Upstream matches a
+  literal rounded to eight decimals, so it can move a float32 value. Firing
+  only when the literal's float32 value equals float32 pi would be exact,
+  and the flag could go.

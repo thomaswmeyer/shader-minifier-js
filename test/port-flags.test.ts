@@ -215,6 +215,13 @@ describe("--remove-unused-declarations", () => {
     expect(minify("struct S{float a;};S make(){return S(1.);}void main(){gl_FragColor=vec4(make().a);}", flag)).toContain("struct S{float a;};S make()");
     expect(minify("struct S{float a;};void main(){gl_FragColor=vec4(S(1.).a);}", flag)).toContain("struct S{float a;};");
   });
+  it("keeps a global an array size names, in a struct member, a parameter or a global", () => {
+    expect(minify("const int N=2;struct S{float a[N];};uniform S u;void main(){gl_FragColor=vec4(u.a[0]);}", flag)).toContain("const int N=2;");
+    expect(minify("const int N=2;float f(float a[N]){return a[0];}uniform float q[2];void main(){gl_FragColor=vec4(f(q));}", flag)).toContain("const int N=2;");
+    expect(minify("const int N=2;float g[N];void main(){g[0]=1.;gl_FragColor=vec4(g[0]);}", flag)).toContain("const int N=2;");
+    // once the array itself goes, its size is unused too
+    expect(minify("const int N=2;float h[N];void main(){gl_FragColor=vec4(0);}", flag)).toBe("void main(){gl_FragColor=vec4(0);}");
+  });
   it("removes a struct once its only global went", () => {
     expect(minify("struct S{float a;};S s;void main(){gl_FragColor=vec4(0);}", flag)).toBe("void main(){gl_FragColor=vec4(0);}");
   });

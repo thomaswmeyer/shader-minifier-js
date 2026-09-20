@@ -1387,22 +1387,29 @@ class RewriterImpl {
     const analyzer = new Analyzer(options);
     const used = new Set<string>();
     const usedTypes = new Set<string>();
-    const typeName = (ty: Type): void => { if (ty.name.kind === "TypeName") usedTypes.add(ty.name.ident.name); else members(ty.name.block); };
+    // Everything a declaration names: its type, the types inside it, and the variables its array
+    // sizes and initializer read. An array size is a reference like any other (`float a[N];`).
+    const exprVars = (e: Expr): void => { for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(e))) used.add(i.name); };
+    const typeName = (ty: Type): void => {
+      if (ty.name.kind === "TypeName") usedTypes.add(ty.name.ident.name); else members(ty.name.block);
+      for (const s of ty.arraySizes) exprVars(s);
+    };
+    const declUses = (d: Decl): void => {
+      typeName(d[0]);
+      for (const elt of d[1]) { for (const s of elt.sizes) exprVars(s); if (elt.init !== null) exprVars(elt.init); }
+    };
     const members = (block: StructOrInterfaceBlock): void => {
-      for (const m of block.members) { if (m.kind === "MemberVariable") typeName(m.decl[0]); else { typeName(m.funcType.retType); for (const a of m.funcType.args) typeName(a[0]); } }
+      for (const m of block.members) { if (m.kind === "MemberVariable") declUses(m.decl); else { typeName(m.funcType.retType); for (const a of m.funcType.args) declUses(a); } }
     };
     const verbatim: string[] = [];
     for (const tl of code) {
       switch (tl.kind) {
         case "Function":
           typeName(tl.funcType.retType);
-          for (const a of tl.funcType.args) typeName(a[0]);
+          for (const a of tl.funcType.args) declUses(a);
           for (const i of analyzer.identUsesInStmt(IdentKind.Var | IdentKind.Type, tl.body)) used.add(i.name);
           break;
-        case "TLDecl":
-          typeName(tl.decl[0]);
-          for (const d of tl.decl[1]) { if (d.init !== null) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(d.init))) used.add(i.name); for (const s of d.sizes) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(s))) used.add(i.name); }
-          break;
+        case "TLDecl": declUses(tl.decl); break;
         case "TypeDecl": members(tl.block); break;
         case "TLVerbatim": verbatim.push(tl.text); break;
         case "TLDirective": verbatim.push(tl.parts.join(" ")); break;
