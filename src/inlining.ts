@@ -523,7 +523,7 @@ export class ArgumentInlining {
         };
         Ast.visitor(this.options, visitUse).iterTopLevel([f]);
         for (const inl of argInlinings) {
-          if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl) continue;
+          if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl || inl.varDecl.decl.name.pinned) continue;
           const r = resolvedVariableUse(inl.argExpr);
           if (r === null) continue;
           if (captured.has(inl.varDecl)) {

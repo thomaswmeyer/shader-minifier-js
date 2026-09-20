@@ -887,15 +887,16 @@ class RewriterImpl {
     };
 
     // Assignments to parameters are only removed if is the entire function body is single-flow.
+    // A pinned variable may be read by a kept #define, which the visit cannot see: never a candidate.
     const parameterCandidates: DeclElt[] =
-      blockLevel.kind === "FunctionRoot" && isSingleFlow(blockStmts) ? funParameters(blockLevel.fn).map(([, d]) => d) : [];
+      blockLevel.kind === "FunctionRoot" && isSingleFlow(blockStmts) ? funParameters(blockLevel.fn).map(([, d]) => d).filter((d) => !d.name.pinned) : [];
     // Assignments to locals are only removed if they are declared in a Block (not a ForD) that is single-flow (starting from the declaration).
     const localCandidates: [DeclElt[], Stmt[]][] = [];
     for (let i = 0; i < blockStmts.length; i++) {
       const head = blockStmts[i];
       if (head.kind === "Decl") {
         const stmts = blockStmts.slice(i);
-        if (isSingleFlow(stmts)) localCandidates.push([head.decl[1], stmts]);
+        if (isSingleFlow(stmts)) localCandidates.push([head.decl[1].filter((d) => !d.name.pinned), stmts]);
       }
     }
     // Assignments to globals are not removed (it requires analysis over every called function).
@@ -1023,7 +1024,9 @@ class RewriterImpl {
             ? funParameters(blockLevel.fn).flatMap(([ty, decl]) => (!typeIsOutOrInout(ty) && typeEquals(ty, ty2) ? [decl] : []))
             : [];
 
+        if (declElt2.name.pinned) return null; // a kept #define may read it under that name
         const compatibleDeclElt = [...localDecls, ...args].find((declElt1) =>
+          !declElt1.name.pinned &&
           exprListEquals(declElt1.sizes, declElt2.sizes) &&
           exprListEquals(declElt1.semantics, declElt2.semantics) &&
           // The first variable must not be used after the second is declared.
@@ -1335,7 +1338,7 @@ class RewriterImpl {
   static removeUnusedFunctions(options: Options, code: TopLevel[]): TopLevel[] {
     const funcInfos = new Analyzer(options).findFuncInfos(code);
     const isUnused = (funcInfo: FuncInfo): boolean => {
-      const canBeRenamed = !options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
+      const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.pinned; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
       const isCalled = funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
       return canBeRenamed && !isCalled && !funIsExternal(funcInfo.funcType, options);
@@ -1434,9 +1437,49 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     return [node.func, ...graphReorder(rest)];
   };
 
-  const order = graphReorder(new Analyzer(options).findFuncInfos(code));
-  const rest = code.filter((t) => t.kind !== "Function");
-  return [...rest, ...order];
+  // Functions inside a conditional directive region at top level (#ifdef ... #else ... #endif)
+  // are alternatives of which the compiler keeps one; pulling them out, as upstream does, defines
+  // a function twice. Such a region stays where it is, as a unit, among the non-function items,
+  // preceded by the functions outside any region that it calls (in dependency order); every
+  // other function follows at the end, in upstream's order. Without regions this is upstream's
+  // layout exactly.
+  const directive = (tl: TopLevel): string => (tl.kind === "TLDirective" ? tl.parts[0] : "");
+  const isConditional = (tl: TopLevel): boolean => /^#\s*(if|ifdef|ifndef|elif|else|endif)\b/.test(directive(tl));
+  type Segment = { region: false; tl: TopLevel } | { region: true; items: TopLevel[] };
+  const segments: Segment[] = [];
+  let depth = 0;
+  for (const tl of code) {
+    if (isConditional(tl) && /^#\s*(if|ifdef|ifndef)\b/.test(directive(tl))) {
+      if (depth === 0) segments.push({ region: true, items: [] });
+      depth++;
+    }
+    if (depth > 0) (segments[segments.length - 1] as { items: TopLevel[] }).items.push(tl);
+    else segments.push({ region: false, tl });
+    if (isConditional(tl) && /^#\s*endif\b/.test(directive(tl))) depth = Math.max(0, depth - 1);
+  }
+  const regionFunctions = new Set<TopLevel>(segments.flatMap((s) => (s.region ? s.items.filter((t) => t.kind === "Function") : [])));
+  const infos = new Analyzer(options).findFuncInfos(code);
+  const free = infos.filter((n) => !regionFunctions.has(n.func));
+  const freeByProto = new Map(free.map((n) => [funPrototype(n.funcType), n]));
+  const freeNodes = free.map((n) => ({ ...n, callSites: n.callSites.filter((c) => freeByProto.has(c.prototype)) }));
+  if (regionFunctions.size === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
+
+  const emitted = new Set<TopLevel>();
+  const out: TopLevel[] = [];
+  const emitWithCallees = (n: FuncInfo): void => {
+    if (emitted.has(n.func)) return;
+    emitted.add(n.func);
+    for (const c of n.callSites) { const callee = freeByProto.get(c.prototype); if (callee !== undefined) emitWithCallees(callee); }
+    out.push(n.func);
+  };
+  for (const s of segments) {
+    if (!s.region) { if (s.tl.kind !== "Function") out.push(s.tl); continue; }
+    for (const n of infos) if (regionFunctions.has(n.func)) for (const c of n.callSites) { const callee = freeByProto.get(c.prototype); if (callee !== undefined) emitWithCallees(callee); }
+    out.push(...s.items);
+  }
+  const remaining = freeNodes.filter((n) => !emitted.has(n.func));
+  const remainingProtos = new Set(remaining.map((n) => funPrototype(n.funcType)));
+  return [...out, ...graphReorder(remaining.map((n) => ({ ...n, callSites: n.callSites.filter((c) => remainingProtos.has(c.prototype)) })))];
 }
 
 function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {

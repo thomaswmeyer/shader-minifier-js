@@ -127,7 +127,20 @@ The spglsl corpus test and the WebGL page look for spglsl's shaders in
 `../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
 `PORTING.md` has the module map and the porting notes.
 
-Two tests guard real output rather than upstream parity:
+Three tests guard real output rather than upstream parity:
+
+- `test/pixels.test.ts` is the semantic oracle: every shader is rendered in
+  headless Chromium (ANGLE on SwiftShader, Chrome's own WebGL compiler) both
+  as written and as minified, with the same deterministic uniforms, textures
+  and inputs, and the results must match. Fragment shaders are compared by
+  pixels, vertex shaders by transform-feedback output. It covers `test/tomto`,
+  the semantic fixtures in `test/pixels/` (one per class of bug found), and
+  the WebGL-compatible shaders of upstream's corpus, each under the plugin's
+  defaults and under upstream's rewrites alone. A shader that flips pixels on
+  a one-ulp change of its own literals (a raymarcher at a hit threshold) is
+  allowed as many again, since constant folding rounds like that. Needs a
+  browser: `npx playwright install chromium`, or set `CHROMIUM_EXECUTABLE`;
+  otherwise the test skips. `npm run pixels` runs just this test.
 
 - `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
   plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`

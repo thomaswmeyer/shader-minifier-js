@@ -56,11 +56,13 @@
     "golden": "tsx test/golden-cli.ts",
     "golden:update": "tsx test/golden-cli.ts --update-golden",
     "webgl-page": "tsx scripts/webgl-compile-page.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pixels": "vitest run test/pixels.test.ts"
   },
   "devDependencies": {
     "@shaderfrog/glsl-parser": "^7.0.1",
     "@types/node": "^22.0.0",
+    "playwright": "^1.63.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vite": "^8.2.2",

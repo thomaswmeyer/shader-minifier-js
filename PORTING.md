@@ -241,6 +241,33 @@ says so. Every site is ported deliberately:
     body reads the parameter `uT`, not the global. `findInlinings` now skips
     an argument whose expression names another parameter of the function.
 
+11. *Pinned names.* A `#define` that stays in the output is text the
+    minifier cannot see into. Upstream forbids only the macro's *name* as a
+    generated identifier, so `#define DMIN(id) if(d<dMin){dMin=d;idObj=id;}`
+    survives while the locals `d` and `dMin` are renamed, merged into other
+    locals or their assignments removed as unused (`controllable-machinery`
+    under renaming). The parser records the identifiers in every macro body
+    (`Shader.pinnedNames`, and `pinnedFields` for the names after a dot);
+    every declaration of such a name is `Ident.pinned`: never renamed
+    (variables, functions, structs, fields), never inlined or removed, never
+    a var-reuse or unused-assignment candidate, never substituted by
+    `--inline-single-use`; the names that pinned a declaration join the
+    forbidden list. The golden of `controllable-machinery.frag` keeps a
+    `vec3 d` that upstream merges into the parameter (`tests/DEVIATIONS.md`).
+12. *Function reordering and conditional regions.* When a forward
+    declaration triggers `reorderFunctions`, upstream moves every function
+    after all other items, which pulls alternative definitions out of
+    `#ifdef ... #else ... #endif` blocks and defines a function twice
+    (`frozen-wasteland` with a prototype). The port keeps such a top-level
+    region in place, preceded by the functions outside any region that it
+    calls, and sorts the rest as upstream does; without regions the layout
+    is upstream's.
+13. *Preserved names reserved.* Under `--preserve-externals` (and
+    `--preserve-all-globals`) upstream marks a kept name as used only when
+    the renamer reaches its declaration, so `const float f=...;` may take
+    `o` before `out vec4 o;` is seen (redefinition). The port keeps every
+    preserved global's name out of the generated list from the start.
+
 ### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
 - `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse
   picks the alphabetically-first function name. Ported with sorted iteration.

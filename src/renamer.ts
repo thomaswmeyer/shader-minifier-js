@@ -84,6 +84,7 @@ class Env {
 
   // Decide the identifier won't be renamed, and mark its name as used.
   dontRename(id: Ident): Env { return this.addRenaming("VarFunStruct", id, id.name); }
+  dontRenameField(id: Ident): Env { return this.addRenaming("FieldsOfAllStruct", id, id.name); }
   dontRenameList(names: readonly string[]): Env {
     let env: Env = this;
     for (const name of names) env = env.dontRename(new Ast.Ident(name));
@@ -144,7 +145,7 @@ class RenamerVisitor {
 
   private renNamedStruct(env: Env, structName: Ident): Env {
     // top level struct declaration, e.g. `struct foo { int a; float b; }`
-    if (this.options.noRenamingList.includes(structName.name)) {
+    if (this.options.noRenamingList.includes(structName.name) || structName.pinned) {
       return env.dontRename(structName);
     } else {
       return env.newName("VarFunStruct", env, structName);
@@ -182,6 +183,9 @@ class RenamerVisitor {
         }
       };
 
+      if (decl.name.pinned) { // named in a kept #define
+        return context.kind === "Field" ? env.dontRenameField(decl.name) : env.dontRename(decl.name);
+      }
       if (this.options.noRenamingList.includes(decl.name.name)) {
         return env.dontRename(decl.name);
       }
@@ -334,7 +338,7 @@ class RenamerVisitor {
   private renFunction(env: Env, f: FunctionType): Env {
     if ((Ast.funIsExternal(f, this.options) && this.options.preserveExternals) || this.options.preserveAllGlobals) {
       return env;
-    } else if (this.options.noRenamingList.includes(f.fName.name)) {
+    } else if (this.options.noRenamingList.includes(f.fName.name) || f.fName.pinned) {
       return env;
     } else {
       const name = env.identRenames.get(f.fName.name);
@@ -619,6 +623,18 @@ class RenamerImpl {
 
     // Unlike upstream, forbidden names are combined from all shaders, not only the first.
     const forbiddenNames = new Set(shaders.flatMap((s) => s.forbiddenNames));
+    // A name kept as is (an external under --preserve-externals, or anything under
+    // --preserve-all-globals) may be declared after a global that a generated name of the same
+    // spelling already took (`const float o=...; out vec4 o;`): keep those spellings out of the
+    // generated list. Upstream only marks such a name used when it reaches its declaration.
+    for (const shader of shaders) {
+      for (const tl of shader.code) {
+        if (tl.kind !== "TLDecl") continue;
+        if (this.options.preserveAllGlobals || (this.options.preserveExternals && Ast.typeIsExternal(tl.decl[0]))) {
+          for (const elt of tl.decl[1]) forbiddenNames.add(elt.name.name);
+        }
+      }
+    }
 
     // Then, compute the ordered list of variable names to use.
     // Most frequent letters must be picked first because they will compress better.

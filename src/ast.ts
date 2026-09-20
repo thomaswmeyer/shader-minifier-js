@@ -33,6 +33,9 @@ export class Ident {
   toBeInlined: boolean;
   // This prefix disables function inlining and variable inlining.
   doNotInline: boolean;
+  // Named in the body of a #define that stays in the output: the macro's text is the one use
+  // the minifier cannot see, so the declaration keeps its name and is never inlined or removed.
+  pinned = false;
   loc: Location;
   isVarWrite = false;
   declaration: Declaration = UnknownDeclaration;
@@ -259,6 +262,8 @@ export interface Shader {
   filename: string;
   code: TopLevel[];
   forbiddenNames: string[];
+  pinnedNames: string[]; // identifiers named in #define bodies, and the field names after a dot; see Ident.pinned
+  pinnedFields: string[];
   reorderFunctions: boolean; // set to true if we saw a forward declaration
 }
 export const shaderMangledFilename = (s: Shader): string => mangleToUnicode(basename(s.filename));

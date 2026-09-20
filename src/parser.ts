@@ -70,6 +70,8 @@ class ParserImpl {
   private furthest = 0;
   private furthestExpected = "";
   forbiddenNames: string[] = [];
+  pinnedNames = new Set<string>();
+  pinnedFields = new Set<string>();
   reorderFunctions = false;
 
   constructor(private readonly options: Options, private readonly src: string, private readonly streamName: string) {}
@@ -685,6 +687,9 @@ class ParserImpl {
       const id = rawIdent();
       const rest = line();
       this.forbiddenNames = [id, ...this.forbiddenNames];
+      const idents = macroBodyIdents(rest);
+      for (const name of idents.names) this.pinnedNames.add(name);
+      for (const name of idents.fields) this.pinnedFields.add(name);
       return ["#define", id, rest];
     });
     const res = define ?? ["#" + line()];
@@ -840,12 +845,60 @@ class ParserImpl {
       const snippet = this.src.slice(this.pos, this.pos + 30).replace(/\n/g, "\\n");
       throw new ParseError(`Error in ${this.streamName}: Ln: ${loc.line} Col: ${loc.col}\n${snippet}\n^\nExpecting: ${this.furthestExpected || "top-level declaration"}`);
     }
-    return { filename: this.streamName, code, forbiddenNames: this.forbiddenNames, reorderFunctions: this.reorderFunctions };
+    return { filename: this.streamName, code, forbiddenNames: this.forbiddenNames, pinnedNames: [...this.pinnedNames], pinnedFields: [...this.pinnedFields], reorderFunctions: this.reorderFunctions };
   }
 }
 
 export function runParser(options: Options, streamName: string, content: string): Ast.Shader {
   let src = options.preprocess ? preprocess(streamName, content) : content;
   if (options.expandMacros) src = expandMacros(src);
-  return new ParserImpl(options, src, streamName).run();
+  const shader = new ParserImpl(options, src, streamName).run();
+  pinMacroNames(options, shader);
+  return shader;
+}
+
+/** The identifiers a macro body refers to, minus its parameters: `(a,b) a+b*k.x` gives names `k` and fields `x`. */
+export function macroBodyIdents(rest: string): { names: string[]; fields: string[] } {
+  let body = rest;
+  let params: string[] = [];
+  const m = /^\(([^)]*)\)/.exec(rest); // function-like: no space before the parenthesis
+  if (m !== null) {
+    params = m[1].split(",").map((s) => s.trim());
+    body = rest.slice(m[0].length);
+  }
+  const names: string[] = [];
+  const fields: string[] = [];
+  for (const [, dot, name] of body.matchAll(/(?<![0-9A-Za-z_])(\.\s*)?([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    if (dot !== undefined) fields.push(name);
+    else if (!params.includes(name)) names.push(name);
+  }
+  return { names, fields };
+}
+
+// A #define the minifier keeps is text it cannot see into: a variable, function, struct or field
+// the body names must stay declared under that name. Mark every declaration of such a name, and
+// keep the names that were declared out of the renamer's generated list.
+function pinMacroNames(options: Options, shader: Ast.Shader): void {
+  const names = new Set(shader.pinnedNames);
+  const fields = new Set(shader.pinnedFields);
+  if (names.size === 0 && fields.size === 0) return;
+  const used = new Set<string>();
+  const pin = (id: Ast.Ident, set: Set<string>): void => { if (set.has(id.name)) { id.pinned = true; id.doNotInline = true; used.add(id.name); } };
+  const pinDecl = ([, elts]: Ast.Decl, set = names): void => { for (const e of elts) pin(e.name, set); };
+  const pinBlock = (block: Ast.StructOrInterfaceBlock): void => {
+    if (block.name !== null) pin(block.name, names);
+    for (const m of block.members) if (m.kind === "MemberVariable") pinDecl(m.decl, fields);
+  };
+  for (const tl of shader.code) {
+    if (tl.kind === "TLDecl") pinDecl(tl.decl);
+    else if (tl.kind === "Function") { pin(tl.funcType.fName, names); for (const d of tl.funcType.args) pinDecl(d); }
+    else if (tl.kind === "TypeDecl") pinBlock(tl.block);
+  }
+  const pinStmt = (_env: Ast.MapEnv, s: Ast.Stmt): Ast.Stmt => {
+    if (s.kind === "Decl") pinDecl(s.decl);
+    else if (s.kind === "ForD") pinDecl(s.init);
+    return s;
+  };
+  Ast.visitor(options, undefined, pinStmt).iterTopLevel(shader.code);
+  shader.forbiddenNames = [...used, ...shader.forbiddenNames];
 }

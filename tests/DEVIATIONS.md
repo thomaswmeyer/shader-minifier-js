@@ -11,3 +11,9 @@ in `PORTING.md` section 5.2.
    `x(1e308)`, `x(3e38)`, `x(1e37)` commented out. The port accepts the full
    double range, so the three lines are uncommented and their expected output
    added.
+
+2. `tests/real/controllable-machinery.frag.expected` — pinned macro names.
+   The shader's `#define DMIN(id) if (d < dMin) {...}` names the local `d`,
+   so the port never merges that local into another (`PORTING.md` 5.2 item
+   11); upstream's expected output reuses the parameter `p` for it in
+   `PrBoxDf`. Two lines differ.
