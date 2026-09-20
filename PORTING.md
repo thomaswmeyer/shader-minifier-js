@@ -336,6 +336,20 @@ says so. Every site is ported deliberately:
     directive there. The three.js programs in `test/corpus/three` need this
     flag.
 
+    Two further differences come from the GL compiler owning two identifier
+    prefixes, `GL_` and `__`. A name in them that the file does not define is
+    not absent, it is unknown to this pass: whether `GL_EXT_frag_depth` is
+    defined is the device's answer. So the port predefines what the `#version`
+    line settles (`__VERSION__`, `GL_ES`, and `GL_FRAGMENT_PRECISION_HIGH`
+    from ESSL 3.00, where highp is required in fragment shaders) and leaves a
+    condition that reads any other compiler-owned name undecided, rather than
+    reading it as 0 the way C reads an undefined macro. Cesium's
+    `#ifdef GL_FRAGMENT_PRECISION_HIGH` otherwise took the `#else`, dropping a
+    whole shader from `highp` to `mediump`. And since a name may be undecided
+    rather than malformed, `evalConstantExpression` short-circuits: `1 || X`
+    is 1 and `0 && X` is 0 whatever X is, which is how Cesium guards its
+    extension macros (`__VERSION__ == 300 || defined(GL_EXT_frag_depth)`).
+
 17. *Fields of external structs.* Under `--preserve-externals` the name an
     application looks up for a struct uniform includes the field
     (`directionalLights[0].direction` in three.js), so the fields of every

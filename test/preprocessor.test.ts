@@ -24,6 +24,33 @@ describe("--preprocess decides constant #if expressions (PORTING.md 5.2 item 16)
     expect(evalConstantExpression("(1", defined)).toBeNull();
     expect(evalConstantExpression("1 2", defined)).toBeNull();
   });
+  it("short-circuits around an operand it cannot settle", () => {
+    // `defined(X)` answering null means "the compiler knows, this pass does not".
+    const unknown = (n: string) => (n === "USE_MAP" ? true : n.startsWith("GL_") ? null : false);
+    expect(evalConstantExpression("defined(GL_EXT_frag_depth)", unknown)).toBeNull();
+    expect(evalConstantExpression("1 || defined(GL_EXT_frag_depth)", unknown)).toBe(1);
+    expect(evalConstantExpression("0 && defined(GL_EXT_frag_depth)", unknown)).toBe(0);
+    expect(evalConstantExpression("0 || defined(GL_EXT_frag_depth)", unknown)).toBeNull();
+    expect(evalConstantExpression("defined(USE_MAP) && (300 == 300 || defined(GL_EXT_frag_depth))", unknown)).toBe(1);
+  });
+  it("predefines what the #version line settles, and leaves the rest to the compiler", () => {
+    // ESSL 3.00 requires highp in fragment shaders, so the driver always takes the first branch.
+    const precision = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
+    expect(preprocess("t", "#version 300 es\n" + precision)).toContain("precision highp float;");
+    expect(preprocess("t", "#version 300 es\n" + precision)).not.toContain("mediump");
+    // At 1.00 it is the device's answer, so the block stays whole.
+    expect(preprocess("t", "#version 100\n" + precision)).toContain("#ifdef GL_FRAGMENT_PRECISION_HIGH");
+    // __VERSION__ is knowable; an extension macro is not, and reading it as 0 would pick a branch
+    // the driver would not.
+    const v = "#version 300 es\n#if __VERSION__ == 300\nA\n#else\nB\n#endif\n";
+    expect(preprocess("t", v)).toContain("A");
+    expect(preprocess("t", v)).not.toContain("B");
+    expect(preprocess("t", "#version 300 es\n#ifdef GL_OES_standard_derivatives\nA\n#endif\n")).toContain("#ifdef GL_OES_standard_derivatives");
+  });
+  it("keeps an undecidable block balanced when an inactive block encloses it", () => {
+    const src = "#version 300 es\n#if 0\n#ifdef GL_EXT_frag_depth\nA\n#endif\n#endif\nB\n";
+    expect(preprocess("t", src)).not.toContain("#if");
+  });
   it("drops the inactive branch of a block inside an argument list", () => {
     const src = "#define USE_MAP\nvoid main(){f(a,\n#if defined( USE_MAP ) && 1 > 0\n b\n#else\n c\n#endif\n);}";
     expect(preprocess("t", src)).toBe("#define USE_MAP\nvoid main(){f(a,\n\n b\n\n\n\n);}"); // removed lines stay blank
