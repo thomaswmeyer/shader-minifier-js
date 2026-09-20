@@ -153,6 +153,7 @@
     };
 
     try {
+      if (cfg.mode === "link") { link(cfg.source, cfg.fragmentSource); return { ok: true, data: [] }; }
       if (cfg.mode === "pixels") return { ok: true, data: renderPixels() };
       return { ok: true, data: captureVaryings() };
     } catch (e) {

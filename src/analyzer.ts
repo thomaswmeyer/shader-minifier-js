@@ -376,10 +376,17 @@ export class Analyzer {
       const r = resolvedVariableUse(e);
       if (r === null) return e;
       const [ident, vd] = r;
+      const at = (l: Ast.Location): string => `${l.line}:${l.col}`;
       const found = env.vars.get(ident.name)?.[1].name;
       if (found !== undefined && found.varDecl !== null && found.varDecl !== vd) {
-        const at = (l: Ast.Location): string => `${l.line}:${l.col}`;
         throw new Error(`Internal error: a rewrite captured '${ident.name}' at ${at(ident.loc)}: it referred to the ${vd.scope.toLowerCase()} declared at ${at(vd.decl.name.loc)} but now names the ${found.varDecl.scope.toLowerCase()} declared at ${at(found.loc)}`);
+      }
+      // The same use moved the other way: a global read before its own declaration. GLSL requires
+      // a declaration to precede every use, and `found === undefined` here means nothing of that
+      // name is in scope yet, so the capture check above cannot see it. This is the class of bug
+      // PORTING.md item 18 had to be found by hand, since only the capture check existed.
+      if (found === undefined && vd.scope === "Global") {
+        throw new Error(`Internal error: a rewrite moved '${ident.name}' at ${at(ident.loc)} above the global declared at ${at(vd.decl.name.loc)}`);
       }
       return e;
     };

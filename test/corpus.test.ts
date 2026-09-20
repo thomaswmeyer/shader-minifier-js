@@ -97,3 +97,29 @@ describe("open source shader corpus renders the same", () => {
     }, 120000);
   }
 });
+
+// A vertex and fragment shader of one program, minified separately as the plugin minifies them,
+// must still link: GL matches uniforms, varyings and the *type names* of struct-typed uniforms
+// across the two stages, and each half is renamed on its own. The pixel test never sees a real
+// pair (it gives each shader a generated partner), so nothing else catches this.
+describe("three.js programs still link after minification", () => {
+  const dir = path.join(corpus, "three");
+  const names = [...new Set(list(dir, /\.(vert|frag)$/).map((f) => f.replace(/\.(vert|frag)$/, "")))]
+    .filter((n) => fs.existsSync(path.join(dir, n + ".vert")) && fs.existsSync(path.join(dir, n + ".frag")));
+  for (const name of names) {
+    it(name, async (ctx) => {
+      if (unavailable !== null) { ctx.skip(); return; }
+      const options = { ...pluginDefaults, preprocess: true };
+      const min = (ext: string): string => {
+        const file = `${name}.${ext}`;
+        const source = fs.readFileSync(path.join(dir, file), "utf8");
+        return new Minifier(options, [[file, source]]).format({ ...options, outputFormat: "text" });
+      };
+      const cfg = (vert: string, frag: string): RenderConfig => ({ mode: "link", version: 2, source: vert, fragmentSource: frag, inputs: [], size: 8, vertices: 1, instances: 1 });
+      const original = await runner.run(cfg(fs.readFileSync(path.join(dir, name + ".vert"), "utf8"), fs.readFileSync(path.join(dir, name + ".frag"), "utf8")));
+      if (!original.ok) { ctx.skip(`the original program does not link: ${original.error.split("\n")[0]}`); return; }
+      const result = await runner.run(cfg(min("vert"), min("frag")));
+      expect(result.ok, result.ok ? "" : result.error.split("\n")[0]).toBe(true);
+    }, 60000);
+  }
+});

@@ -1,7 +1,24 @@
 // --fold-builtins: evaluate pure builtin calls whose arguments are all literals.
-// Upstream folds operators only. Results are computed at float32 precision, like the GPU would,
-// and printed with the shortest digits that round-trip through float32; a fold is only applied
-// when it makes the expression shorter (upstream's rule for constant division).
+// Upstream folds operators only. Arguments are rounded to float32 first and the result is printed
+// with the shortest digits that round-trip through float32; a fold is only applied when it makes
+// the expression shorter (upstream's rule for constant division).
+//
+// How exact this is, and why it is not the same claim the operator folds make. A fold of `a*b` in
+// the rewriter is bit-exact against the GPU: GLSL ES requires +, - and * to be correctly rounded,
+// so one float32 rounding of the exact product is the only answer a conformant implementation may
+// give. Nothing here can promise that. The spec states the builtins to a ULP tolerance rather than
+// exactly (2.5 ULP for division, 2 for exp and log, 3 for sin, cos and tan at moderate arguments,
+// and so on), so two conformant GPUs need not agree with each other on `sin(2.)`, let alone with
+// a correctly rounded double computed in JavaScript. The composite formulas below widen that: the
+// GPU evaluates `mod` as a divide, a floor, a multiply and a subtract, each rounded, while this
+// evaluates the expression in double and rounds once, and `dot` and `length` may be a fused
+// multiply-add on the hardware and a plain sum here.
+//
+// The result is that folding a builtin can shift the last bits, always within the latitude the
+// spec already gives the hardware, and never more than one implementation differs from another.
+// That is the same bargain `--fold-builtins` makes everywhere, and it is why the flag is a port
+// addition rather than a default, and why the pixel test (test/pixels.test.ts) renders every
+// folded shader against its source instead of trusting the arithmetic.
 import { Float, FunCall, Ident, Int, Var, type Expr } from "./ast.js";
 import * as Printer from "./printer.js";
 

@@ -1592,25 +1592,40 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   const freeNodes = free.map((n) => ({ ...n, callSites: n.callSites.filter((c) => freeByProto.has(c.prototype)) }));
   if (regionFunctions.size === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
 
-  const emitted = new Set<TopLevel>();
   // Every declaration outside a region first, as upstream lays them out, so a function pulled
-  // ahead of a region never precedes a global it reads; then the regions, each preceded by the
-  // functions it calls; then the rest.
+  // ahead of a region never precedes a global it reads. Then the functions and the regions, each
+  // after everything it calls.
+  //
+  // A region is one unit: its alternatives define the same function, so it cannot be split and
+  // its members cannot be reordered. A free function is a unit of its own. A unit is ready when
+  // every function it calls has been emitted, which orders calls from a region into another
+  // region, and from a free function into a region, as well as upstream's plain callee-first
+  // case. The forward declarations the source had are dropped, so an order that needs one is the
+  // one thing this cannot express: a cycle through two regions leaves file order, as before.
+  type Unit = { items: TopLevel[]; defines: Set<string>; calls: Set<string> };
+  const unitOf = (items: TopLevel[], members: FuncInfo[]): Unit => ({
+    items,
+    defines: new Set(members.map((n) => funPrototype(n.funcType))),
+    calls: new Set(members.flatMap((n) => n.callSites.map((c) => c.prototype))),
+  });
+  const byFunc = new Map(infos.map((n) => [n.func, n]));
+  const units: Unit[] = segments.map((s) => (s.region
+    ? unitOf(s.items, s.items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }))
+    : unitOf([s.tl], s.tl.kind === "Function" && byFunc.has(s.tl) ? [byFunc.get(s.tl)!] : [])))
+    .filter((u) => u.items.length > 0 && (u.defines.size > 0 || u.items.some((t) => t.kind === "Function")));
+  const defined = new Set(units.flatMap((u) => [...u.defines]));
   const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" ? [s.tl] : []));
-  const emitWithCallees = (n: FuncInfo): void => {
-    if (emitted.has(n.func)) return;
-    emitted.add(n.func);
-    for (const c of n.callSites) { const callee = freeByProto.get(c.prototype); if (callee !== undefined) emitWithCallees(callee); }
-    out.push(n.func);
-  };
-  for (const s of segments) {
-    if (!s.region) continue;
-    for (const n of infos) if (regionFunctions.has(n.func)) for (const c of n.callSites) { const callee = freeByProto.get(c.prototype); if (callee !== undefined) emitWithCallees(callee); }
-    out.push(...s.items);
+  const pending = units.slice();
+  const done = new Set<string>();
+  while (pending.length > 0) {
+    // Ready: everything this unit calls is either already emitted or not defined in this file.
+    let i = pending.findIndex((u) => [...u.calls].every((c) => done.has(c) || !defined.has(c) || u.defines.has(c)));
+    if (i < 0) i = 0; // a cycle the dropped forward declarations cannot be recovered for
+    const [u] = pending.splice(i, 1);
+    for (const d of u.defines) done.add(d);
+    out.push(...u.items);
   }
-  const remaining = freeNodes.filter((n) => !emitted.has(n.func));
-  const remainingProtos = new Set(remaining.map((n) => funPrototype(n.funcType)));
-  return [...out, ...graphReorder(remaining.map((n) => ({ ...n, callSites: n.callSites.filter((c) => remainingProtos.has(c.prototype)) })))];
+  return out;
 }
 
 function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {

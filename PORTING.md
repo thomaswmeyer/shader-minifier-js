@@ -369,7 +369,20 @@ says so. Every site is ported deliberately:
     kept macro bodies and in verbatim text count as used. Off by default so
     the goldens stay; three.js shrinks 18% under the plugin with it.
 
-22. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+22. *Struct type names across two stages.* GL matches a struct-typed uniform
+    or varying between the vertex and the fragment shader by type name as
+    well as by variable name. Under `--preserve-externals` the port keeps
+    the variable's name and its fields (item 17) but used to rename the
+    struct type, and since the two shaders are minified separately each half
+    got a different name: eleven of the twenty-eight three.js programs
+    failed to link with "Structure names of uniform 'x' differ between
+    VERTEX and FRAGMENT". A struct reachable from an external declaration
+    now keeps its type name too, and an interface block's members count as
+    external, which they did not before (`uniform Blk { L l; };` renamed
+    `L`'s fields although the application looks up `l.dir`).
+    `test/corpus.test.ts` links every three.js pair.
+
+23. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -405,7 +418,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 22, `test/port-flags.test.ts`).
+  (item 23, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

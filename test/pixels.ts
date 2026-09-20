@@ -12,9 +12,12 @@ import { repoRoot } from "./golden.js";
 
 export interface ShaderInput { name: string; type: string; size: number; array: boolean; flat: boolean }
 export interface RenderConfig {
-  mode: "pixels" | "varyings";
+  /** link: compile `source` as the vertex shader and `fragmentSource` as the fragment shader and link them. */
+  mode: "pixels" | "varyings" | "link";
   version: 1 | 2;
   source: string;
+  /** link mode only: the fragment shader of the pair. */
+  fragmentSource?: string;
   /** pixels: the fragment shader's inputs to feed; varyings: the vertex shader's outputs to capture. */
   inputs: ShaderInput[];
   size: number;

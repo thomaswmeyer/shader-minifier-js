@@ -82,6 +82,22 @@ describe("reorderFunctions with #ifdef regions", () => {
     const out = minify(src, { noInlining: true });
     expect(out.indexOf("float h(")).toBeLessThan(out.indexOf("#ifdef A"));
   });
+  it("puts a region before another region that calls into it", () => {
+    const src = "float g();float h();\n#ifdef X\nfloat g(){return h()+1.;}\n#else\nfloat g(){return 2.;}\n#endif\n#ifdef Y\nfloat h(){return fract(gl_FragCoord.x);}\n#else\nfloat h(){return 3.;}\n#endif\nvoid main(){gl_FragColor=vec4(g());}";
+    const out = minify(src, { noInlining: true });
+    expect(out.indexOf("#ifdef Y")).toBeLessThan(out.indexOf("#ifdef X"));
+  });
+  it("puts a free function after the region it calls and before the region that calls it", () => {
+    const src = "float r1();float mid();float r2();\n#ifdef X\nfloat r1(){return mid()+1.;}\n#endif\nfloat mid(){return r2()+2.;}\n#ifdef Y\nfloat r2(){return fract(gl_FragCoord.x);}\n#endif\nvoid main(){gl_FragColor=vec4(r1());}";
+    const out = minify(src, { noInlining: true });
+    expect(out.indexOf("#ifdef Y")).toBeLessThan(out.indexOf("float mid("));
+    expect(out.indexOf("float mid(")).toBeLessThan(out.indexOf("#ifdef X"));
+  });
+  it("leaves a cycle through two regions in file order, since the forward declarations are gone", () => {
+    const src = "float p();float q();\n#ifdef X\nfloat p(){return q()+1.;}\n#endif\n#ifdef Y\nfloat q(){return p()+2.;}\n#endif\nvoid main(){gl_FragColor=vec4(p());}";
+    const out = minify(src, { noInlining: true });
+    expect(out.indexOf("#ifdef X")).toBeLessThan(out.indexOf("#ifdef Y"));
+  });
   it("orders as upstream does when there is no region", () => {
     const src = "float a();float b(){return a()+1.;}float a(){return 2.;}void main(){gl_FragColor=vec4(b());}";
     expect(minify(src, { noInlining: true })).toBe("float a(){return 2.;}float b(){return a()+1.;}void main(){gl_FragColor=vec4(b());}");

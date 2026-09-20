@@ -865,25 +865,42 @@ export function runParser(options: Options, streamName: string, content: string)
 // uniform that name includes the field: three.js sets `directionalLights[0].direction`. The
 // fields of every struct an external declaration uses, and of the structs those fields use, keep
 // their names. Upstream renames them.
+//
+// The struct's own type name is kept too, for a different reason: GL matches a struct-typed
+// uniform or varying between the vertex and the fragment shader by type name as well as by
+// variable name, and the two shaders are minified separately, so a renamed type gets a different
+// name in each half and the program fails to link ("Structure names of uniform 'x' differ between
+// VERTEX and FRAGMENT").
+//
+// An external declaration is a uniform, in or out declaration of a named struct type, an
+// interface block declared inline (`uniform Blk { L l; };`, whose members are external globals),
+// or a declaration whose type is written out as a block.
 function pinExternalStructFields(shader: Ast.Shader): void {
   const structs = new Map<string, Ast.StructOrInterfaceBlock>();
   for (const tl of shader.code) if (tl.kind === "TypeDecl" && tl.block.name !== null) structs.set(tl.block.name.name, tl.block);
-  const pending: string[] = [];
+  const pending: Ast.StructOrInterfaceBlock[] = [];
+  const seed = (ty: Ast.Type): void => {
+    if (ty.name.kind === "TypeBlock") pending.push(ty.name.block);
+    else { const b = structs.get(ty.name.ident.name); if (b !== undefined) pending.push(b); }
+  };
   for (const tl of shader.code) {
-    if (tl.kind === "TLDecl" && Ast.typeIsExternal(tl.decl[0]) && tl.decl[0].name.kind === "TypeName") pending.push(tl.decl[0].name.ident.name);
+    if (tl.kind === "TLDecl" && Ast.typeIsExternal(tl.decl[0])) seed(tl.decl[0]);
+    // `uniform Blk { ... };` with no instance name: the members are external globals, so the
+    // structs they use are part of the interface too.
+    if (tl.kind === "TypeDecl" && tl.block.blockType.kind === "InterfaceBlock") pending.push(tl.block);
   }
-  const done = new Set<string>();
+  const done = new Set<Ast.StructOrInterfaceBlock>();
   const fieldNames = new Set<string>();
   while (pending.length > 0) {
-    const name = pending.pop()!;
-    const block = structs.get(name);
-    if (block === undefined || done.has(name)) continue;
-    done.add(name);
+    const block = pending.pop()!;
+    if (done.has(block)) continue;
+    done.add(block);
+    if (block.blockType.kind === "Struct" && block.name !== null) block.name.pinned = true;
     for (const m of block.members) {
       if (m.kind !== "MemberVariable") continue;
       const [ty, elts] = m.decl;
       for (const e of elts) fieldNames.add(e.name.name);
-      if (ty.name.kind === "TypeName") pending.push(ty.name.ident.name);
+      seed(ty);
     }
   }
   // The renamer renames a field name the same way in every struct, so a name kept in one struct

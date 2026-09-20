@@ -227,7 +227,7 @@ externals kept in all of them; three.js runs with `--preprocess`:
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
 | gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
-| three.js | 56 | 1,337,454 | 213,498 | 125,951 | 41.0% | 143,890 | 12.5% |
+| three.js | 56 | 1,337,454 | 218,851 | 131,640 | 39.8% | 143,890 | 8.5% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
 Three things the table says. The plugin's additions are worth 2 to 3% on
@@ -236,7 +236,11 @@ hand-written shaders and 41% on three.js, where `--expand-macros` and
 `--remove-unused-declarations` the sampler precision statements, packing
 constants and light structs the chunks leave behind. ANGLE was ahead on
 three.js by 6.5% before that flag; what it still drops and the minifier
-keeps for the application's sake is unused uniforms. And one shader,
+keeps for the application's sake is unused uniforms. Roughly 5,700 bytes of
+the three.js total are the struct type names and interface block fields the
+port keeps so that a vertex and a fragment shader minified separately still
+link (`PORTING.md` item 22); every three.js pair is linked in the test suite.
+And one shader,
 gl-transitions' InvertedPageCurl, comes out 58 bytes larger under the plugin
 than under upstream's rewrites, which `TODO.md` lists to investigate.
 

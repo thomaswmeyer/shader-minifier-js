@@ -3,27 +3,6 @@
 What is known to be missing or limited, with the plan for each. `PORTING.md`
 section 5.2 records what has been changed and why; this file is what has not.
 
-## 0. Known bug: a struct type shared by two stages is renamed apart
-
-GL requires the *type name* of a struct-typed uniform or varying to match
-between the vertex and the fragment shader. `--preserve-externals` keeps the
-uniform's own name and its field names (`PORTING.md` item 17) but renames the
-struct type, and each file is minified on its own, so the two halves get
-different names and the program fails to link:
-
-    Structure names of uniform 'directionalLightShadows' differ between VERTEX and FRAGMENT
-
-Eleven of the twenty-eight three.js programs fail this way under the plugin's
-defaults (every lit material). A multi-file run does not help: the two files
-still get different generated names. Nothing catches it because the pixel test
-runs each shader against a generated partner, never a real pair (section 3).
-
-The fix is the same rule that already covers the fields: a struct type named
-in an external declaration keeps its name under `--preserve-externals`. Cost
-is a few bytes per program. The test that would have caught it is the vertex
-and fragment pair of section 3; a cheaper one is to link each corpus pair in
-the harness and assert the link succeeds.
-
 ## 1. Directives inside expressions (a fuller parser)
 
 Engine shaders put `#if` blocks inside argument lists, parameter lists and
@@ -122,7 +101,9 @@ fragment-only comparison already is the real pair.
 
 ## 5. Test cases to add
 
-- Vertex and fragment pairs (section 3).
+- Vertex and fragment pairs (section 3). Each three.js pair is now *linked*
+  after minification (`test/corpus.test.ts`), which is the cheap half; what
+  is still missing is rendering the pair and comparing the result.
 - Babylon.js (Apache-2.0) and PlayCanvas (MIT) programs, dumped the way the
   three.js ones are; they add uniform blocks and different macro styles.
 - A shader whose defines are injected at runtime, once section 1 lands.

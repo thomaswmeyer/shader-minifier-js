@@ -31,4 +31,13 @@ describe("Analyzer.checkScopes", () => {
     Ast.visitor(options, capture).iterTopLevel(code);
     expect(() => new Analyzer(options).checkScopes(code)).toThrow(/captured 'a' at 1:58: it referred to the global declared at 1:15 but now names the local declared at 1:35/);
   });
+
+  it("rejects a global read above its own declaration", () => {
+    // What a reordering or a declaration squeeze leaves behind: `main` moved above the global it
+    // reads. Nothing of that name is in scope at the use, so the capture check cannot see it.
+    const code = parse("uniform float a;void main(){gl_FragColor=vec4(a);}");
+    expect(() => new Analyzer(options).checkScopes(code)).not.toThrow();
+    const reordered = [code[1], code[0]];
+    expect(() => new Analyzer(options).checkScopes(reordered)).toThrow(/moved 'a' at 1:47 above the global declared at 1:15/);
+  });
 });
