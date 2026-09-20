@@ -265,9 +265,25 @@ accounts for none of it on its own (3.0 ms without it, inside the noise).
   `--remove-unused-uniforms` for applications that tolerate a missing
   location, as three.js does, is the candidate), and it drops `highp` on
   declarations where the default precision already says so.
-- **InvertedPageCurl grows 58 bytes under the plugin.** Something among
-  `--expand-macros`, the float32 folds and the pinned names costs more than
-  it saves there; bisect by flag.
+- **InvertedPageCurl's 58 bytes: explained, and the default is right.**
+  Bisected: every one of the 58 bytes is `--no-pi-substitution`. The shader
+  writes `3.141592653589793` once, which upstream replaces with `acos(-1.)`
+  and the plugin does not. So it is not a regression but the deliberate trade
+  of `PORTING.md` item 3, and the measurement says the trade is correct:
+
+  | corpus | raw bytes pi substitution would save | compressed |
+  |---|--:|--:|
+  | tom.to | 1 | 4 |
+  | gl-transitions | 109 | 8 |
+  | three.js | 63 | 15 |
+  | Babylon.js | 371 | 23 |
+  | PlayCanvas | 0 | 0 |
+
+  About 50 bytes compressed across five corpora, because what it removes is a
+  repeated literal and the compressor was already charging almost nothing for
+  it. Against that sits a precision risk under `mediump` on mobile hardware
+  that no oracle here can test, since SwiftShader implements `mediump` as
+  fp32. Fifty bytes is not worth an unverifiable risk. Nothing to do.
 - **Two shadertoy shaders spglsl refuses** (ed-209's struct ternary, and one
   more) keep that column's total from comparing; list them per shader.
 
@@ -397,7 +413,11 @@ from the command line takes nine of them. What that should become:
   substitution) the name does not mention. `--no-remove-unused` and
   `--remove-unused-declarations` are three levels (none, functions, all)
   spelled as two booleans that can contradict each other.
-- **`--no-pi-substitution` may not need to exist.** Upstream matches a
-  literal rounded to eight decimals, so it can move a float32 value. Firing
-  only when the literal's float32 value equals float32 pi would be exact,
-  and the flag could go.
+- **`--no-pi-substitution` stays, and needs no refinement.** The idea was to
+  fire only when the literal's float32 value equals float32 pi, making the
+  substitution exact so the flag could go. Two things killed it. Every
+  literal upstream's eight-decimal rule matches already rounds to float32 pi,
+  so the refinement would only make substitution fire *more* often, changing
+  goldens; and the whole substitution is worth about 50 compressed bytes
+  across every corpus (section 6), which does not pay for the `mediump` risk
+  it carries.

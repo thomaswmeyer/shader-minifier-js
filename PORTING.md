@@ -165,7 +165,10 @@ says so. Every site is ported deliberately:
    pi, tau or pi/2 at 8 decimals with `acos(-1.)`, `2.*acos(-1.)`,
    `acos(0.)`. Under mediump on mobile GPUs this can cost precision.
    `--no-pi-substitution` disables it. Default stays on to match the goldens
-   (`pi.frag`, `decimals.frag`); the Vite plugin turns it off.
+   (`pi.frag`, `decimals.frag`); the Vite plugin turns it off. That costs the
+   plugin about 50 compressed bytes over all five corpora, measured, and is
+   the whole of the 58 bytes by which `InvertedPageCurl` comes out larger
+   than upstream's rewrites (`TODO.md` section 6).
 4. *Prefix sign spacing.* Upstream only guards binary `+`/`-` against
    merging into `++`/`--` (`printer.fs:142`), so `-(--a)` prints as `---a`,
    which is invalid. The port applies the same guard to prefix `+`/`-`
