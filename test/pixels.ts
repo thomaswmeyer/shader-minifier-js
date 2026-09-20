@@ -61,7 +61,11 @@ export function activeSource(source: string): { source: string; defines: Map<str
       stack[stack.length - 1] = outer && !taken[taken.length - 1]; taken[taken.length - 1] = true;
     } else if (kw === "endif") { stack.pop(); taken.pop(); }
     else if (active()) {
-      if (kw === "define") { const d = /^(\w+)\s*(.*)$/.exec(rest); if (d !== null && !/^\(/.test(d[2])) { const v = Number(d[2].replace(/[uU]$/, "")); defines.set(d[1], Number.isFinite(v) ? v : NaN); } }
+      if (kw === "define") {
+        // function-like only when the parenthesis follows the name directly: `#define S (1+2)` is object-like
+        const d = /^(\w+)(\s*)(.*)$/.exec(rest);
+        if (d !== null && !(d[2] === "" && d[3].startsWith("("))) { const v = Number(d[3].replace(/[uU]$/, "")); defines.set(d[1], Number.isFinite(v) ? v : NaN); }
+      }
       else if (kw === "undef") defines.delete(rest.split(/\s/)[0]);
       out.push(line);
     }

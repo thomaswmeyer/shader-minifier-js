@@ -116,6 +116,14 @@ describe("struct fields named like swizzle components (upstream refuses them)", 
   });
 });
 
+describe("kept #define spacing", () => {
+  it("keeps one space between an object-like macro's name and body, tab or not, and none for an empty body", () => {
+    // upstream glued `#define A\t\tvec2(1)` into `#define Avec2(1)`
+    const src = "#define A\t\tvec2(1)\n#define B\t// only a comment\n#define C (1)\nvoid main(){gl_FragColor=vec4(A,0,C);}";
+    expect(minify(src)).toBe("#define A vec2(1)\n#define B\n#define C (1)\nvoid main(){gl_FragColor=vec4(A,0,C);}");
+  });
+});
+
 describe("--move-declarations", () => {
   it("does not hoist a local above an earlier use of its name that refers to a global", () => {
     // Upstream merges `float t` into the block's first float declaration, and `t.x` then names it.

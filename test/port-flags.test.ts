@@ -179,6 +179,13 @@ describe("--inline-single-use", () => {
         expect(out).toContain("flow(uT,2.)+flow(uT,3.)");
       }
     });
+    it("drops const from the local an inlined `const in` parameter becomes", () => {
+      // upstream: `const mat4 x=m;` in the body, which is an error since m is a uniform
+      const src = "uniform mat4 m;vec3 f(const in mat4 x,vec3 p){return (x*vec4(p,1)+x*vec4(1)).xyz;}void main(){gl_FragColor=vec4(f(m,gl_FragCoord.xyz),1)+vec4(f(m,vec3(1)),1);}";
+      const out = minify(src);
+      expect(out).toContain("mat4 x=m;");
+      expect(out).not.toContain("const mat4");
+    });
     it("does not move a global declared after the function into its body", () => {
       // upstream: the sampler parameter can only be replaced by the global, which is declared later
       const src = "vec4 look(sampler2D s,vec2 p){return texture2D(s,p*.5);}uniform sampler2D tex;void main(){gl_FragColor=look(tex,gl_FragCoord.xy)+look(tex,gl_FragCoord.yx);}";
