@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { Minifier } from "../src/api.js";
 import type { Options } from "../src/options.js";
 import { glTransitions, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
@@ -47,42 +48,58 @@ if (three.length > 0) corpora.push({ name: "three.js", shaders: three });
 
 const upstream = upstreamOptions();
 const plugin = pluginOptions();
-const bytes = (options: Options, s: Shader): number | null => {
+const text = (options: Options, s: Shader): string | null => {
   try {
     const o = { ...options, ...s.options };
-    return new Minifier(o, [[s.name, s.source]]).format({ ...o, outputFormat: "text" }).length;
+    return new Minifier(o, [[s.name, s.source]]).format({ ...o, outputFormat: "text" });
   } catch { return null; }
 };
-const angle = async (s: Shader): Promise<number | null> => {
+const angle = async (s: Shader): Promise<string | null> => {
   if (spglsl === null) return null;
   try {
     const r = await spglsl.spglslAngleCompile({ mainSourceCode: s.source, mainFilePath: s.name, language: /\bgl_Position\b|\bgl_PointSize\b/.test(s.source) ? "Vertex" : "Fragment", compileMode: "Optimize", minify: true, mangle: true });
-    return r.valid && typeof r.output === "string" ? r.output.length : null;
+    return r.valid && typeof r.output === "string" ? r.output : null;
   } catch { return null; }
 };
 
 const pct = (a: number, b: number): string => (b === 0 ? "" : `${(100 * (b - a) / b).toFixed(1)}%`);
+// What actually ships: the shaders of a corpus travel together in one bundle, compressed once, so
+// the number that matters is the compression of their concatenation, not the sum of compressing
+// each alone. It also counts what the shaders share, which is most of an engine's chunk text.
+// Brotli at quality 11 is what a CDN serves a static asset with.
+const brotli = (parts: string[]): number =>
+  zlib.brotliCompressSync(Buffer.from(parts.join("\n"), "utf8"), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
 const rows: string[] = [];
 rows.push(`| corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |`);
 rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|`);
+const compressed: string[] = [];
+compressed.push(`| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |`);
+compressed.push(`|---|--:|--:|--:|--:|--:|--:|`);
 const largest: string[] = [];
 for (const corpus of corpora) {
   let source = 0, up = 0, pl = 0, sp = 0, spSource = 0, upSource = 0, plSource = 0, refusedUp = 0, refusedPl = 0, refusedSp = 0;
   const perShader: [string, number, number | null, number | null, number | null][] = [];
+  const texts: Record<"source" | "up" | "pl" | "sp", string[]> = { source: [], up: [], pl: [], sp: [] };
   for (const s of corpus.shaders) {
-    const u = bytes(upstream, s), p = bytes(plugin, s), a = await angle(s);
+    const u = text(upstream, s), p = text(plugin, s), a = await angle(s);
     source += s.source.length;
-    if (u === null) refusedUp++; else { up += u; upSource += s.source.length; }
-    if (p === null) refusedPl++; else { pl += p; plSource += s.source.length; }
-    if (a === null) refusedSp++; else { sp += a; spSource += s.source.length; }
-    perShader.push([s.name, s.source.length, u, p, a]);
+    texts.source.push(s.source);
+    if (u === null) refusedUp++; else { up += u.length; upSource += s.source.length; texts.up.push(u); }
+    if (p === null) refusedPl++; else { pl += p.length; plSource += s.source.length; texts.pl.push(p); }
+    if (a === null) refusedSp++; else { sp += a.length; spSource += s.source.length; texts.sp.push(a); }
+    perShader.push([s.name, s.source.length, u === null ? null : u.length, p === null ? null : p.length, a === null ? null : a.length]);
   }
+  const brSource = brotli(texts.source), brUp = brotli(texts.up), brPl = brotli(texts.pl);
+  const brSp = spglsl === null ? null : brotli(texts.sp);
+  compressed.push(`| ${corpus.name} | ${brSource.toLocaleString("en")} | ${brUp.toLocaleString("en")} | ${brPl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(brPl, brUp) : ""} | ${brSp === null ? "n/a" : brSp.toLocaleString("en")} | ${brSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(brPl, brSp) : ""} |`);
   const note = (n: number) => (n > 0 ? ` (${n} refused)` : "");
   rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${up.toLocaleString("en")}${note(refusedUp)} | ${pl.toLocaleString("en")}${note(refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${spglsl === null ? "n/a" : sp.toLocaleString("en") + note(refusedSp)} | ${spglsl !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(pl, sp) : ""} |`);
   perShader.sort((x, y) => y[1] - x[1]);
   for (const [name, src, u, p, a] of perShader.slice(0, 3)) largest.push(`| ${corpus.name}/${name} | ${src.toLocaleString("en")} | ${u ?? "refused"} | ${p ?? "refused"} | ${a === null ? (spglsl === null ? "n/a" : "refused") : a} |`);
 }
 console.log(rows.join("\n"));
+console.log("\nAfter brotli -q 11, each corpus compressed as one bundle:\n");
+console.log(compressed.join("\n"));
 console.log("\nLargest shaders of each corpus:\n");
 console.log("| shader | source | upstream rewrites | plugin defaults | spglsl |\n|---|--:|--:|--:|--:|");
 console.log(largest.join("\n"));

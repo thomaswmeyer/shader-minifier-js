@@ -157,6 +157,24 @@ accounts for none of it on its own (3.0 ms without it, inside the noise).
 - **Two shadertoy shaders spglsl refuses** (ed-209's struct ternary, and one
   more) keep that column's total from comparing; list them per shader.
 
+### Compressed size
+
+`npm run metrics` now reports each corpus compressed as one bundle (brotli
+-q 11) beside the raw totals, because that is what a user downloads and
+because a minifier optimising raw bytes can in principle lose there. It does
+not: the order of source, upstream rewrites, plugin and spglsl is the same
+under compression. What changes is the size of the margins, which halve
+wherever a corpus repeats itself (three.js: 39.8% raw over upstream's
+rewrites, 16.1% compressed; 58-fold compression of the source, since its
+programs share their chunks).
+
+Two things follow. Any new size optimisation should be judged on the
+compressed column, not the raw one: a rewrite that replaces repeated text
+with shorter repeated text may be worth nothing after brotli. And the
+optimisations most likely to still pay are the ones that remove *unique*
+text rather than repeated text, which is an argument for unused varyings and
+uniforms (section 7) over macro extraction or rerolling.
+
 ## 6b. Two `--preprocess` gaps
 
 Both make a condition undecidable that the file actually decides, so the
