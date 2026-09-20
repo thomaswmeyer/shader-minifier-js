@@ -135,14 +135,31 @@ fragment-only comparison already is the real pair.
 
 ## 6. Size and speed, from `npm run metrics`
 
-Compile time, measured in headless Chromium (ANGLE on SwiftShader) over the
-six largest three.js fragment shaders, median of 25 compiles each: 8.1 ms for
-the sources, 3.2 ms minified, so minifying is worth about 60% of compile time.
-`--remove-unused-declarations` accounts for none of that on its own (3.0 ms
-without it, inside the noise at this resolution), and it cannot speed up a
-*running* shader: a driver already eliminates code nothing reaches, which is
-why the pass buys bytes and nothing else. Unused varyings (section 7) are the
-case where removal should show up at runtime, and are unmeasured.
+**Execution time does not change.** Ten of the heaviest gl-transitions,
+40 draws each at 256x256, median of 7 runs, in headless Chromium (ANGLE on
+SwiftShader): 1,265 ms for the sources against 1,246 ms minified, 1.5%, with
+individual shaders landing on both sides of the line. The removal pass alone
+is 0.8%. Both are noise.
+
+That is the expected result, not a disappointment. The driver's compiler
+re-does inlining, folding and dead-code elimination from its own IR, so the
+source-level form the minifier produces is largely erased before anything
+reaches the hardware, and a declaration nothing reads was never executed in
+the first place. Minification buys bytes over the wire, not frames.
+
+Two caveats worth keeping in mind. SwiftShader is a CPU rasterizer, so this
+measures one compiler's behaviour, not a GPU's; the effect a real driver
+could show and this cannot is register pressure, where aggressive inlining
+lengthens live ranges and can lower occupancy, making minified code slightly
+*slower*. And unused varyings (section 7) are the one removal that should
+show up at runtime, since an interpolator slot and the vertex work feeding it
+survive dead-code elimination while both stages still declare the varying.
+That case is unmeasured.
+
+**Compile time does improve**, if that matters for startup: over the six
+largest three.js fragment shaders, median of 25 compiles each, 8.1 ms for the
+sources against 3.2 ms minified, about 60%. `--remove-unused-declarations`
+accounts for none of it on its own (3.0 ms without it, inside the noise).
 
 
 - **three.js: now 12.5% below ANGLE**, after `--remove-unused-declarations`
