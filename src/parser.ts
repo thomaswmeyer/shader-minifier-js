@@ -782,8 +782,46 @@ export function runParser(options: Options, streamName: string, content: string)
   if (options.expandMacros) src = expandMacros(src);
   const shader = new ParserImpl(options, src, streamName).run();
   pinMacroNames(options, shader);
+  markConditionalDeclarations(shader);
   if (options.preserveExternals || options.preserveAllGlobals) pinExternalStructFields(shader);
   return shader;
+}
+
+// A declaration inside `#if`/`#else` is one of a set of alternatives, of which the compiler sees
+// exactly one; the minifier reads them all at once. So its initializer must not travel out of the
+// branch, which is what `doNotInline` says: whether the branch is the one the compiler kept is not
+// something this pass knows. Cesium guards `uniform sampler2D u_oceanNormalMap` with `#ifdef
+// SHOW_OCEAN_WAVES` and reads it from a helper outside the region, where inlining it leaves it
+// undeclared. Scoping is handled where it belongs, in the environment the AST walk carries
+// (MapEnv.foldStmts); the renamer gives every branch's alternative the same new name (renRegion).
+//
+// A function body starts the count again: a local of a function that a region contains has no
+// alternative, since the region's other branches declare their own.
+function markConditionalDeclarations(shader: Ast.Shader): void {
+  // +1 for an `#if`, -1 for its `#endif`, 0 for anything else.
+  const nesting = (parts: readonly string[] | null): number =>
+    parts === null ? 0 : /^#\s*(if|ifdef|ifndef)\b/.test(parts[0]) ? 1 : /^#\s*endif\b/.test(parts[0]) ? -1 : 0;
+  const mark = ([, elts]: Ast.Decl): void => { for (const e of elts) e.name.doNotInline = true; };
+  const walkStmts = (stmts: readonly Ast.Stmt[], outer: number): void => {
+    let depth = outer;
+    for (const s of stmts) {
+      depth += nesting(s.kind === "Directive" ? s.parts : null);
+      if (depth > 0) {
+        if (s.kind === "Decl") mark(s.decl);
+        else if (s.kind === "ForD") mark(s.init);
+      }
+      if (s.kind === "Block") walkStmts(s.stmts, depth);
+      else if (s.kind === "If") { walkStmts([s.then], depth); if (s.else !== null) walkStmts([s.else], depth); }
+      else if (s.kind === "While" || s.kind === "DoWhile" || s.kind === "ForE" || s.kind === "ForD") walkStmts([s.body], depth);
+      else if (s.kind === "Switch") for (const c of s.cases) walkStmts(c.stmts, depth);
+    }
+  };
+  let depth = 0;
+  for (const tl of shader.code) {
+    depth += nesting(tl.kind === "TLDirective" ? tl.parts : null);
+    if (depth > 0 && tl.kind === "TLDecl") mark(tl.decl);
+    if (tl.kind === "Function") walkStmts([tl.body], 0);
+  }
 }
 
 // Under --preserve-externals a uniform's name is what the application looks up, and for a struct

@@ -470,7 +470,11 @@ export class ArgumentInlining {
     if (r !== null) {
       // 'in' uniforms are read-only globals, they can be inlined
       const vd = r[1];
-      return vd.scope === "Global" && !vd.isEverWrittenAfterDecl;
+      // doNotInline covers a global declared inside `#if`/`#else`: moving it into a function body
+      // outside the region leaves it undeclared whenever that branch is not the one the compiler
+      // keeps (Cesium guards `uniform sampler2D u_oceanNormalMap` with `#ifdef SHOW_OCEAN_WAVES`
+      // and reads it from a helper outside the region).
+      return vd.scope === "Global" && !vd.isEverWrittenAfterDecl && !vd.decl.name.doNotInline;
     }
     switch (e.kind) {
       case "Var": return e.ident.name === "true" || e.ident.name === "false";

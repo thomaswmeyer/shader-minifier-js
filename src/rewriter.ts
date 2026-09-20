@@ -1635,12 +1635,17 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     calls: new Set(members.flatMap((n) => n.callSites.map((c) => c.prototype))),
   });
   const byFunc = new Map(infos.map((n) => [n.func, n]));
-  const units: Unit[] = segments.map((s) => (s.region
-    ? unitOf(s.items, s.items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }))
-    : unitOf([s.tl], s.tl.kind === "Function" && byFunc.has(s.tl) ? [byFunc.get(s.tl)!] : [])))
-    .filter((u) => u.items.length > 0 && (u.defines.size > 0 || u.items.some((t) => t.kind === "Function")));
+  // A segment with no function in it is not a unit: it defines nothing and calls nothing, so it
+  // stays among the declarations. That covers a region of alternative declarations too, such as
+  // the `#ifdef GL_FRAGMENT_PRECISION_HIGH` block that picks a default precision.
+  const segItems = (s: Segment): TopLevel[] => (s.region ? s.items : [s.tl]);
+  const isUnit = (s: Segment): boolean => segItems(s).some((t) => t.kind === "Function");
+  const units: Unit[] = segments.filter(isUnit).map((s) => {
+    const items = segItems(s);
+    return unitOf(items, items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }));
+  });
   const defined = new Set(units.flatMap((u) => [...u.defines]));
-  const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" ? [s.tl] : []));
+  const out: TopLevel[] = segments.filter((s) => !isUnit(s)).flatMap(segItems);
   const pending = units.slice();
   const done = new Set<string>();
   while (pending.length > 0) {

@@ -264,11 +264,11 @@ void mainImage(out vec4 fragColour,vec2 fragCoord)
   
 #ifdef MOVE_CAMERA
 
-  vec3 camera=getCamPos(time*.2);
+  vec3 camera=getCamPos(time*.2),lookat=getCamPos(time*.2+10.);
   
 #else
 
-  vec3 camera=getCamPos(0.);
+  vec3 camera=getCamPos(0.),lookat=getCamPos(0.)+vec3(40.*sin(time*5.28),0,40.*cos(time*.28));
   
 #endif
 

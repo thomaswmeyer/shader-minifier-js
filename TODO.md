@@ -179,6 +179,17 @@ conditional standing where one expression does, and they are what is left:
 Until then `--preprocess` is the way; item 16 of `PORTING.md` lists what it
 now decides.
 
+**Refinement left over from the statement-level work.** A declaration inside
+`#if`/`#else` is never inlined, because the minifier does not know which
+branch the compiler keeps and the initializer must not leave the branch. That
+is blunter than it needs to be: an inlining is only unsafe when the use is
+outside the declaration's own branch. `tests/real/orchard.frag.expected` pays
+for it, keeping a `lookat` that is only mentioned in a comment. Making it
+precise means carrying the region a declaration and a use each sit in, and
+keeping that true across the rewrites that move statements, which is what
+makes it more than a one-line change. Worth doing only if the corpus shows it
+costs real bytes.
+
 ## 2. Upstream limits still in place
 
 - **Overload resolution by type.** The analyzer resolves calls by name and
