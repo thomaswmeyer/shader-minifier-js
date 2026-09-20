@@ -75,6 +75,11 @@ now decides.
   inlining and `--webgl` conservative around them. The rewriter's best-effort
   `typeOf` could grow into a typer for expressions, at which point call sites
   resolve exactly and `--webgl`'s output check no longer has to pass unknowns.
+- **A macro in declaration position.** PlayCanvas writes
+  `float f(SHADOWMAP_ACCEPT(shadowMap), vec3 c)`, where the macro expands to
+  a whole parameter. The parser cannot represent it, so those five shaders
+  need `--expand-macros`; without it they are refused. Section 1's plan
+  covers the general case.
 - **`#include`.** Not supported; engines resolve it before the shader reaches
   the minifier, so the plugin could too, from the importing file's directory.
 - **`precision` inside a function body.** A parse error today; GLSL allows it.
@@ -133,14 +138,16 @@ fragment-only comparison already is the real pair.
 
 ## 5. Test cases to add
 
-- Babylon.js is vendored (`npm run corpus:babylon`); PlayCanvas is the
-  remaining corpus gap. The three.js and Babylon pairs are linked *and*
-  rendered (section 3).
-- PlayCanvas (MIT) programs, dumped the way the three.js and Babylon ones
-  are. Babylon paid for itself immediately: it refused to parse at all
-  (interface blocks with an instance name, `PORTING.md` item 27) and then
-  exposed a variable-reuse bug that emitted a shader naming a variable it
-  never declares (item 28).
+- Babylon.js and PlayCanvas are vendored (`npm run corpus:babylon`,
+  `npm run corpus:playcanvas`), and their pairs are linked *and* rendered
+  along with three.js's (section 3).
+- A fourth engine, if one is wanted. Each of the three so far paid for
+  itself: Babylon refused to parse at all (interface blocks with an instance
+  name, `PORTING.md` item 27) and then exposed a variable-reuse bug that
+  emitted a shader naming a variable it never declares (item 28); PlayCanvas
+  declares a function parameter through a macro
+  (`float f(SHADOWMAP_ACCEPT(shadowMap), ...)`), which only `--expand-macros`
+  can take, and needed the harness to learn integer samplers.
 - A shader whose defines are injected at runtime, once section 1 lands.
 - A multi-file run in the pixel test (`tests/real/mouton` is one).
 - More seeds where a shader's branches depend on textures rather than

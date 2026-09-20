@@ -83,11 +83,24 @@
       return data;
     };
     // A shadow sampler gets a depth texture in compare mode, with deterministic depths.
-    const bindTexture = (target, k, shadow) => {
+    // `integer` is set for a usampler/isampler (PlayCanvas reads its clustered light data through
+    // one): those need an integer internal format, and sampling them with a float format is an
+    // incomplete texture rather than an error, so the draw silently produces nothing.
+    const bindTexture = (target, k, shadow, integer) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + k);
       gl.bindTexture(target, t);
-      if (shadow) {
+      if (integer) {
+        const signed = integer === "int";
+        const internal = signed ? gl.RGBA32I : gl.RGBA32UI;
+        const format = gl.RGBA_INTEGER;
+        const type = signed ? gl.INT : gl.UNSIGNED_INT;
+        const n = target === gl.TEXTURE_3D || target === gl.TEXTURE_2D_ARRAY ? 4 * 4 * 4 * 4 : 8 * 8 * 4;
+        const data = (signed ? Int32Array : Uint32Array).from({ length: n }, (_, i) => fnv(`${seed}|i${k}:${i}`) & 0xff);
+        if (target === gl.TEXTURE_CUBE_MAP) for (let f = 0; f < 6; f++) gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, internal, 8, 8, 0, format, type, data);
+        else if (target === gl.TEXTURE_2D) gl.texImage2D(target, 0, internal, 8, 8, 0, format, type, data);
+        else gl.texImage3D(target, 0, internal, 4, 4, 4, 0, format, type, data);
+      } else if (shadow) {
         const faces = target === gl.TEXTURE_CUBE_MAP ? [0, 1, 2, 3, 4, 5].map((f) => gl.TEXTURE_CUBE_MAP_POSITIVE_X + f) : [target];
         for (const face of faces) gl.texImage2D(face, 0, gl.DEPTH_COMPONENT16, 8, 8, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, depthData(k + face, 8, 8));
         gl.texParameteri(target, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
@@ -133,8 +146,14 @@
         [gl.SAMPLER_2D]: gl.TEXTURE_2D, [gl.SAMPLER_CUBE]: gl.TEXTURE_CUBE_MAP,
         [gl2.SAMPLER_3D]: gl2.TEXTURE_3D, [gl2.SAMPLER_2D_ARRAY]: gl2.TEXTURE_2D_ARRAY,
         [gl2.SAMPLER_2D_SHADOW]: gl.TEXTURE_2D, [gl2.SAMPLER_CUBE_SHADOW]: gl.TEXTURE_CUBE_MAP,
+        [gl2.UNSIGNED_INT_SAMPLER_2D]: gl.TEXTURE_2D, [gl2.INT_SAMPLER_2D]: gl.TEXTURE_2D,
+        [gl2.UNSIGNED_INT_SAMPLER_3D]: gl2.TEXTURE_3D, [gl2.INT_SAMPLER_3D]: gl2.TEXTURE_3D,
+        [gl2.UNSIGNED_INT_SAMPLER_CUBE]: gl.TEXTURE_CUBE_MAP, [gl2.INT_SAMPLER_CUBE]: gl.TEXTURE_CUBE_MAP,
+        [gl2.UNSIGNED_INT_SAMPLER_2D_ARRAY]: gl2.TEXTURE_2D_ARRAY, [gl2.INT_SAMPLER_2D_ARRAY]: gl2.TEXTURE_2D_ARRAY,
       };
       const shadowSamplers = new Set([gl2.SAMPLER_2D_SHADOW, gl2.SAMPLER_CUBE_SHADOW]);
+      const unsignedSamplers = new Set([gl2.UNSIGNED_INT_SAMPLER_2D, gl2.UNSIGNED_INT_SAMPLER_3D, gl2.UNSIGNED_INT_SAMPLER_CUBE, gl2.UNSIGNED_INT_SAMPLER_2D_ARRAY]);
+      const signedSamplers = new Set([gl2.INT_SAMPLER_2D, gl2.INT_SAMPLER_3D, gl2.INT_SAMPLER_CUBE, gl2.INT_SAMPLER_2D_ARRAY]);
       for (let i = 0; i < n; i++) {
         const info = gl.getActiveUniform(program, i);
         const loc = gl.getUniformLocation(program, info.name);
@@ -156,7 +175,8 @@
           gl[`uniformMatrix${d}fv`](loc, false, vals);
         } else if (info.type in samplerTargets) {
           const units = [];
-          for (let e = 0; e < count; e++) { bindTexture(samplerTargets[info.type], textureUnits, shadowSamplers.has(info.type)); units.push(textureUnits++); }
+          const integer = unsignedSamplers.has(info.type) ? "uint" : signedSamplers.has(info.type) ? "int" : null;
+          for (let e = 0; e < count; e++) { bindTexture(samplerTargets[info.type], textureUnits, shadowSamplers.has(info.type), integer); units.push(textureUnits++); }
           gl.uniform1iv(loc, new Int32Array(units));
         } else {
           throw new Error(`uniform ${info.name}: unsupported type 0x${info.type.toString(16)}`);

@@ -245,6 +245,7 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
 | three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
 | Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 59,928 | 3.6% |
+| PlayCanvas | 20 | 191,012 | 36,026 (5 refused) | 48,662 | | 60,037 | 18.9% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
 Shaders ship compressed, so the same corpora compressed as one bundle each
@@ -256,6 +257,7 @@ Shaders ship compressed, so the same corpora compressed as one bundle each
 | gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
 | three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
 | Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
+| PlayCanvas | 8,444 | 1,886 (5 refused) | 5,278 | | 5,254 | -0.5% |
 | upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
 
 The second table is the one to believe, and it says two things. Minifying is

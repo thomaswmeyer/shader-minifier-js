@@ -91,7 +91,10 @@ export function shaderInterface(name: string, source: string, stage: "frag" | "v
   const active = activeSource(source);
   const sizeOf = (s: { kind: string; value?: number; ident?: { name: string } }): number =>
     s.kind === "Int" ? s.value! : s.kind === "Var" ? active.defines.get(s.ident!.name) ?? NaN : NaN;
-  for (const tl of runParser(defaultOptions(), name, active.source).code) {
+  // Macros are expanded first: PlayCanvas declares a parameter through one
+  // (`float f(SHADOWMAP_ACCEPT(shadowMap), ...)`), which the parser cannot represent, and this
+  // only wants to read the declarations.
+  for (const tl of runParser({ ...defaultOptions(), expandMacros: true }, name, active.source).code) {
     if (tl.kind !== "TLDecl") continue;
     const [ty, elts] = tl.decl;
     if (!ty.typeQ.some((q) => wanted.includes(q)) || ty.name.kind !== "TypeName") continue;

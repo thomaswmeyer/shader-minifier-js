@@ -13,7 +13,7 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { Minifier } from "../src/api.js";
 import type { Options } from "../src/options.js";
-import { babylonShaders, glTransitions, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
+import { babylonShaders, glTransitions, playcanvasShaders, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
 import { repoRoot } from "../test/golden.js";
 import { readTomto, tomtoShaders } from "../test/tomto.js";
 
@@ -34,6 +34,8 @@ const three = threeShaders();
 if (three.length > 0) corpora.push({ name: "three.js", shaders: three });
 const babylon = babylonShaders();
 if (babylon.length > 0) corpora.push({ name: "Babylon.js", shaders: babylon });
+const playcanvas = playcanvasShaders();
+if (playcanvas.length > 0) corpora.push({ name: "PlayCanvas", shaders: playcanvas });
 {
   const list = fs.readFileSync(path.join(repoRoot, "tests/compile.txt"), "utf8").split("\n").map((l) => l.trim().split(/\s+/)).filter((p) => p.length === 3 && !p[0].startsWith("#"));
   const header = "#version 300 es\nprecision highp float;\nuniform vec3 iResolution; uniform float iTime, iTimeDelta; uniform int iFrame; uniform vec4 iMouse, iDate;\nuniform float iChannelTime[4]; uniform vec3 iChannelResolution[4];\nuniform sampler2D iChannel0, iChannel1, iChannel2, iChannel3;\n";
