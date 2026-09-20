@@ -195,9 +195,51 @@ uniforms (section 7) over macro extraction or rerolling.
   application looks uniforms up by name. Opt-in only, for applications that
   tolerate a null location (three.js does). Same machinery as the varyings
   once the cross-file name set exists.
-- **Redundant precision qualifiers.** `highp` on a declaration where the
-  default precision for that type is already `highp`. ANGLE drops these;
-  `dropDefaultPrecision` only handles the `precision` statements themselves.
+- **Redundant precision qualifiers: done, and it does not pay.**
+  `--drop-default-precision` now also drops a qualifier on a declaration
+  that restates the precision in force, as ANGLE does. Measured over the
+  corpora it is worth 42 bytes raw on three.js and *four bytes worse*
+  compressed, because what it removes is the repeated word `highp` and the
+  compressor was already charging almost nothing for it. It fires rarely
+  there for a good reason: three.js emits `out highp vec4 pc_fragColor;`
+  before its `precision highp float;` line, and until that line the
+  qualifier is the only thing saying what the type is. This is the first
+  clean confirmation of the rule in section 6: removing repeated text is
+  not worth much after brotli. Kept because it is correct, tested and does
+  help a single shader packed on its own, which is the demoscene case.
+
+- **Lossy precision reduction (`highp` to `mediump`) is blocked on the
+  harness, not on the rewrite.** It is the only proposal here with a real
+  runtime payoff, since `mediump` is fp16 on mobile hardware. The pixel test
+  cannot validate it: SwiftShader, and desktop ANGLE generally, implement
+  `mediump` as fp32, so a reduced shader renders identically there and the
+  test would pass while the shader broke on a phone. The unblock is to
+  emulate fp16 in the comparison, which WebGL2 makes possible:
+  `unpackHalf2x16(packHalf2x16(vec2(x))).x` rounds a float to half
+  precision, so a transform that wraps every `mediump`-typed intermediate in
+  it gives a shader that computes what a mobile GPU would. Build that first,
+  then the rewrite is a small one.
+
+### Measured and not worth building
+
+Kept here so they are not proposed again. Both were judged on the compressed
+column of section 6, which is the point of having it.
+
+- **Function and struct deduplication.** Two functions with identical bodies
+  collapse to one. Measured over the three.js corpus, duplicate
+  function-body text is 1.4% of the source and 3.4% of the minified output,
+  about 2.7 KB in total, so the ceiling is roughly 2% of the corpus raw.
+  Those duplicates are literal repeats inside one shader, which is exactly
+  what brotli already removes, so the compressed win is near zero. Against
+  that: proving two functions identical modulo parameter names, handling
+  overloads, and rewriting call sites. Not worth it.
+- **Macro extraction** (emitting `#define` for a repeated token sequence)
+  is the same shape of idea and fails the same test, more severely: it
+  replaces repeated text with repeated text plus a definition.
+
+The rule these two share: an optimisation that removes *repeated* text is
+paid for by the compressor already. What still pays is removing *unique*
+text, which is why unused varyings and uniforms remain the best items above.
 
 ## 8. Flag surface
 

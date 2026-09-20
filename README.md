@@ -80,7 +80,9 @@ file pattern, and `options` passes any raw minifier option.
   `acos(-1.)`, which can cost precision under `mediump`.
 - `--drop-default-precision`: drop precision statements that restate the
   stage's default (`precision highp float;` in a vertex shader, `mediump int`
-  in a fragment shader, `lowp` samplers). The stage is `--stage`, else the
+  in a fragment shader, `lowp` samplers), and a precision qualifier on a
+  declaration that restates the precision already in force (`mediump vec3 c;`
+  after `precision mediump float;`). The stage is `--stage`, else the
   file extension (`.vert`/`.vs`, `.frag`/`.fs`), else a builtin only one stage
   has (`gl_Position`, `gl_FragCoord`, `discard`, ...). A shader that proves
   neither, such as a transform-feedback vertex shader that never writes
@@ -227,7 +229,7 @@ externals kept in all of them; three.js runs with `--preprocess`:
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
 | gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
-| three.js | 56 | 1,337,454 | 218,851 | 131,640 | 39.8% | 143,890 | 8.5% |
+| three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
 Shaders ship compressed, so the same corpora compressed as one bundle each
@@ -237,7 +239,7 @@ Shaders ship compressed, so the same corpora compressed as one bundle each
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,132 | 3.4% |
 | gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
-| three.js | 22,926 | 15,201 | 12,760 | 16.1% | 13,713 | 6.9% |
+| three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
 | upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
 
 The second table is the one to believe, and it says two things. Minifying is
@@ -248,7 +250,7 @@ compressor would have made for free. But the raw numbers overstate the
 margins about twofold wherever a corpus repeats itself: three.js source is
 1.3 MB raw and 23 KB compressed, a 58-fold ratio, because its 56 programs
 are assembled from the same chunks, and the plugin's 39.8% raw win over
-upstream's rewrites is 16.1% once the compressor has had its turn. Read the
+upstream's rewrites is 16.0% once the compressor has had its turn. Read the
 raw table for what a single shader embedded in a bundle costs, and the
 compressed one for what a user downloads.
 

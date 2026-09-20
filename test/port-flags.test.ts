@@ -24,6 +24,28 @@ describe("--drop-default-precision", () => {
   it("is off by default", () => {
     expect(minify(vert)).toContain("precision highp float;precision highp int;");
   });
+  it("drops a qualifier on a declaration that restates the precision in force", () => {
+    const opts = { dropDefaultPrecision: true, noInlining: true };
+    const f = "precision mediump float;uniform highp float a;uniform mediump float b;uniform mediump vec3 c;void main(){gl_FragColor=vec4(a+b+c.x);}";
+    // `mediump` says nothing after `precision mediump float;`; `highp` differs, so it stays.
+    expect(minifyApi([{ name: "t.frag", content: f }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
+      .toBe("precision mediump float;uniform highp float a;uniform float b;uniform vec3 c;void main(){gl_FragColor=vec4(a+b+c.x);}");
+    // A vector follows float, an integer vector follows int, a sampler is its own; parameters,
+    // locals and struct members count as declarations too.
+    const v = "in highp vec3 p;out highp vec2 v;out mediump float m;void main(){v=p.xy;m=p.z;gl_Position=vec4(p,1);}";
+    expect(minifyApi([{ name: "t.vert", content: v }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
+      .toBe("in vec3 p;out vec2 v;out mediump float m;void main(){v=p.xy;m=p.z;gl_Position=vec4(p,1);}");
+    const s = "precision mediump float;struct S{mediump float a;highp float b;};uniform S s;void main(){gl_FragColor=vec4(s.a+s.b);}";
+    expect(minifyApi([{ name: "t.frag", content: s }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
+      .toContain("struct S{float a;highp float b;};");
+  });
+  it("keeps a qualifier a fragment shader has no default for", () => {
+    // A fragment shader has no default float precision, so `mediump float b;` is the only thing
+    // saying what b is: dropping it would not compile.
+    const f = "uniform mediump float b;void main(){gl_FragColor=vec4(b);}";
+    expect(minifyApi([{ name: "t.frag", content: f }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, dropDefaultPrecision: true }).code)
+      .toBe("uniform mediump float b;void main(){gl_FragColor=vec4(b);}");
+  });
   it("drops highp float and int from a vertex shader", () => {
     expect(minify(vert, { dropDefaultPrecision: true })).toBe("uniform float u;void main(){gl_Position=vec4(u);}");
   });

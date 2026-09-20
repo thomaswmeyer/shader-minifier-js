@@ -392,7 +392,18 @@ says so. Every site is ported deliberately:
     whole conditional. A trailing line or block comment is not part of the
     value, and hex is read in a define and in the condition itself.
 
-24. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+24. *A redundant precision qualifier on a declaration.*
+    `--drop-default-precision` dropped a `precision T t;` statement that
+    restated the stage default; it now also drops a qualifier on a
+    declaration that restates the precision in force at that point
+    (`mediump vec3 c;` after `precision mediump float;`), as ANGLE does. A
+    vector or matrix follows `float` and an integer vector follows `int`;
+    `uint`, `bool` and structs are left alone. A fragment shader has no
+    default float precision, so a qualifier before the file states one is
+    never dropped. Worth 42 bytes on the three.js corpus and nothing after
+    compression (`TODO.md` section 7).
+
+25. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -428,7 +439,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 24, `test/port-flags.test.ts`).
+  (item 25, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

@@ -1761,22 +1761,75 @@ export function detectStage(options: Options, code: readonly TopLevel[]): Stage 
   return vertex ? "vertex" : "fragment";
 }
 
+const isPrecisionQ = (q: string): boolean => q === "lowp" || q === "mediump" || q === "highp";
+
+// Which type's default precision governs a type name: a vector or matrix follows `float`, an
+// integer vector follows `int`, a sampler is its own. `uint`, `bool` and structs are left alone,
+// the first because the stage defaults above do not state it and the others because they take no
+// precision qualifier.
+const precisionBase = (name: string): string | null => {
+  if (Builtin.isSamplerType(name)) return name;
+  if (name === "float" || /^(vec[234]|mat[234](x[234])?)$/.test(name)) return "float";
+  if (name === "int" || /^ivec[234]$/.test(name)) return "int";
+  return null;
+};
+
 export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: Stage | null = null): TopLevel[] {
   if (options.hlsl) return code;
   stage = options.stage ?? stage ?? detectStage(options, code);
   const defaults = new Map<string, string>(lowpSamplers.map((s) => [s, "lowp"]));
   if (stage === "vertex") { defaults.set("float", "highp"); defaults.set("int", "highp"); }
   else if (stage === "fragment") defaults.set("int", "mediump");
+
+  // The precision in force for each type, which a `precision` statement changes from that point
+  // on. A qualifier on a declaration that restates it says nothing, so it goes: ANGLE drops these
+  // too, and three.js writes `highp` on most of its outputs.
+  const current = new Map(defaults);
+  const stripRedundant = (ty: Type): void => {
+    if (ty.name.kind !== "TypeName") return;
+    const base = precisionBase(ty.name.ident.name);
+    const prec = ty.typeQ.find(isPrecisionQ);
+    if (base === null || prec === undefined || current.get(base) !== prec) return;
+    trace(options, `dropping '${prec}' from '${ty.name.ident.name}': the precision already in force`);
+    ty.typeQ = ty.typeQ.filter((q) => q !== prec);
+  };
+  const stripDecl = (d: Decl): void => stripRedundant(d[0]);
+  const stripTopLevel = (tl: TopLevel): void => {
+    switch (tl.kind) {
+      case "TLDecl": stripDecl(tl.decl); break;
+      case "TypeDecl": for (const m of tl.block.members) if (m.kind === "MemberVariable") stripDecl(m.decl); break;
+      case "Function": {
+        stripRedundant(tl.funcType.retType);
+        for (const a of tl.funcType.args) stripDecl(a);
+        const inBody = (_: MapEnv, s: Stmt): Stmt => {
+          if (s.kind === "Decl") stripDecl(s.decl);
+          else if (s.kind === "ForD") stripDecl(s.init);
+          return s;
+        };
+        Ast.visitor(options, undefined, inBody).iterStmt(Ast.UnknownLevel, tl.body);
+        break;
+      }
+      default: break;
+    }
+  };
+
   const seen = new Set<string>();
-  return code.filter((tl) => {
-    if (tl.kind !== "Precision" || tl.ty.name.kind !== "TypeName") return true;
-    const tyName = tl.ty.name.ident.name;
-    const prec = tl.ty.typeQ.find((q) => q === "lowp" || q === "mediump" || q === "highp");
-    const drop = !seen.has(tyName) && prec !== undefined && defaults.get(tyName) === prec;
-    seen.add(tyName);
-    if (drop) trace(options, `dropping 'precision ${prec} ${tyName};': the default of the ${stage ?? "unknown"} stage`);
-    return !drop;
-  });
+  const out: TopLevel[] = [];
+  for (const tl of code) {
+    if (tl.kind === "Precision" && tl.ty.name.kind === "TypeName") {
+      const tyName = tl.ty.name.ident.name;
+      const prec = tl.ty.typeQ.find(isPrecisionQ);
+      if (prec !== undefined) current.set(tyName, prec);
+      const drop = !seen.has(tyName) && prec !== undefined && defaults.get(tyName) === prec;
+      seen.add(tyName);
+      if (drop) { trace(options, `dropping 'precision ${prec} ${tyName};': the default of the ${stage ?? "unknown"} stage`); continue; }
+      out.push(tl);
+      continue;
+    }
+    stripTopLevel(tl);
+    out.push(tl);
+  }
+  return out;
 }
 
 /** `fileStage` is the stage the file name implies, if any; `--stage` overrides it. */
