@@ -48,15 +48,19 @@ class Impl {
     else if (cond === "Unknown" && frame.taken !== "Active") frame.taken = "Unknown";
     frame.status = status;
     if (status !== "Unknown") return "";
-    const line = frame.emitted ? text : text.replace(/^#elif\b/, "#if").replace(/^#else$/, "#if 1");
+    // An `#elif` opening the output needs to read as `#if`, since this block's own `#if` line was
+    // dropped as decided. An `#else` cannot be the first line emitted: its frame is undecidable
+    // only when the `#if` was, and that one emitted.
+    const line = frame.emitted ? text : text.replace(/^#elif\b/, "#if");
     frame.emitted = true;
     return line;
   }
 
   // Upstream decides `#if 0` and `#if 1` only. The port also decides a constant expression of
   // integer literals, `defined(X)` and the C operators (`#if ( 1 > 0 ) && defined( USE_MAP )`, the
-  // form engines like three.js emit after substituting their counts); a bare identifier still
-  // makes the condition unknown, as upstream's `#if DEF` golden expects.
+  // form engines like three.js emit after substituting their counts). A name the file does not
+  // define reads as 0, as C does; a name defined as something other than an integer leaves the
+  // condition undecidable, and so does anything this cannot evaluate.
   private evalCond(str: string): Status {
     const v = evalConstantExpression(str, (name) => this.defines.has(name), (name) => {
       const d = this.defines.get(name);

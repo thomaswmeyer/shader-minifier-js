@@ -266,11 +266,14 @@ says so. Every site is ported deliberately:
     locals or their assignments removed as unused (`controllable-machinery`
     under renaming). The parser records the identifiers in every macro body
     (`Shader.pinnedNames`, and `pinnedFields` for the names after a dot);
-    every declaration of such a name is `Ident.pinned`: never renamed
-    (variables, functions, structs, fields), never inlined or removed, never
-    a var-reuse or unused-assignment candidate, never substituted by
-    `--inline-single-use`; the names that pinned a declaration join the
-    forbidden list. The golden of `controllable-machinery.frag` keeps a
+    every declaration of such a name gets both `Ident.keepName` and
+    `Ident.hiddenUses`: never renamed (variables, functions, structs,
+    fields), never inlined or removed, never a var-reuse or
+    unused-assignment candidate, never substituted by `--inline-single-use`;
+    those names join the forbidden list. The two flags are separate because
+    the other things that must keep a name (an external struct's fields and
+    type name, a swizzle-like field) have no invisible use and stay free to
+    be removed when nothing reads them. The golden of `controllable-machinery.frag` keeps a
     `vec3 d` that upstream merges into the parameter (`tests/DEVIATIONS.md`).
 12. *Function reordering and conditional regions.* When a forward
     declaration triggers `reorderFunctions`, upstream moves every function
@@ -351,8 +354,8 @@ says so. Every site is ported deliberately:
 
 20. *Struct fields named like swizzles.* Upstream refuses `struct Hexagon {
     float q, r, s; }` because it cannot tell `hex.q` from `p.q`. The port
-    keeps such a field under its own name (pinned, and forbidden as a
-    generated name), and where a file declares one the rewrites that assume
+    keeps such a field under its own name (`Ident.keepName`, and forbidden
+    as a generated name), and where a file declares one the rewrites that assume
     a swizzle (canonical field names, combining `v.x, v.y` into `v.xy`,
     dropping a trailing `.xy`) first check that the left side is known not
     to be a struct. A file without such fields is rewritten exactly as

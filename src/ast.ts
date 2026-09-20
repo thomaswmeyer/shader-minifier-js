@@ -33,9 +33,20 @@ export class Ident {
   toBeInlined: boolean;
   // This prefix disables function inlining and variable inlining.
   doNotInline: boolean;
-  // Named in the body of a #define that stays in the output: the macro's text is the one use
-  // the minifier cannot see, so the declaration keeps its name and is never inlined or removed.
-  pinned = false;
+  // Two different reasons an identifier is not the minifier's to change, kept apart because the
+  // consumers of each are different.
+  //
+  // keepName: the name is part of an interface something outside the shader reads. An application
+  // looks up a uniform and its struct fields by name; GL matches a struct-typed uniform between
+  // two stages by its type name; a field named like a swizzle (`hex.q`) must stay legible as a
+  // field. Only the renamer cares, and only about the name: such a declaration is still free to be
+  // inlined or removed if nothing uses it.
+  keepName = false;
+  // hiddenUses: text this pass cannot read refers to the name, so the uses it can count are not
+  // all of them. A kept #define body is the case: the macro's text is the use the minifier never
+  // sees. Removal, reuse and inlining must all leave such a declaration alone; the name has to
+  // survive too, so whoever sets this sets keepName as well.
+  hiddenUses = false;
   loc: Location;
   isVarWrite = false;
   declaration: Declaration = UnknownDeclaration;
@@ -262,7 +273,7 @@ export interface Shader {
   filename: string;
   code: TopLevel[];
   forbiddenNames: string[];
-  pinnedNames: string[]; // identifiers named in #define bodies, and the field names after a dot; see Ident.pinned
+  pinnedNames: string[]; // identifiers named in #define bodies, and the field names after a dot; see Ident.hiddenUses
   pinnedFields: string[];
   reorderFunctions: boolean; // set to true if we saw a forward declaration
 }

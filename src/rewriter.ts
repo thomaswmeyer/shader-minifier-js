@@ -82,7 +82,6 @@ class RewriterImpl {
   // For --webgl: what ANGLE rejects depends on struct-ness and void-ness, which upstream never
   // tracks, so the declarations of the file are indexed once per pass.
   private readonly structs = new Map<string, StructOrInterfaceBlock>();
-  private readonly voidFunctions = new Set<string>();
   private readonly returnTypes = new Map<string, Type[]>(); // every overload's return type, by function name
   private readonly voidSequenceForbidden: boolean;
   // Whether a struct of the file has a field named like a swizzle (`q`, `rgb`): then `e.q` is a
@@ -102,12 +101,27 @@ class RewriterImpl {
         const name = tl.funcType.fName.name;
         const ret = tl.funcType.retType;
         this.returnTypes.set(name, [...(this.returnTypes.get(name) ?? []), ret]);
-        if (ret.name.kind === "TypeName" && ret.name.ident.name === "void") this.voidFunctions.add(name);
       }
     }
     // Only ES 3.00 rejects void operands in a sequence, but the `#version 300 es` line is usually
     // prepended at runtime (shadertoy, three.js), so the source can't tell us which rules apply.
     this.voidSequenceForbidden = options.webgl;
+  }
+
+  // `typeOf` answers `null` for what it cannot work out: an unresolved overload, a macro that
+  // looks like a call, a builtin variable that is not `gl_`-prefixed. The two kinds of caller read
+  // that `null` in opposite directions, and must:
+  //
+  //   a guard (`mayBeStruct`, `structTernaryForbidden`, `hasVoidOperand`) asks "could this be one?"
+  //     and treats the unknown as yes, so a rewrite is skipped rather than risked;
+  //   a check on finished output (`webglCheck`) asks "is this proven to be one?" and treats the
+  //     unknown as no, so it reports what the guards let through instead of failing on a shader it
+  //     merely cannot type.
+  //
+  // Reading `null` the other way around in either place would be a bug: a permissive guard emits a
+  // shader ANGLE rejects, a conservative check refuses a shader that is fine.
+  private isVoidType(ty: Type): boolean {
+    return ty.name.kind === "TypeName" && ty.name.ident.name === "void";
   }
 
   private isStructType(ty: Type): boolean {
@@ -196,10 +210,11 @@ class RewriterImpl {
     if (e.kind !== "FunCall" || e.fn.kind !== "Var") return false;
     const d = e.fn.ident.declaration;
     const name = e.fn.ident.name;
-    if (d.kind === "UserFunction") return d.decl.funcType.retType.name.kind === "TypeName" && d.decl.funcType.retType.name.ident.name === "void";
+    if (d.kind === "UserFunction") return this.isVoidType(d.decl.funcType.retType);
     if (d.kind === "BuiltinFunction") return false;
     // overloads: void if any overload is; a macro that looks like a call: assume void unless it names something known
-    if (this.returnTypes.has(name)) return this.voidFunctions.has(name);
+    const overloads = this.returnTypes.get(name);
+    if (overloads !== undefined) return overloads.some((t) => this.isVoidType(t));
     return !(Builtin.builtinFunctions.has(name) || Builtin.builtinTypes.has(name) || this.structs.has(name));
   }
 
@@ -930,14 +945,14 @@ class RewriterImpl {
     // Assignments to parameters are only removed if is the entire function body is single-flow.
     // A pinned variable may be read by a kept #define, which the visit cannot see: never a candidate.
     const parameterCandidates: DeclElt[] =
-      blockLevel.kind === "FunctionRoot" && isSingleFlow(blockStmts) ? funParameters(blockLevel.fn).map(([, d]) => d).filter((d) => !d.name.pinned) : [];
+      blockLevel.kind === "FunctionRoot" && isSingleFlow(blockStmts) ? funParameters(blockLevel.fn).map(([, d]) => d).filter((d) => !d.name.hiddenUses) : [];
     // Assignments to locals are only removed if they are declared in a Block (not a ForD) that is single-flow (starting from the declaration).
     const localCandidates: [DeclElt[], Stmt[]][] = [];
     for (let i = 0; i < blockStmts.length; i++) {
       const head = blockStmts[i];
       if (head.kind === "Decl") {
         const stmts = blockStmts.slice(i);
-        if (isSingleFlow(stmts)) localCandidates.push([head.decl[1].filter((d) => !d.name.pinned), stmts]);
+        if (isSingleFlow(stmts)) localCandidates.push([head.decl[1].filter((d) => !d.name.hiddenUses), stmts]);
       }
     }
     // Assignments to globals are not removed (it requires analysis over every called function).
@@ -1065,9 +1080,9 @@ class RewriterImpl {
             ? funParameters(blockLevel.fn).flatMap(([ty, decl]) => (!typeIsOutOrInout(ty) && typeEquals(ty, ty2) ? [decl] : []))
             : [];
 
-        if (declElt2.name.pinned) return null; // a kept #define may read it under that name
+        if (declElt2.name.hiddenUses) return null; // a kept #define may read it under that name
         const compatibleDeclElt = [...localDecls, ...args].find((declElt1) =>
-          !declElt1.name.pinned &&
+          !declElt1.name.hiddenUses &&
           exprListEquals(declElt1.sizes, declElt2.sizes) &&
           exprListEquals(declElt1.semantics, declElt2.semantics) &&
           // The first variable must not be used after the second is declared.
@@ -1383,7 +1398,7 @@ class RewriterImpl {
   // never named, and a precision statement for a type that is never declared go. A global whose
   // initializer has an effect (desktop GLSL allows a call there) stays. Anything named in verbatim
   // text is kept, since that text cannot be read. --remove-unused-declarations; the plugin's default.
-  static removeUnusedDeclarations(options: Options, code: TopLevel[]): TopLevel[] {
+  static removeUnusedDeclarations(options: Options, code: TopLevel[], changed: { value: boolean } = { value: false }): TopLevel[] {
     const analyzer = new Analyzer(options);
     const used = new Set<string>();
     const usedTypes = new Set<string>();
@@ -1412,12 +1427,11 @@ class RewriterImpl {
         case "TLDecl": declUses(tl.decl); break;
         case "TypeDecl": members(tl.block); break;
         case "TLVerbatim": verbatim.push(tl.text); break;
-        case "TLDirective": verbatim.push(tl.parts.join(" ")); break;
-        default: break;
+        default: break; // a name in a kept #define body is pinned by the parser, and pinned names are never removed
       }
     }
     const verbatimExpr = (_: MapEnv, e: Expr): Expr => { if (e.kind === "VerbatimExp") verbatim.push(e.text); return e; };
-    const verbatimStmt = (_: MapEnv, s: Stmt): Stmt => { if (s.kind === "Verbatim") verbatim.push(s.text); else if (s.kind === "Directive") verbatim.push(s.parts.join(" ")); return s; };
+    const verbatimStmt = (_: MapEnv, s: Stmt): Stmt => { if (s.kind === "Verbatim") verbatim.push(s.text); return s; };
     Ast.visitor(options, verbatimExpr, verbatimStmt).iterTopLevel(code); // text inside function bodies too
     const inVerbatim = (name: string): boolean => verbatim.some((t) => new RegExp(`\\b${name}\\b`).test(t));
     const isUsed = (name: string): boolean => used.has(name) || usedTypes.has(name) || inVerbatim(name);
@@ -1425,15 +1439,15 @@ class RewriterImpl {
     const out: TopLevel[] = [];
     for (const tl of code) {
       if (tl.kind === "TLDecl" && !Ast.typeIsExternal(tl.decl[0])) {
-        const kept = tl.decl[1].filter((d) => d.name.pinned || isUsed(d.name.name) || (d.init !== null && !Effects.isPure(d.init)));
+        const kept = tl.decl[1].filter((d) => d.name.hiddenUses || isUsed(d.name.name) || (d.init !== null && !Effects.isPure(d.init)));
         if (kept.length !== tl.decl[1].length) {
           edited = true;
           trace(options, "removing unused globals: " + tl.decl[1].filter((d) => !kept.includes(d)).map((d) => d.name.name).join(", "));
-          if (kept.length === 0 && tl.decl[0].name.kind === "TypeName") continue;
+          if (kept.length === 0) continue; // `Block{...};` with no instance name would declare its members as globals
           out.push(TLDecl([tl.decl[0], kept]));
           continue;
         }
-      } else if (tl.kind === "TypeDecl" && tl.block.blockType.kind === "Struct" && tl.block.name !== null && !tl.block.name.pinned && !isUsed(tl.block.name.name)) {
+      } else if (tl.kind === "TypeDecl" && tl.block.blockType.kind === "Struct" && tl.block.name !== null && !tl.block.name.hiddenUses && !isUsed(tl.block.name.name)) {
         edited = true;
         trace(options, "removing unused struct: " + tl.block.name.name);
         continue;
@@ -1444,8 +1458,8 @@ class RewriterImpl {
       }
       out.push(tl);
     }
-    // A struct may become unused once its only global went, and a function once its only caller was a global's initializer.
-    return edited ? RewriterImpl.removeUnusedDeclarations(options, RewriterImpl.removeUnusedFunctions(options, out)) : out;
+    if (edited) changed.value = true;
+    return edited ? RewriterImpl.removeUnusedDeclarations(options, out, changed) : out; // a struct may become unused once its only global went
   }
 
   // The prototypes called from a global declaration's initializers and array sizes. Desktop GLSL
@@ -1459,11 +1473,11 @@ class RewriterImpl {
     return calls;
   }
 
-  static removeUnusedFunctions(options: Options, code: TopLevel[]): TopLevel[] {
+  static removeUnusedFunctions(options: Options, code: TopLevel[], changed: { value: boolean } = { value: false }): TopLevel[] {
     const funcInfos = new Analyzer(options).findFuncInfos(code);
     const globalCalls = new Set(code.flatMap((tl) => [...RewriterImpl.globalCalls(options, tl)]));
     const isUnused = (funcInfo: FuncInfo): boolean => {
-      const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.pinned; // noRenamingList includes "main"
+      const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.hiddenUses; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
       const isCalled = globalCalls.has(proto) || funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
       return canBeRenamed && !isCalled && !funIsExternal(funcInfo.funcType, options);
@@ -1481,7 +1495,8 @@ class RewriterImpl {
       }
       return true;
     });
-    return edited ? RewriterImpl.removeUnusedFunctions(options, newCode) : newCode;
+    if (edited) changed.value = true;
+    return edited ? RewriterImpl.removeUnusedFunctions(options, newCode, changed) : newCode;
   }
 
   // Squeeze top-level declarations: `float a; float b;` -> `float a,b;`
@@ -1503,6 +1518,7 @@ class RewriterImpl {
         case "TLVerbatim": return false; // we don't know what this is. assume the worst
       }
     };
+    const calledByDecl = new Map<TopLevel, Set<string>>(tls.map((t) => [t, RewriterImpl.globalCalls(this.options, t)]));
     const moveDeclarationsUp = (list: TopLevel[]): TopLevel[] => {
       const [swappables, rest1] = splitWhile(canBeSwappedWithFollowingDeclaration, list);
       const [decls, rest] = splitWhile((t) => t.kind === "TLDecl", rest1);
@@ -1511,8 +1527,7 @@ class RewriterImpl {
         return [rest[0], ...moveDeclarationsUp(rest.slice(1))];
       }
       // A declaration whose initializer calls one of the functions stays after them.
-      const called = new Set(decls.flatMap((d) => [...RewriterImpl.globalCalls(this.options, d)]));
-      if (swappables.some((f) => f.kind === "Function" && called.has(funPrototype(f.funcType)))) return [...swappables, ...decls, ...moveDeclarationsUp(rest)];
+      if (swappables.some((f) => f.kind === "Function" && decls.some((d) => calledByDecl.get(d)?.has(funPrototype(f.funcType))))) return [...swappables, ...decls, ...moveDeclarationsUp(rest)];
       return [...decls, ...swappables, ...moveDeclarationsUp(rest)];
     };
     const sameList = (a: TopLevel[], b: TopLevel[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -1629,8 +1644,17 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
 }
 
 function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {
-  let code = options.noRemoveUnused ? li : RewriterImpl.removeUnusedFunctions(options, li);
-  if (!options.noRemoveUnused && options.removeUnusedDeclarations) code = RewriterImpl.removeUnusedDeclarations(options, code);
+  let code = li;
+  if (!options.noRemoveUnused) {
+    // Removing a global can orphan a function whose only caller was its initializer, and removing
+    // a function can orphan a global only it read, so alternate until neither removes anything.
+    const changed = { value: true };
+    while (changed.value) {
+      changed.value = false;
+      code = RewriterImpl.removeUnusedFunctions(options, code, changed);
+      if (options.removeUnusedDeclarations) code = RewriterImpl.removeUnusedDeclarations(options, code, changed);
+    }
+  }
   code = code.filter((t) => !(t.kind === "TypeDecl" && t.block.blockType.kind === "Struct" && t.block.name === null)); // e.g. `struct {int A;};`
   new Analyzer(options).resolve(code);
   new Analyzer(options).markWrites(code);

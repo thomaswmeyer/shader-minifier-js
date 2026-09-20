@@ -440,7 +440,7 @@ class ParserImpl {
     const check = (decl: Ast.Decl): Ast.Decl => {
       for (const d of decl[1]) {
         if (Builtin.isFieldSwizzle(d.name.name)) {
-          d.name.pinned = true;
+          d.name.keepName = true;
           this.forbiddenNames = [d.name.name, ...this.forbiddenNames];
         }
       }
@@ -895,7 +895,7 @@ function pinExternalStructFields(shader: Ast.Shader): void {
     const block = pending.pop()!;
     if (done.has(block)) continue;
     done.add(block);
-    if (block.blockType.kind === "Struct" && block.name !== null) block.name.pinned = true;
+    if (block.blockType.kind === "Struct" && block.name !== null) block.name.keepName = true;
     for (const m of block.members) {
       if (m.kind !== "MemberVariable") continue;
       const [ty, elts] = m.decl;
@@ -907,7 +907,7 @@ function pinExternalStructFields(shader: Ast.Shader): void {
   // is kept in all of them.
   for (const block of structs.values()) {
     for (const m of block.members) {
-      if (m.kind === "MemberVariable") for (const e of m.decl[1]) if (fieldNames.has(e.name.name)) e.name.pinned = true;
+      if (m.kind === "MemberVariable") for (const e of m.decl[1]) if (fieldNames.has(e.name.name)) e.name.keepName = true;
     }
   }
 }
@@ -938,7 +938,7 @@ function pinMacroNames(options: Options, shader: Ast.Shader): void {
   const fields = new Set(shader.pinnedFields);
   if (names.size === 0 && fields.size === 0) return;
   const used = new Set<string>();
-  const pin = (id: Ast.Ident, set: Set<string>): void => { if (set.has(id.name)) { id.pinned = true; id.doNotInline = true; used.add(id.name); } };
+  const pin = (id: Ast.Ident, set: Set<string>): void => { if (set.has(id.name)) { id.keepName = true; id.hiddenUses = true; id.doNotInline = true; used.add(id.name); } };
   const pinDecl = ([, elts]: Ast.Decl, set = names): void => { for (const e of elts) pin(e.name, set); };
   const pinBlock = (block: Ast.StructOrInterfaceBlock): void => {
     if (block.name !== null) pin(block.name, names);

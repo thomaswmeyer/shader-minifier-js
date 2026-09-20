@@ -31,7 +31,7 @@ function isShadowedAt(env: Ast.MapEnv, name: string, except: VarDecl | null = nu
 function hasCall(e: Expr): boolean {
   switch (e.kind) {
     case "FunCall": {
-      if (e.fn.kind === "Var" && !Builtin.builtinTypes.has(e.fn.ident.name) && !/^[iub]?vec[234]$|^mat[234](x[234])?$/.test(e.fn.ident.name)) return true;
+      if (e.fn.kind === "Var" && !Builtin.builtinTypes.has(e.fn.ident.name)) return true; // builtinTypes covers every constructor
       return hasCall(e.fn) || e.args.some(hasCall);
     }
     case "Subscript": return hasCall(e.arr) || (e.index !== null && hasCall(e.index));
@@ -582,7 +582,7 @@ export class ArgumentInlining {
         };
         Ast.visitor(this.options, visitUse).iterTopLevel([f]);
         for (const inl of argInlinings) {
-          if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl || inl.varDecl.decl.name.pinned) continue;
+          if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl || inl.varDecl.decl.name.hiddenUses) continue;
           const r = resolvedVariableUse(inl.argExpr);
           if (r === null) continue;
           if (captured.has(inl.varDecl)) {

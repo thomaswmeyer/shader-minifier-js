@@ -22,7 +22,7 @@ export interface ShaderMinifierPluginOptions {
   dropDefaultPrecision?: boolean;
   /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
   inlineSingleUse?: boolean;
-  /** Remove unused globals, struct types and sampler precision statements (`--remove-unused-declarations`); externals stay. Default true. */
+  /** Remove unused globals, struct types and sampler precision statements (`--remove-unused-declarations`); externals stay. Default true, and a no-op under `noRemoveUnused`. */
   removeUnusedDeclarations?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;

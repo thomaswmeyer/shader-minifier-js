@@ -145,7 +145,7 @@ class RenamerVisitor {
 
   private renNamedStruct(env: Env, structName: Ident): Env {
     // top level struct declaration, e.g. `struct foo { int a; float b; }`
-    if (this.options.noRenamingList.includes(structName.name) || structName.pinned) {
+    if (this.options.noRenamingList.includes(structName.name) || structName.keepName) {
       return env.dontRename(structName);
     } else {
       return env.newName("VarFunStruct", env, structName);
@@ -183,7 +183,7 @@ class RenamerVisitor {
         }
       };
 
-      if (decl.name.pinned) { // named in a kept #define
+      if (decl.name.keepName) { // a kept #define, an external struct field, or a swizzle-like field
         return context.kind === "Field" ? env.dontRenameField(decl.name) : env.dontRename(decl.name);
       }
       if (this.options.noRenamingList.includes(decl.name.name)) {
@@ -338,7 +338,7 @@ class RenamerVisitor {
   private renFunction(env: Env, f: FunctionType): Env {
     if ((Ast.funIsExternal(f, this.options) && this.options.preserveExternals) || this.options.preserveAllGlobals) {
       return env;
-    } else if (this.options.noRenamingList.includes(f.fName.name) || f.fName.pinned) {
+    } else if (this.options.noRenamingList.includes(f.fName.name) || f.fName.keepName) {
       return env;
     } else {
       const name = env.identRenames.get(f.fName.name);
