@@ -85,8 +85,17 @@ class RewriterImpl {
   private readonly voidFunctions = new Set<string>();
   private readonly returnTypes = new Map<string, Type[]>(); // every overload's return type, by function name
   private readonly voidSequenceForbidden: boolean;
+  // Whether a struct of the file has a field named like a swizzle (`q`, `rgb`): then `e.q` is a
+  // swizzle only where e is known not to be a struct. Without such fields every one is, as upstream assumes.
+  private readonly swizzleLikeFields: boolean;
 
   constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass, code: readonly TopLevel[] = []) {
+    const blocks: StructOrInterfaceBlock[] = [];
+    for (const tl of code) {
+      if (tl.kind === "TypeDecl") blocks.push(tl.block);
+      else if (tl.kind === "TLDecl" && tl.decl[0].name.kind === "TypeBlock") blocks.push(tl.decl[0].name.block);
+    }
+    this.swizzleLikeFields = blocks.some((b) => b.members.some((m) => m.kind === "MemberVariable" && m.decl[1].some((d) => Builtin.isFieldSwizzle(d.name.name))));
     for (const tl of code) {
       if (tl.kind === "TypeDecl" && tl.block.name !== null) this.structs.set(tl.block.name.name, tl.block);
       else if (tl.kind === "Function") {
@@ -111,7 +120,9 @@ class RewriterImpl {
   private typeOf(e: Expr): Type | null {
     switch (e.kind) {
       case "Int": case "Float": return nonStructType;
-      case "Var": return e.ident.declaration.kind === "Variable" ? e.ident.declaration.decl.ty : null;
+      case "Var":
+        if (e.ident.declaration.kind === "Variable") return e.ident.declaration.decl.ty;
+        return e.ident.name.startsWith("gl_") ? nonStructType : null; // a builtin variable is never a struct
       case "Subscript": return this.typeOf(e.arr);
       case "Dot": {
         const t = this.typeOf(e.expr);
@@ -148,6 +159,11 @@ class RewriterImpl {
   private mayBeStruct(e: Expr): boolean {
     const t = this.typeOf(e);
     return t === null || this.isStructType(t);
+  }
+
+  /** Whether `expr.field` is a swizzle rather than a struct field access. */
+  private isSwizzle(expr: Expr, field: string): boolean {
+    return Builtin.isFieldSwizzle(field) && (!this.swizzleLikeFields || !this.mayBeStruct(expr));
   }
 
   private structTernaryForbidden(blockLevel: BlockLevel, e1: Expr, e2: Expr): boolean {
@@ -551,7 +567,7 @@ class RewriterImpl {
       if (list.length === 0) return [];
       const [d1, d2] = list;
       if (list.length >= 2 && d1.kind === "Dot" && d1.expr.kind === "Var" && d2.kind === "Dot" && d2.expr.kind === "Var" &&
-        Builtin.isFieldSwizzle(d1.field.name) && Builtin.isFieldSwizzle(d2.field.name) && d1.expr.ident.name === d2.expr.ident.name) {
+        this.isSwizzle(d1.expr, d1.field.name) && this.isSwizzle(d2.expr, d2.field.name) && d1.expr.ident.name === d2.expr.ident.name) {
         return combineSwizzles([Dot(Var(d1.expr.ident), new Ident(d1.field.name + d2.field.name, d1.field.loc)), ...list.slice(2)]);
       }
       return [d1, ...combineSwizzles(list.slice(1))];
@@ -586,7 +602,7 @@ class RewriterImpl {
 
     // vec3(a.x, b.xy) => vec3(a.x, b)
     const dropLastSwizzle = (n: number, list: Expr[]): Expr[] => {
-      if (list.length === 1 && list[0].kind === "Dot" && Builtin.isFieldSwizzle(list[0].field.name)) {
+      if (list.length === 1 && list[0].kind === "Dot" && this.isSwizzle(list[0].expr, list[0].field.name)) {
         const last = list[0];
         const idx = [...last.field.name].map(Builtin.swizzleIndex).join(",");
         if (idx === "0" && n === 1) return [last.expr];
@@ -686,7 +702,7 @@ class RewriterImpl {
       }
       return r;
     }
-    if (e.kind === "Dot" && this.options.canonicalFieldNames !== "") {
+    if (e.kind === "Dot" && this.options.canonicalFieldNames !== "" && this.isSwizzle(e.expr, e.field.name)) {
       return Dot(e.expr, new Ident(renameField(this.options, e.field.name), e.field.loc));
     }
 

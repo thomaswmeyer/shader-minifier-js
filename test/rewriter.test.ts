@@ -88,6 +88,34 @@ describe("reorderFunctions with #ifdef regions", () => {
   });
 });
 
+describe("struct fields named like swizzle components (upstream refuses them)", () => {
+  const minify = (src: string, extra: Partial<Options> = {}): string => minifyApi(src, { noPiSubstitution: true, ...extra }).code;
+  const hex = "struct H{float q;float r;float s;};H mk(float q,float r){H h;h.q=q;h.r=r;h.s=-q-r;return h;}void main(){vec2 p=gl_FragCoord.st;H h=mk(p.s,p.t);gl_FragColor=vec4(h.q,h.r,h.s,p.rg.x);}";
+  it("keeps the fields and their uses, and still canonicalises real swizzles", () => {
+    const out = minify(hex);
+    expect(out).toMatch(/struct \w+\{float q;float r;float s;\}/);
+    expect(out).toMatch(/\w+\.q=\w+;\w+\.r=\w+;\w+\.s=-\w+-\w+;/);
+    expect(out).toContain("gl_FragCoord.xy");
+    expect(out).toMatch(/\(\w+\.x,\w+\.y\)/); // p.s, p.t as arguments
+    expect(out).toMatch(/vec4\(\w+\.q,\w+\.r,\w+\.s,\w+\)/); // p.rg.x -> p.x -> p, upstream's last-argument rule
+  });
+  it("does not combine struct field reads into a swizzle, but still combines vector reads", () => {
+    const src = "struct S{float x;float y;};void main(){S s;s.x=1.;s.y=2.;vec2 v=gl_FragCoord.xy;gl_FragColor=vec4(s.x,s.y,v.x,v.y);}";
+    expect(minify(src, { noRenaming: true })).toContain("vec4(s.x,s.y,v)");
+  });
+  it("leaves a field named x alone under --field-names rgba while vectors switch to rgba", () => {
+    const src = "struct S{float x;};void main(){S s;s.x=1.;vec2 v=gl_FragCoord.xy;gl_FragColor=vec4(s.x,v.x,v.y,1);}";
+    expect(minify(src, { noRenaming: true, canonicalFieldNames: "rgba" })).toContain("vec4(s.x,v.rg,1)");
+    expect(minify(src, { noRenaming: true, canonicalFieldNames: "rgba" })).toContain("gl_FragCoord.rg");
+  });
+  it("never generates a field's swizzle-like name for anything else", () => {
+    const src = hex + "float extra(float a,float b,float c){return a*b+c;}";
+    const out = minify(src, { noRemoveUnused: true });
+    // q, r and s are forbidden as generated names: the three parameters cannot be called that
+    expect(out).not.toMatch(/float \w+\(float q,|,float r,|,float s\)/);
+  });
+});
+
 describe("--move-declarations", () => {
   it("does not hoist a local above an earlier use of its name that refers to a global", () => {
     // Upstream merges `float t` into the block's first float declaration, and `t.x` then names it.

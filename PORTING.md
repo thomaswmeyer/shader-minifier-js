@@ -349,6 +349,15 @@ says so. Every site is ported deliberately:
     stripping only knew a space as the separator between an object-like
     macro's name and body. A tab counts too.
 
+20. *Struct fields named like swizzles.* Upstream refuses `struct Hexagon {
+    float q, r, s; }` because it cannot tell `hex.q` from `p.q`. The port
+    keeps such a field under its own name (pinned, and forbidden as a
+    generated name), and where a file declares one the rewrites that assume
+    a swizzle (canonical field names, combining `v.x, v.y` into `v.xy`,
+    dropping a trailing `.xy`) first check that the left side is known not
+    to be a struct. A file without such fields is rewritten exactly as
+    upstream does. gl-transitions' `hexagonalize` is the reproducing case.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -376,7 +385,8 @@ shader in this repository:
   (item 17, `directionalLights[0].direction`);
 - argument inlining moving a global declared after the function into its
   body, and keeping `const` on the local (item 18, three.js `envMap`);
-- a tab after a macro name glued to the name (item 19).
+- a tab after a macro name glued to the name (item 19);
+- refusing struct fields named like swizzle components (item 20).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

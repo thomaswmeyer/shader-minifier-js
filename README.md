@@ -107,6 +107,8 @@ file pattern, and `options` passes any raw minifier option.
   argument lists where the parser cannot keep them. A bare identifier in the
   condition still leaves it to the compiler.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
+- Struct fields named like swizzle components (`float q;`, `vec3 rgb;`) are
+  accepted and kept under their names; upstream refuses the declaration.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 
 ## Results

@@ -2,7 +2,7 @@
 import * as Ast from "./ast.js";
 import { Ident } from "./ast.js";
 import * as Builtin from "./builtin.js";
-import { ParseError, renameField, type Options } from "./options.js";
+import { ParseError, type Options } from "./options.js";
 import { expandMacros, preprocess } from "./preprocessor.js";
 import * as Printer from "./printer.js";
 
@@ -434,11 +434,14 @@ class ParserImpl {
       const id = this.ident();
       return id.name + this.generic();
     });
-    // Restriction on field names
+    // A field named like a swizzle (`q`, `rgb`) keeps its name: the renamer leaves such a use
+    // alone since it cannot tell `hex.q` from `p.q`, and the rewriter checks the type before
+    // treating one as a swizzle. Upstream refuses the declaration.
     const check = (decl: Ast.Decl): Ast.Decl => {
       for (const d of decl[1]) {
-        if (d.name.name !== renameField(this.options, d.name.name)) {
-          throw new ParseError(`Record field name '${d.name.name}' is not allowed by Shader Minifier,\nbecause it looks like a vec4 field name.`);
+        if (Builtin.isFieldSwizzle(d.name.name)) {
+          d.name.pinned = true;
+          this.forbiddenNames = [d.name.name, ...this.forbiddenNames];
         }
       }
       return decl;
