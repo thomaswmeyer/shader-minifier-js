@@ -17,7 +17,7 @@ interface Case { name: string; stage: "frag" | "vert"; source: string; options: 
 
 const pluginDefaults = toMinifierOptions();
 /** Upstream's rewrites alone (--webgl only skips two of them), externals kept so uniforms can be set by name. */
-const upstreamOnly: Options = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false });
+const upstreamOnly: Options = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false });
 
 const cases: Case[] = [];
 const add = (name: string, source: string, variants: [string, Options][] = [["plugin", pluginDefaults], ["upstream", upstreamOnly]]): void => {

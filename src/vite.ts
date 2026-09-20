@@ -22,6 +22,8 @@ export interface ShaderMinifierPluginOptions {
   dropDefaultPrecision?: boolean;
   /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
   inlineSingleUse?: boolean;
+  /** Remove unused globals, struct types and sampler precision statements (`--remove-unused-declarations`); externals stay. Default true. */
+  removeUnusedDeclarations?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
@@ -59,6 +61,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     foldBuiltins: o.foldBuiltins ?? true,
     dropDefaultPrecision: o.dropDefaultPrecision ?? true,
     inlineSingleUse: o.inlineSingleUse ?? true,
+    removeUnusedDeclarations: o.removeUnusedDeclarations ?? true,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

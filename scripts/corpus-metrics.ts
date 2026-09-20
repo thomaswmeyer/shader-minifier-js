@@ -50,7 +50,7 @@ if (fs.existsSync(threeDir)) {
   corpora.push({ name: "upstream shadertoy", shaders });
 }
 
-const upstream = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false });
+const upstream = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false });
 const plugin = toMinifierOptions();
 const bytes = (options: Options, s: Shader): number | null => {
   try {

@@ -48,9 +48,11 @@ import frag from "./shader.frag"; // a minified string; `?raw` imports are minif
 
 Files matching `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` are minified at load
 time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
-`noOverloading`, `noPiSubstitution`, `expandMacros` and `foldBuiltins` are on,
-so uniform and attribute names are kept, macros and constant builtin calls are
-folded away, and the output only uses constructs ANGLE accepts. Every other
+`noOverloading`, `noPiSubstitution`, `expandMacros`, `foldBuiltins`,
+`dropDefaultPrecision`, `inlineSingleUse` and `removeUnusedDeclarations` are
+on, so uniform and attribute names are kept, macros and constant builtin calls
+are folded away, unused globals, structs and precision statements go, and the
+output only uses constructs ANGLE accepts. Every other
 upstream flag is available as a camelCased option (`noRenaming`,
 `noRenamingList`, `noInlining`, `aggressiveInlining`, `noSequence`,
 `noRemoveUnused`, `preprocess`, `moveDeclarations`), `include` overrides the
@@ -92,6 +94,13 @@ file pattern, and `options` passes any raw minifier option.
   of the inlined value, and a value that calls a function is only inlined
   into `main` (or another entry point from `--no-renaming-list`), since a
   helper may run in a loop.
+- `--remove-unused-declarations`: remove a global that nothing reads or
+  writes, a struct type that nothing names, and a `precision` statement for a
+  sampler type the shader never declares. Uniforms, inputs and outputs stay,
+  as do names a kept `#define` uses and a global whose initializer has an
+  effect. Upstream removes unused functions but keeps these; engine shaders
+  assembled from chunks carry many (three.js's depth pass keeps seventeen
+  sampler precision statements and two light structs for nothing).
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader. Upstream rules that could
@@ -217,15 +226,17 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
-| gl-transitions | 125 | 169,066 | 69,584 | 67,997 | 2.3% | 79,689 | 14.7% |
-| three.js | 56 | 1,337,454 | 213,498 | 153,187 | 28.2% | 143,890 | -6.5% |
-| upstream shadertoy | 8 | 99,447 | 44,812 | 44,124 | 1.5% | 33,164 (2 refused) | |
+| gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
+| three.js | 56 | 1,337,454 | 213,498 | 125,951 | 41.0% | 143,890 | 12.5% |
+| upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
 Three things the table says. The plugin's additions are worth 2 to 3% on
-hand-written shaders and 28% on three.js, where `--expand-macros` and
-`--preprocess` fold away the chunk machinery. ANGLE is ahead on three.js by
-6.5%, since it also drops unused uniforms and functions the minifier keeps
-for the application's sake, and behind everywhere else. And one shader,
+hand-written shaders and 41% on three.js, where `--expand-macros` and
+`--preprocess` fold away the chunk machinery and
+`--remove-unused-declarations` the sampler precision statements, packing
+constants and light structs the chunks leave behind. ANGLE was ahead on
+three.js by 6.5% before that flag; what it still drops and the minifier
+keeps for the application's sake is unused uniforms. And one shader,
 gl-transitions' InvertedPageCurl, comes out 58 bytes larger under the plugin
 than under upstream's rewrites, which `TODO.md` lists to investigate.
 
@@ -238,7 +249,8 @@ The port, with the plugin's flags spelled out (the goldens in
 npm run build
 node bin/shader-minifier.js --format text --preserve-externals --no-overloading \
   --no-pi-substitution --webgl --expand-macros --fold-builtins \
-  --drop-default-precision --inline-single-use test/tomto/sim.vert -o /dev/stdout | wc -c
+  --drop-default-precision --inline-single-use --remove-unused-declarations \
+  test/tomto/sim.vert -o /dev/stdout | wc -c
 ```
 
 spglsl:

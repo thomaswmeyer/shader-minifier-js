@@ -203,6 +203,42 @@ describe("--inline-single-use", () => {
   });
 });
 
+describe("--remove-unused-declarations", () => {
+  const flag = { removeUnusedDeclarations: true, noInlining: true }; // upstream's inlining already removes some unused pure globals; keep it out of the way
+  it("removes unused globals, struct types and sampler precision statements, and keeps the used and the external", () => {
+    const src = "precision highp float;precision highp sampler2D;precision highp samplerCube;const float A=1.,B=2.;uniform float uUnused;struct L{vec3 c;};struct M{vec3 d;};uniform sampler2D t;void main(){gl_FragColor=vec4(A)+texture2D(t,vec2(0));M m;}";
+    expect(minify(src, { noInlining: true })).toBe(src);
+    expect(minify(src, flag)).toBe("precision highp float;precision highp sampler2D;const float A=1.;uniform float uUnused;struct M{vec3 d;};uniform sampler2D t;void main(){gl_FragColor=vec4(A)+texture2D(t,vec2(0));M m;}");
+  });
+  it("keeps a struct named by another struct, a function signature or a constructor", () => {
+    expect(minify("struct S{float a;};struct T{S s;};uniform T u;void main(){gl_FragColor=vec4(u.s.a);}", flag)).toContain("struct S{float a;};struct T{S s;};");
+    expect(minify("struct S{float a;};S make(){return S(1.);}void main(){gl_FragColor=vec4(make().a);}", flag)).toContain("struct S{float a;};S make()");
+    expect(minify("struct S{float a;};void main(){gl_FragColor=vec4(S(1.).a);}", flag)).toContain("struct S{float a;};");
+  });
+  it("removes a struct once its only global went", () => {
+    expect(minify("struct S{float a;};S s;void main(){gl_FragColor=vec4(0);}", flag)).toBe("void main(){gl_FragColor=vec4(0);}");
+  });
+  it("keeps a global named in a kept macro body, one whose initializer calls a function, and a sampler type named in a function signature", () => {
+    expect(minify("#define K (g*2.)\nfloat g=1.;void main(){gl_FragColor=vec4(K);}", flag)).toContain("float g=1.;");
+    expect(minify("float f(){return 1.;}float g=f();void main(){gl_FragColor=vec4(0);}", flag)).toBe("void main(){gl_FragColor=vec4(0);}"); // f is pure
+    expect(minify("int c;int f(){return c++;}int g=f();void main(){gl_FragColor=vec4(c);}", flag)).toContain("int g=f();");
+    expect(minify("precision highp sampler2D;vec4 tex(sampler2D s){return texture2D(s,vec2(0));}void main(){gl_FragColor=vec4(0);}", { ...flag, noRemoveUnused: true })).toContain("precision highp sampler2D;");
+  });
+  it("does nothing under --no-remove-unused", () => {
+    const src = "precision highp samplerCube;const float A=1.;struct L{vec3 c;};void main(){gl_FragColor=vec4(0);}";
+    expect(minify(src, { ...flag, noRemoveUnused: true })).toBe(src);
+  });
+});
+
+describe("a global whose initializer calls a function", () => {
+  it("keeps the callee and stays after it; upstream removes the callee and moves the global above it", () => {
+    const src = "float f(){return 1.;}float g=f();void main(){gl_FragColor=vec4(g);}";
+    expect(minify(src)).toBe(src);
+    expect(minify(src, { removeUnusedDeclarations: true })).toBe(src);
+    expect(minify("float h(){return 2.;}float f(){return 1.;}float g=f();float k=h();void main(){gl_FragColor=vec4(g+k);}")).toBe("float h(){return 2.;}float f(){return 1.;}float g=f(),k=h();void main(){gl_FragColor=vec4(g+k);}");
+  });
+});
+
 describe("--webgl across files", () => {
   it("treats a struct declared in another file as unknown, so the rewrites stay conservative", () => {
     const a = "struct S{float d;};";
@@ -217,7 +253,7 @@ describe("--webgl across files", () => {
 // additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite,
 // once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
-  const portFlags: Partial<Options> = { expandMacros: true, foldBuiltins: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
+  const portFlags: Partial<Options> = { expandMacros: true, foldBuiltins: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true, noPiSubstitution: true };
   for (const [label, extra] of [["plugin flags", {}], ["plus aggressive inlining and moved declarations", { aggroInlining: true, moveDeclarations: true }]] as const) {
     for (const argv of loadCommands()) {
       const { options, filenames } = Minifier.parseOptionsWithFiles(argv);

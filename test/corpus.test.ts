@@ -20,7 +20,7 @@ import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, pertur
 interface Case { name: string; stage: "frag" | "vert"; source: string; options: Options; uniforms?: RenderConfig["uniforms"] }
 
 const pluginDefaults = toMinifierOptions();
-const upstreamOnly = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false });
+const upstreamOnly = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false });
 const variants: [string, Options][] = [["plugin", pluginDefaults], ["upstream", upstreamOnly]];
 
 const cases: Case[] = [];

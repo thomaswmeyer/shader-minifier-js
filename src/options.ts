@@ -59,6 +59,8 @@ export interface Options {
   stage: Stage | null;
   /** Inline a never-written global used once, and substitute an always-identical global argument into a function body when that is not longer. */
   inlineSingleUse: boolean;
+  /** Remove unreferenced non-external globals, unreferenced struct types and precision statements for sampler types the shader never declares. */
+  removeUnusedDeclarations: boolean;
 }
 
 export const helpTextMessage = `Shader Minifier ${version} - https://github.com/laurentlb/Shader_Minifier`;
@@ -91,6 +93,7 @@ export function defaultOptions(): Options {
     dropDefaultPrecision: false,
     stage: null,
     inlineSingleUse: false,
+    removeUnusedDeclarations: false,
   };
 }
 
@@ -131,6 +134,7 @@ const usage: [string, string][] = [
   ["--drop-default-precision", "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader (port addition)"],
   ["--stage <stage>", "The shader stage for --drop-default-precision: 'vertex' or 'fragment'. Default: from the file extension, else from the code (port addition)"],
   ["--inline-single-use", "Inline a never-written global used once, and substitute a global passed as an always-identical argument when that is not longer (port addition)"],
+  ["--remove-unused-declarations", "Remove unused globals (uniforms and other externals stay), unused struct types and precision statements for sampler types never declared (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
 ];
@@ -199,6 +203,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
         break;
       }
       case "--inline-single-use": options.inlineSingleUse = true; break;
+      case "--remove-unused-declarations": options.removeUnusedDeclarations = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);

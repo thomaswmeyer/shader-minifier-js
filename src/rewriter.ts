@@ -1376,12 +1376,89 @@ class RewriterImpl {
     }
   };
 
+  // Upstream removes unused functions and locals; engine shaders also carry globals, struct types
+  // and sampler precision statements that the chunks they include never use (three.js's depth
+  // pass keeps six packing constants, two light structs and seventeen `precision highp sampler*`).
+  // A global that is never read or written and is not external or pinned, a struct type that is
+  // never named, and a precision statement for a type that is never declared go. A global whose
+  // initializer has an effect (desktop GLSL allows a call there) stays. Anything named in verbatim
+  // text is kept, since that text cannot be read. --remove-unused-declarations; the plugin's default.
+  static removeUnusedDeclarations(options: Options, code: TopLevel[]): TopLevel[] {
+    const analyzer = new Analyzer(options);
+    const used = new Set<string>();
+    const usedTypes = new Set<string>();
+    const typeName = (ty: Type): void => { if (ty.name.kind === "TypeName") usedTypes.add(ty.name.ident.name); else members(ty.name.block); };
+    const members = (block: StructOrInterfaceBlock): void => {
+      for (const m of block.members) { if (m.kind === "MemberVariable") typeName(m.decl[0]); else { typeName(m.funcType.retType); for (const a of m.funcType.args) typeName(a[0]); } }
+    };
+    const verbatim: string[] = [];
+    for (const tl of code) {
+      switch (tl.kind) {
+        case "Function":
+          typeName(tl.funcType.retType);
+          for (const a of tl.funcType.args) typeName(a[0]);
+          for (const i of analyzer.identUsesInStmt(IdentKind.Var | IdentKind.Type, tl.body)) used.add(i.name);
+          break;
+        case "TLDecl":
+          typeName(tl.decl[0]);
+          for (const d of tl.decl[1]) { if (d.init !== null) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(d.init))) used.add(i.name); for (const s of d.sizes) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(s))) used.add(i.name); }
+          break;
+        case "TypeDecl": members(tl.block); break;
+        case "TLVerbatim": verbatim.push(tl.text); break;
+        case "TLDirective": verbatim.push(tl.parts.join(" ")); break;
+        default: break;
+      }
+    }
+    const verbatimExpr = (_: MapEnv, e: Expr): Expr => { if (e.kind === "VerbatimExp") verbatim.push(e.text); return e; };
+    const verbatimStmt = (_: MapEnv, s: Stmt): Stmt => { if (s.kind === "Verbatim") verbatim.push(s.text); else if (s.kind === "Directive") verbatim.push(s.parts.join(" ")); return s; };
+    Ast.visitor(options, verbatimExpr, verbatimStmt).iterTopLevel(code); // text inside function bodies too
+    const inVerbatim = (name: string): boolean => verbatim.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+    const isUsed = (name: string): boolean => used.has(name) || usedTypes.has(name) || inVerbatim(name);
+    let edited = false;
+    const out: TopLevel[] = [];
+    for (const tl of code) {
+      if (tl.kind === "TLDecl" && !Ast.typeIsExternal(tl.decl[0])) {
+        const kept = tl.decl[1].filter((d) => d.name.pinned || isUsed(d.name.name) || (d.init !== null && !Effects.isPure(d.init)));
+        if (kept.length !== tl.decl[1].length) {
+          edited = true;
+          trace(options, "removing unused globals: " + tl.decl[1].filter((d) => !kept.includes(d)).map((d) => d.name.name).join(", "));
+          if (kept.length === 0 && tl.decl[0].name.kind === "TypeName") continue;
+          out.push(TLDecl([tl.decl[0], kept]));
+          continue;
+        }
+      } else if (tl.kind === "TypeDecl" && tl.block.blockType.kind === "Struct" && tl.block.name !== null && !tl.block.name.pinned && !isUsed(tl.block.name.name)) {
+        edited = true;
+        trace(options, "removing unused struct: " + tl.block.name.name);
+        continue;
+      } else if (tl.kind === "Precision" && tl.ty.name.kind === "TypeName" && Builtin.isSamplerType(tl.ty.name.ident.name) && !usedTypes.has(tl.ty.name.ident.name) && !inVerbatim(tl.ty.name.ident.name)) {
+        edited = true;
+        trace(options, "removing precision statement for unused type: " + tl.ty.name.ident.name);
+        continue;
+      }
+      out.push(tl);
+    }
+    // A struct may become unused once its only global went, and a function once its only caller was a global's initializer.
+    return edited ? RewriterImpl.removeUnusedDeclarations(options, RewriterImpl.removeUnusedFunctions(options, out)) : out;
+  }
+
+  // The prototypes called from a global declaration's initializers and array sizes. Desktop GLSL
+  // allows `float g = f();`; upstream only counts calls from function bodies, and so removes f
+  // as unused and moves g above f when squeezing declarations.
+  static globalCalls(options: Options, tl: TopLevel): Set<string> {
+    const calls = new Set<string>();
+    if (tl.kind !== "TLDecl") return calls;
+    const collect = (_: MapEnv, e: Expr): Expr => { if (e.kind === "FunCall" && e.fn.kind === "Var") calls.add(Ast.prototypeKey(e.fn.ident.name, e.args.length)); return e; };
+    for (const d of tl.decl[1]) for (const e of [...d.sizes, ...(d.init === null ? [] : [d.init])]) Ast.visitor(options, collect).iterExpr(e);
+    return calls;
+  }
+
   static removeUnusedFunctions(options: Options, code: TopLevel[]): TopLevel[] {
     const funcInfos = new Analyzer(options).findFuncInfos(code);
+    const globalCalls = new Set(code.flatMap((tl) => [...RewriterImpl.globalCalls(options, tl)]));
     const isUnused = (funcInfo: FuncInfo): boolean => {
       const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.pinned; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
-      const isCalled = funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
+      const isCalled = globalCalls.has(proto) || funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
       return canBeRenamed && !isCalled && !funIsExternal(funcInfo.funcType, options);
     };
     const unused = funcInfos.filter(isUnused);
@@ -1426,6 +1503,9 @@ class RewriterImpl {
         if (rest.length === 0) return [];
         return [rest[0], ...moveDeclarationsUp(rest.slice(1))];
       }
+      // A declaration whose initializer calls one of the functions stays after them.
+      const called = new Set(decls.flatMap((d) => [...RewriterImpl.globalCalls(this.options, d)]));
+      if (swappables.some((f) => f.kind === "Function" && called.has(funPrototype(f.funcType)))) return [...swappables, ...decls, ...moveDeclarationsUp(rest)];
       return [...decls, ...swappables, ...moveDeclarationsUp(rest)];
     };
     const sameList = (a: TopLevel[], b: TopLevel[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -1528,6 +1608,7 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
 
 function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {
   let code = options.noRemoveUnused ? li : RewriterImpl.removeUnusedFunctions(options, li);
+  if (!options.noRemoveUnused && options.removeUnusedDeclarations) code = RewriterImpl.removeUnusedDeclarations(options, code);
   code = code.filter((t) => !(t.kind === "TypeDecl" && t.block.blockType.kind === "Struct" && t.block.name === null)); // e.g. `struct {int A;};`
   new Analyzer(options).resolve(code);
   new Analyzer(options).markWrites(code);

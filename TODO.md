@@ -114,11 +114,14 @@ fragment-only comparison already is the real pair.
 
 ## 6. Size, from `npm run metrics`
 
-- **three.js: ANGLE is 6.5% smaller.** It removes uniforms and functions the
-  program never reaches; the minifier keeps every uniform because the
-  application looks them up. An opt-in `--remove-unused-uniforms` for
-  applications that tolerate a missing location (three.js does) would close
-  most of the gap; measuring what else ANGLE drops is the first step.
+- **three.js: now 12.5% below ANGLE**, after `--remove-unused-declarations`
+  (PORTING.md item 21) took out the sampler precision statements, packing
+  constants and light structs the chunks left behind; before it ANGLE was
+  6.5% ahead. What remains on ANGLE's side: it drops unused uniforms, which
+  the minifier keeps because the application looks them up (an opt-in
+  `--remove-unused-uniforms` for applications that tolerate a missing
+  location, as three.js does, is the candidate), and it drops `highp` on
+  declarations where the default precision already says so.
 - **InvertedPageCurl grows 58 bytes under the plugin.** Something among
   `--expand-macros`, the float32 folds and the pinned names costs more than
   it saves there; bisect by flag.

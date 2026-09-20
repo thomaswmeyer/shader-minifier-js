@@ -358,6 +358,23 @@ says so. Every site is ported deliberately:
     to be a struct. A file without such fields is rewritten exactly as
     upstream does. gl-transitions' `hexagonalize` is the reproducing case.
 
+21. *Unused declarations.* Upstream removes unused functions and, through
+    inlining, some unused constant globals, and keeps everything else. Under
+    `--remove-unused-declarations` (the plugin's default) the port also
+    removes an unreferenced non-external global (an initializer with an
+    effect keeps it), an unreferenced struct type and a `precision`
+    statement for a sampler type never declared, repeating until nothing
+    changes, since a struct may become unused when its only global goes and
+    a function when its only caller was that global's initializer. Names in
+    kept macro bodies and in verbatim text count as used. Off by default so
+    the goldens stay; three.js shrinks 18% under the plugin with it.
+
+22. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+    Upstream counts calls only in function bodies, so it removes `f` as
+    unused, and its declaration squeezing moves `g` above `f`. The port
+    counts calls in global initializers and array sizes for both. No golden
+    has such a global.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -386,7 +403,9 @@ shader in this repository:
 - argument inlining moving a global declared after the function into its
   body, and keeping `const` on the local (item 18, three.js `envMap`);
 - a tab after a macro name glued to the name (item 19);
-- refusing struct fields named like swizzle components (item 20).
+- refusing struct fields named like swizzle components (item 20);
+- a global initialized by a call losing its callee, or moving above it
+  (item 22, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.
