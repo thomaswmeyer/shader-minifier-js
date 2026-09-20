@@ -55,6 +55,11 @@ describe("--drop-default-precision", () => {
     const src = "precision highp float;precision mediump int;void main(){if(gl_FragCoord.x<0.)discard;gl_FragColor=vec4(0);}";
     expect(minify(src, { dropDefaultPrecision: true })).toBe("precision highp float;void main(){if(gl_FragCoord.x<0.)discard;gl_FragColor=vec4(0);}");
   });
+  it("parses --stage on the command line", () => {
+    expect(Minifier.parseOptions(["--stage", "vertex"]).stage).toBe("vertex");
+    expect(Minifier.parseOptions(["--stage", "Fragment"]).stage).toBe("fragment");
+    expect(() => Minifier.parseOptions(["--stage", "pixel"])).toThrow(/Unrecognized stage 'pixel'/);
+  });
   it("treats a shader that names builtins of both stages as stageless", () => {
     const src = "precision mediump int;void main(){gl_Position=gl_FragCoord;}";
     expect(minify(src, { dropDefaultPrecision: true })).toBe(src);
@@ -148,6 +153,12 @@ describe("--inline-single-use", () => {
         "uniform float a,b;void main(){{float a=2.;for(int i=0;i<2;i++)a+=b;gl_FragColor=vec4(a);}gl_FragColor+=vec4(2.*(a+b));}",
       );
     });
+    it("keeps a local whose value reads a name a later local shadows (upstream's rule inlined it)", () => {
+      const src = "uniform float a,b;void main(){float k=a+b;{float a=2.;for(int i=0;i<2;i++)a+=b;gl_FragColor=vec4(k*a);}}";
+      expect(minify(src)).toBe(src);
+      const src2 = "uniform vec2 t;void main(){float a=1.;float b=t.x*a;float t=0.;t+=b;gl_FragColor=vec4(t);}";
+      expect(minify(src2)).toBe("uniform vec2 t;void main(){gl_FragColor=vec4(t.x);}");
+    });
     it("keeps a global whose value reads a name a parameter shadows, until the function is inlined", () => {
       const src = "uniform float a,b;const float K=a+b;float f(float a){return a*K;}void main(){gl_FragColor=vec4(f(b));}";
       expect(minify(src, { inlineSingleUse: true })).toBe("uniform float a,b;void main(){gl_FragColor=vec4(b*(a+b));}");
@@ -177,15 +188,28 @@ describe("--inline-single-use", () => {
   });
 });
 
+describe("--webgl across files", () => {
+  it("treats a struct declared in another file as unknown, so the rewrites stay conservative", () => {
+    const a = "struct S{float d;};";
+    const b = "S pick(S a,S b){if(a.d<b.d)return a;return b;}void main(){S x;x.d=1.;gl_FragColor=vec4(pick(x,x).d);}";
+    const out = minifyApi([{ name: "a.frag", content: a }, { name: "b.frag", content: b }], { webgl: true, noRenaming: true, noPiSubstitution: true });
+    expect(out.shaders[1].code.length).toBeGreaterThan(0);
+    expect(out.format("text")).toContain("if(a.d<b.d)return a;return b;");
+  });
+});
+
 // The goldens run upstream's flags only. Run every command again with the port flags on, so the
-// additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite.
+// additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite,
+// once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
   const portFlags: Partial<Options> = { expandMacros: true, foldBuiltins: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
-  for (const argv of loadCommands()) {
-    const { options, filenames } = Minifier.parseOptionsWithFiles(argv);
-    it(filenames.join(" "), () => {
-      const files = filenames.map((f): [string, string] => [f, fs.readFileSync(path.join(repoRoot, f), "utf8")]);
-      expect(() => new Minifier({ ...options, ...portFlags }, files)).not.toThrow();
-    });
+  for (const [label, extra] of [["plugin flags", {}], ["plus aggressive inlining and moved declarations", { aggroInlining: true, moveDeclarations: true }]] as const) {
+    for (const argv of loadCommands()) {
+      const { options, filenames } = Minifier.parseOptionsWithFiles(argv);
+      it(`${filenames.join(" ")} [${label}]`, () => {
+        const files = filenames.map((f): [string, string] => [f, fs.readFileSync(path.join(repoRoot, f), "utf8")]);
+        expect(() => new Minifier({ ...options, ...portFlags, ...extra }, files)).not.toThrow();
+      });
+    }
   }
 });

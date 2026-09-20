@@ -94,7 +94,13 @@ file pattern, and `options` passes any raw minifier option.
   helper may run in a loop.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
-  an internal error instead of emitting the shader.
+  an internal error instead of emitting the shader. Upstream rules that could
+  do this are fixed here: inlining a local past a later local of a name its
+  value reads, `--move-declarations` hoisting a declaration above an earlier
+  use of its name, argument inlining into a body whose other parameter has
+  the name, function reordering pulling alternatives out of `#ifdef` blocks,
+  and identifiers named in a kept `#define` being renamed or removed (they
+  are pinned). `PORTING.md` section 5.2 lists each.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 

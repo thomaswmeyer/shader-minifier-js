@@ -868,9 +868,9 @@ export function macroBodyIdents(rest: string): { names: string[]; fields: string
   }
   const names: string[] = [];
   const fields: string[] = [];
-  for (const [, dot, name] of body.matchAll(/(?<![0-9A-Za-z_])(\.\s*)?([A-Za-z_][A-Za-z0-9_]*)/g)) {
-    if (dot !== undefined) fields.push(name);
-    else if (!params.includes(name)) names.push(name);
+  for (const m of body.matchAll(/\.\s*([A-Za-z_][A-Za-z0-9_]*)|(?<![0-9A-Za-z_.])([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    if (m[1] !== undefined) fields.push(m[1]);
+    else if (!params.includes(m[2]) && !Builtin.keywords.has(m[2])) names.push(m[2]);
   }
   return { names, fields };
 }

@@ -224,8 +224,6 @@ export class VariableInlining {
   // --inline-single-use (port addition): a never-written global with a pure const init,
   // referenced exactly once outside any loop, is inlined into that use. Upstream inlines
   // globals only when the init is a literal, or anything const under aggressive inlining.
-  // The init must not be captured at the use: a local or parameter there with the name of
-  // something the init reads would take it over (the function inliner's rule [A]).
   private markSingleUseGlobals(li: readonly TopLevel[]): void {
     const allStmts: Stmt[] = [];
     const outsideLoops: Expr[] = [];
@@ -259,26 +257,18 @@ export class VariableInlining {
     }
     if (candidates.size === 0) return;
 
-    const captured = new Set<VarDecl>();
     const usedInHelper = new Set<VarDecl>(); // the use is in a function that may itself run in a loop
-    const visitUses = (fn: TopLevel | null, items: readonly TopLevel[]): void => {
-      const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
+    for (const tl of li) {
+      if (tl.kind !== "Function" || this.options.noRenamingList.includes(tl.funcType.fName.name)) continue;
+      const visitUse = (_env: Ast.MapEnv, e: Expr): Expr => {
         const r = resolvedVariableUse(e);
-        const candidate = r === null ? undefined : candidates.get(r[1]);
-        if (candidate === undefined) return e;
-        if (candidate.initIdents.some((i) => isShadowedAt(env, i.name))) captured.add(r![1]);
-        if (fn !== null && fn.kind === "Function" && !this.options.noRenamingList.includes(fn.funcType.fName.name)) usedInHelper.add(r![1]);
+        if (r !== null && candidates.has(r[1])) usedInHelper.add(r[1]);
         return e;
       };
-      Ast.visitor(this.options, visitUse).iterTopLevel(items);
-    };
-    for (const tl of li) visitUses(tl.kind === "Function" ? tl : null, [tl]);
+      Ast.visitor(this.options, visitUse).iterTopLevel([tl]);
+    }
 
     for (const [varDecl, { def }] of candidates) {
-      if (captured.has(varDecl)) {
-        trace(this.options, `${locToS(def.name.loc)}: not inlining global variable '${Printer.debugDecl(def)}': a name in its value is shadowed at its use`);
-        continue;
-      }
       // The global is computed once per invocation; inlined into a helper that a loop calls it
       // would be computed on every call. Only a value without calls is cheap enough for that.
       if (usedInHelper.has(varDecl) && hasCall(def.init!)) {
@@ -290,11 +280,41 @@ export class VariableInlining {
     }
   }
 
+  // A variable's init is copied to its uses; where a name the init reads is bound to another
+  // variable at a use (a later local of that name, a parameter), the copy would be captured.
+  // Upstream has this check for function bodies only (rule [A]): `float b=t.x; float t=0.; t+=b;`
+  // inlined b into `t+=t.x`. Unmark every candidate with such a use, whichever rule marked it.
+  private unmarkCapturedVariables(li: readonly TopLevel[]): void {
+    const initIdents = new Map<VarDecl, Ident[]>();
+    const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
+      const r = resolvedVariableUse(e);
+      if (r === null) return e;
+      const [, vd] = r;
+      const decl = vd.decl;
+      if (!decl.name.toBeInlined || decl.init === null || decl.name.name.startsWith("i_")) return e;
+      let idents = initIdents.get(vd);
+      if (idents === undefined) { idents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(decl.init)); initIdents.set(vd, idents); }
+      // The candidate's own declaration may carry a name its init reads (`float d=map(p,d).x`,
+      // the outer d): removing it uncovers that outer variable again, so it is not a capture.
+      const capturedAt = (i: Ident): boolean => {
+        const found = env.vars.get(i.name);
+        return found !== undefined && found[1].name.varDecl !== i.varDecl && found[1].name.varDecl !== vd;
+      };
+      if (idents.some(capturedAt)) {
+        trace(this.options, `${locToS(decl.name.loc)}: not inlining variable '${Printer.debugDecl(decl)}': a name in its value is bound to another variable at its use`);
+        decl.name.toBeInlined = false;
+      }
+      return e;
+    };
+    Ast.visitor(this.options, visitUse).iterTopLevel(li);
+  }
+
   markInlinableVariables(li: readonly TopLevel[]): void {
     this.markSafelyInlinableVariables(li);
     // "simple" inlining must come after "safe" inlining, because it must check that it's not going to inline a var already being inlined.
     this.markSimpleInlinableVariables(li);
     if (this.options.inlineSingleUse) this.markSingleUseGlobals(li);
+    this.unmarkCapturedVariables(li);
   }
 }
 

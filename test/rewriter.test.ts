@@ -1,5 +1,6 @@
 // The float constant-folding rule (PORTING.md 5.2) and the --webgl guards.
 import { describe, expect, it } from "vitest";
+import { minify as minifyApi } from "../src/api.js";
 import { defaultOptions, type Options } from "../src/options.js";
 import { runParser } from "../src/parser.js";
 import * as Printer from "../src/printer.js";
@@ -64,6 +65,38 @@ describe("--webgl", () => {
       const src = "struct S{float d;};S mk(float d){S s;s.d=d;return s;}S mk(int d){S s;s.d=float(d);return s;}void main(){gl_FragColor=vec4((gl_FragCoord.x<0.?mk(1.):mk(2)).d);}";
       expect(() => minify(src, { webgl: true })).toThrow(/ternary operator on struct/);
     });
+  });
+});
+
+describe("reorderFunctions with #ifdef regions", () => {
+  // The reordering happens in the Minifier, not in simplify(): go through the API.
+  const minify = (src: string, extra: Partial<Options> = {}): string => minifyApi(src, { noRenaming: true, noPiSubstitution: true, ...extra }).code;
+  it("keeps alternative definitions in their blocks and puts what they call before them", () => {
+    const src = "float tri(float x){return abs(fract(x)-.5);}float noise(vec2 p);\n#ifdef TRI\nfloat noise(vec2 p){return tri(p.x)+tri(p.y);}\n#else\nfloat noise(vec2 p){return sin(p.x)*sin(p.y);}\n#endif\nfloat layer(vec2 p){return noise(p)+noise(p*2.)*.5;}void main(){gl_FragColor=vec4(layer(gl_FragCoord.xy));}";
+    expect(minify(src, { noInlining: true })).toBe(
+      "float tri(float x){return abs(fract(x)-.5);}\n#ifdef TRI\nfloat noise(vec2 p){return tri(p.x)+tri(p.y);}\n#else\nfloat noise(vec2 p){return sin(p.x)*sin(p.y);}\n#endif\nfloat layer(vec2 p){return noise(p)+noise(p*2.)*.5;}void main(){gl_FragColor=vec4(layer(gl_FragCoord.xy));}",
+    );
+  });
+  it("pulls a callee defined later in the file ahead of the region that needs it", () => {
+    const src = "float g();\n#ifdef A\nfloat g(){return h(1.);}\n#else\nfloat g(){return h(2.);}\n#endif\nfloat h(float x){return x*2.;}void main(){gl_FragColor=vec4(g());}";
+    const out = minify(src, { noInlining: true });
+    expect(out.indexOf("float h(")).toBeLessThan(out.indexOf("#ifdef A"));
+  });
+  it("orders as upstream does when there is no region", () => {
+    const src = "float a();float b(){return a()+1.;}float a(){return 2.;}void main(){gl_FragColor=vec4(b());}";
+    expect(minify(src, { noInlining: true })).toBe("float a(){return 2.;}float b(){return a()+1.;}void main(){gl_FragColor=vec4(b());}");
+  });
+});
+
+describe("--move-declarations", () => {
+  it("does not hoist a local above an earlier use of its name that refers to a global", () => {
+    // Upstream merges `float t` into the block's first float declaration, and `t.x` then names it.
+    // (Adjacent declarations merge anyway, and that is fine: a declarator's scope starts after it.)
+    const opts = { moveDeclarations: true, noInlining: true };
+    const src = "uniform vec2 t;void main(){float a=1.;float b=t.x*a;a+=b;float t=0.;for(int i=0;i<2;i++)t+=b;gl_FragColor=vec4(t,a,0,1);}";
+    expect(minify(src, opts)).toBe("uniform vec2 t;void main(){float a=1.,b=t.x*a;a+=b;float t=0.;for(int i=0;i<2;i++)t+=b;gl_FragColor=vec4(t,a,0,1);}");
+    const control = "uniform vec2 t;void main(){float a=1.;float b=a*2.;a+=b;float c=0.;for(int i=0;i<2;i++)c+=b;gl_FragColor=vec4(c,a,b,1);}";
+    expect(minify(control, opts)).toBe("uniform vec2 t;void main(){float a=1.,b=a*2.,c;a+=b;c=0.;for(int i=0;i<2;i++)c+=b;gl_FragColor=vec4(c,a,b,1);}");
   });
 });
 

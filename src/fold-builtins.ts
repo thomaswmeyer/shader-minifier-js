@@ -36,7 +36,7 @@ const componentwise: Record<string, Spec> = {
   clamp: cw([3], ([x, lo, hi]) => clamp(x, lo, hi), true),
   mix: cw([3], ([x, y, t]) => x * (1 - t) + y * t),
   step: cw([2], ([edge, x]) => (x < edge ? 0 : 1)),
-  smoothstep: cw([3], ([e0, e1, x]) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }),
+  smoothstep: cw([3], ([e0, e1, x]) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }, false, ([e0, e1]) => e0 >= e1),
 };
 
 const dot = (a: number[], b: number[]): number => a.reduce((s, x, i) => s + x * b[i], 0);

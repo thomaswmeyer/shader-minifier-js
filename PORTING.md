@@ -286,6 +286,25 @@ says so. Every site is ported deliberately:
     `o` before `out vec4 o;` is seen (redefinition). The port keeps every
     preserved global's name out of the generated list from the start.
 
+14. *`--move-declarations` and earlier uses.* Upstream merges a local
+    declaration into the block's first declaration of that type unless its
+    initializer names the variable itself (#458). A use of the same name
+    earlier in the block, referring to an outer variable, is another case:
+    `vec2 t` global, then `... t.xy ...; float t=0.;` in `main` (`ohanami`)
+    had `t.xy` rebound to the hoisted local. The port also keeps such a
+    declaration in place. Found by the scope check under the port-flag
+    corpus sweep with `--aggressive-inlining --move-declarations`.
+
+15. *Captured local inlining.* Upstream's rule [A] (never inline a function
+    body where a global it reads is shadowed at the call site) has no
+    counterpart for variables: `float b=t.x; float t=0.; t+=b;` inlined `b`
+    into `t+=t.x`, where `t` is the new local. After every marking rule,
+    `VariableInlining.unmarkCapturedVariables` visits each use of a
+    candidate with the scope at that use and unmarks the candidate if a
+    name its init reads is bound to a different declaration there. This
+    covers upstream's safe and simple inlining, aggressive inlining, and
+    `--inline-single-use`. Found by the scope check.
+
 ### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
 - `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse
   picks the alphabetically-first function name. Ported with sorted iteration.

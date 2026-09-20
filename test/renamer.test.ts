@@ -105,6 +105,17 @@ describe("rename", () => {
     expect(exportedNames).toEqual([]);
   });
 
+  it("never gives a generated name to a global that a preserved external declared later carries", () => {
+    // `o` is a likely first choice; the external out declared after the consts keeps it.
+    const src = "uniform float u;const float a=sqrt(2.),b=sqrt(3.),c=sqrt(5.),d=sqrt(7.),e=sqrt(11.);const float f=a+b,g=c+d,h=e+f,i=g+h,j=h+i,k=i+j,l=j+k,m=k+l,n=l+m;out vec4 o;void main(){o=vec4(a+b+c+d+e*u,f+g+h+i,j+k+l+m+n,1);}";
+    const opts = { ...defaultOptions(), preserveExternals: true, inlineSingleUse: false };
+    const shader = runParser(opts, "t.frag", src);
+    rename(opts, [shader]);
+    const out = Printer.print(shader.code);
+    expect(out).toContain("out vec4 o;");
+    expect(out.match(/\bo\b/g)!.length).toBe(2); // the declaration and the one use
+  });
+
   it("honours --no-renaming-list", () => {
     const { text } = minify("float keep(float x){return x;} void main(){gl_FragColor=vec4(keep(1.));}", { noRenamingList: ["main", "keep"] });
     expect(text).toMatch(/^float keep\(float [a-zA-Z_]\)/);

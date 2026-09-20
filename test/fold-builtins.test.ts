@@ -23,6 +23,20 @@ describe("--fold-builtins", () => {
     ["mix(vec2(0.),vec2(2.),.5)", "vec2(1)"],
     ["cross(vec3(1.,0.,0.),vec3(0.,1.,0.))", "vec3(0,0,1)"],
     ["dot(vec2(1.,2.),vec2(3.,4.))", "11"],
+    ["length(vec2(3.,4.))", "5"],
+    ["distance(vec2(1.,1.),vec2(4.,5.))", "5"],
+    ["normalize(vec3(0.))", "normalize(vec3(0))"], // zero length: undefined (the 0 is upstream's)
+    ["inversesqrt(0.)", "inversesqrt(0.)"],
+    ["log(0.)", "log(0.)"],
+    ["mod(1.,0.)", "mod(1.,0.)"],
+    ["smoothstep(1.,1.,.5)", "smoothstep(1.,1.,.5)"],
+    ["asin(2.)", "asin(2.)"],
+    ["abs(ivec2(-1,2))", "abs(ivec2(-1,2))"], // integer vectors are not folded
+    ["sqrt(vec2(4.,9.))", "vec2(2,3)"],
+    ["min(1.,2)", "min(1.,2)"], // mixed float and int: not valid GLSL, left alone
+    ["fract(-.5)", ".5"],
+    ["sign(-0.)", "0"],
+    ["exp2(128.)", "exp2(128.)"], // float32 overflow
   ];
   for (const [expr, want] of cases) it(`${expr} -> ${want}`, () => expect(body(expr)).toBe(want));
 
