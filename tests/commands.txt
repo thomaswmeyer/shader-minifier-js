@@ -16,7 +16,6 @@
 # Unit tests
 
 --no-remove-unused --no-inlining --no-renaming --format c-variables -o tests/unit/blocks.expected tests/unit/blocks.frag
---no-remove-unused --hlsl --no-inlining --no-renaming --format c-variables -o tests/unit/geometry.hlsl.expected tests/unit/geometry.hlsl
 --no-remove-unused --no-renaming --no-inlining --move-declarations --format c-array -o tests/unit/operators.expected tests/unit/operators.frag
 --no-remove-unused --no-renaming --no-inlining --format c-array -o tests/unit/minus-zero.expected tests/unit/minus-zero.frag
 --no-remove-unused --no-renaming --format c-array --no-inlining -o tests/unit/float.frag.expected tests/unit/float.frag
@@ -39,16 +38,10 @@
 --no-remove-unused --format indented -o tests/unit/interface_block.frag.expected tests/unit/interface_block.frag
 --no-remove-unused --no-renaming --format indented -o tests/unit/ternary.frag.expected tests/unit/ternary.frag
 --no-remove-unused --no-renaming --format indented -o tests/unit/reuse-var.frag.expected tests/unit/reuse-var.frag
---no-remove-unused --hlsl --no-renaming --format indented -o tests/unit/struct_inheritance.hlsl.expected tests/unit/struct_inheritance.hlsl
---no-remove-unused --hlsl --no-renaming --format indented -o tests/unit/templates.hlsl.expected tests/unit/templates.hlsl
 --no-remove-unused --no-renaming --format indented -o tests/unit/decimals.frag.expected tests/unit/decimals.frag
 --no-remove-unused --no-renaming --format indented -o tests/unit/layout.frag.expected tests/unit/layout.frag
 --no-remove-unused --format indented -o tests/unit/struct.frag.expected tests/unit/struct.frag
 --no-remove-unused --format indented -o tests/unit/struct2.frag.expected tests/unit/struct2.frag
---no-remove-unused --hlsl --no-renaming --format indented -o tests/unit/multidimensional-array.hlsl.expected tests/unit/multidimensional-array.hlsl
---no-remove-unused --hlsl --no-renaming --format indented -o tests/unit/struct_methods.hlsl.expected tests/unit/struct_methods.hlsl
---no-inlining --hlsl --no-renaming --format indented -o tests/unit/issue-535.hlsl.expected tests/unit/issue-535.hlsl
---no-remove-unused --hlsl --format indented -o tests/unit/issue-559.hlsl.expected tests/unit/issue-559.hlsl
 
 # Unused removal tests
 
@@ -90,7 +83,6 @@
 # Tests with full renaming
 
 --no-remove-unused --format c-array --no-inlining -o tests/unit/many_variables.expected tests/unit/many_variables.frag
---hlsl -o tests/real/elevated.hlsl.expected tests/real/elevated.hlsl
 -o tests/real/yx_long_way_from_home.frag.expected tests/real/yx_long_way_from_home.frag
 -o tests/real/oscars_chair.frag.expected tests/real/oscars_chair.frag
 -o tests/real/the_real_party_is_in_your_pocket.frag.expected tests/real/the_real_party_is_in_your_pocket.frag

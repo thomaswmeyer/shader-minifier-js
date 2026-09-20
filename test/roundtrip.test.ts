@@ -12,7 +12,7 @@ function listSources(dir: string): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...listSources(p));
-    else if (/\.(frag|vert|glsl|hlsl|comp|geom)$/.test(e.name)) out.push(p);
+    else if (/\.(frag|vert|glsl|comp|geom)$/.test(e.name)) out.push(p);
   }
   return out;
 }
@@ -24,7 +24,6 @@ describe("round-trip idempotence", () => {
     const rel = path.relative(repoRoot, file);
     it(rel, () => {
       const options = defaultOptions();
-      options.hlsl = file.endsWith(".hlsl");
       const src = fs.readFileSync(file, "utf8");
       if (src.includes("//[")) return; // verbatim blocks are one-way by design
       // do-while does not consume its trailing ';' (an empty statement follows, removed later by the rewriter)

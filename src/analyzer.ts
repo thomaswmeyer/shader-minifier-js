@@ -91,8 +91,6 @@ export class VarVisitor {
       case "Dot":
         this.using({ ...this.varUse, isPartialAccess: true }, () => this.visitExpr(e.expr));
         return;
-      case "Cast": this.visitExpr(e.expr); return; // The ident in a cast is not a Var.
-      case "VectorExp": for (const x of e.exprs) this.visitExpr(x); return;
       case "Var": this.onVisitVar(e); return;
       default: return;
     }

@@ -36,8 +36,6 @@ function hasCall(e: Expr): boolean {
     }
     case "Subscript": return hasCall(e.arr) || (e.index !== null && hasCall(e.index));
     case "Dot": return hasCall(e.expr);
-    case "Cast": return hasCall(e.expr);
-    case "VectorExp": return e.exprs.some(hasCall);
     default: return false;
   }
 }
@@ -186,7 +184,7 @@ export class VariableInlining {
           !def.name.doNotInline &&
           !varDecl.isEverWrittenAfterDecl) {
         if (def.init === null) {
-          // Top-level values are special, in particular in HLSL. Keep them for now.
+          // Top-level values are special. Keep them for now.
           // Never-written locals without init might be unused, but we don't know for sure here. Let safe inlining handle them.
         } else if (this.isSimpleEnoughToInline(def.init)) {
           // Never-written locals and globals are inlined when their value is "simple enough".
@@ -433,7 +431,7 @@ export class FunctionInlining {
     const funcInfos = new Analyzer(this.options).findFuncInfos(code);
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
-      if (canBeRenamed && !Ast.funIsExternal(funcInfo.funcType, this.options) && funcInfo.isResolvable) {
+      if (canBeRenamed && funcInfo.isResolvable) {
         if (!Ast.funHasOutOrInoutParams(funcInfo.funcType)) { // [F]
           // Find calls to this function. This works because we checked that the function is not overloaded ambiguously.
           const prototype = Ast.funPrototype(funcInfo.funcType);
@@ -520,7 +518,7 @@ export class ArgumentInlining {
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
       // If the function is overloaded, removing a parameter could conflict with another overload.
-      if (canBeRenamed && !Ast.funIsExternal(funcInfo.funcType, this.options) && funcInfo.isOverloaded) {
+      if (canBeRenamed && funcInfo.isOverloaded) {
         const prototype = Ast.funPrototype(funcInfo.funcType);
         const callSites = funcInfos.flatMap((n) => n.callSites).filter((n) => n.prototype === prototype);
         Ast.funParameters(funcInfo.funcType).forEach(([, argDecl], argIndex) => {

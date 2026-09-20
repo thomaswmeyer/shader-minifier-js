@@ -192,7 +192,7 @@ class RenamerVisitor {
       switch (context.kind) {
         case "TopLevelDeclaration":
           if (this.options.preserveAllGlobals) return env.dontRename(decl.name);
-          if (Ast.typeIsExternal(ty) || this.options.hlsl) return processExternal();
+          if (Ast.typeIsExternal(ty)) return processExternal();
           return env.newName("VarFunStruct", env, decl.name);
         case "Field":
           if (context.block.blockType.kind === "InterfaceBlock") {
@@ -259,17 +259,7 @@ class RenamerVisitor {
         return env;
       case "ForD": {
         const envForType = env; // Use the outer env to rename the init variable's type! In the inner env the type name might have been removed.
-        if (this.options.hlsl) {
-          // In HLSL, a variable declared in a for initializer stays in scope after the loop.
-          // We therefore can't keep the "shadowing" environment after the loop, and we must
-          // ensure the initializer declaration is renamed in the outer scope.
-          const envWithInit = this.renDecl(LocalDeclaration, envForType, env, stmt.init);
-          const innerEnv = envWithInit.onEnterScope(envWithInit, stmt); // In the for body, allow shadowing of unused outer decls.
-          this.renStmt(innerEnv, stmt.body);
-          if (stmt.cond !== null) this.renExpr(innerEnv, stmt.cond);
-          if (stmt.inc !== null) this.renExpr(innerEnv, stmt.inc);
-          return envWithInit;
-        } else {
+        {
           let innerEnv = env.onEnterScope(env, stmt); // In the for scope, we use an env that allows shadowing unused outer decls.
           innerEnv = this.renDecl(LocalDeclaration, envForType, innerEnv, stmt.init); // Use the inner env to rename the init variable.
           this.renStmt(innerEnv, stmt.body);
@@ -336,7 +326,7 @@ class RenamerVisitor {
   }
 
   private renFunction(env: Env, f: FunctionType): Env {
-    if ((Ast.funIsExternal(f, this.options) && this.options.preserveExternals) || this.options.preserveAllGlobals) {
+    if (this.options.preserveAllGlobals) {
       return env;
     } else if (this.options.noRenamingList.includes(f.fName.name) || f.fName.keepName) {
       return env;
@@ -346,9 +336,7 @@ class RenamerVisitor {
         f.fName.rename(name); // bug, may cause conflicts
         return env;
       } else {
-        const newEnv = this.renFunctionWithOverloading(env, signatureCreate(f.args), f.fName);
-        if (Ast.funIsExternal(f, this.options)) this.export(env, "HlslFunction", f.fName);
-        return newEnv;
+        return this.renFunctionWithOverloading(env, signatureCreate(f.args), f.fName);
       }
     }
   }

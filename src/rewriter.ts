@@ -4,7 +4,7 @@ import type { BlockLevel, Decl, DeclElt, Expr, FunctionType, Ident as IdentT, Lo
 import {
   Block, DeclStmt, Dot, ExprStmt, Float, ForD, ForE, FunCall, DoWhile, Function as FunctionTL, Ident, If, Int, Jump, OpCall,
   TLDecl, TLDirective, TLVerbatim, Var, Verbatim, Directive,
-  asOpCall, exprListEquals, funParameters, funPrototype, funIsExternal, prototypeKey, resolvedVariableUse,
+  asOpCall, exprListEquals, funParameters, funPrototype, prototypeKey, resolvedVariableUse,
   typeEquals, typeIsConst, typeIsOutOrInout, typeIsScalar, typeIsScalarOrVector, makeType, asStmtList,
 } from "./ast.js";
 import { Analyzer, Effects, IdentKind, VarVisitor, type FuncInfo, type VarUse } from "./analyzer.js";
@@ -814,7 +814,7 @@ class RewriterImpl {
     return stmts.flatMap(replacements);
   }
 
-  // In hlsl it's invalid to squeeze array declarations that have different dimensions e.g. float a[4], b[7];
+  // GLSL allows squeezing array declarations of different dimensions: `float a[4], b[7];`.
   private declsCanBeSqueezed([ty1, li1]: Decl, [ty2, li2]: Decl): boolean {
     // Helper for determining if all array dimensions in two declaration lists are equal.
     const allSizesEqual = (l1: DeclElt[], l2: DeclElt[]): boolean => {
@@ -823,7 +823,7 @@ class RewriterImpl {
       const sizes = all[0].sizes;
       return all.slice(1).every((decl) => exprListEquals(decl.sizes, sizes));
     };
-    return typeEquals(ty1, ty2) && (!this.options.hlsl || allSizesEqual(li1, li2));
+    return typeEquals(ty1, ty2);
   }
 
   // Squeeze declarations: "float a=2.; float b;"  ->  "float a=2.,b;"
@@ -1087,7 +1087,6 @@ class RewriterImpl {
         const compatibleDeclElt = [...localDecls, ...args].find((declElt1) =>
           !declElt1.name.hiddenUses &&
           exprListEquals(declElt1.sizes, declElt2.sizes) &&
-          exprListEquals(declElt1.semantics, declElt2.semantics) &&
           // The first variable must not be used after the second is declared.
           new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2])).every((i) => i.name !== declElt1.name.name));
 
@@ -1417,7 +1416,7 @@ class RewriterImpl {
       for (const elt of d[1]) { for (const s of elt.sizes) exprVars(s); if (elt.init !== null) exprVars(elt.init); }
     };
     const members = (block: StructOrInterfaceBlock): void => {
-      for (const m of block.members) { if (m.kind === "MemberVariable") declUses(m.decl); else { typeName(m.funcType.retType); for (const a of m.funcType.args) declUses(a); } }
+      for (const m of block.members) declUses(m.decl);
     };
     const verbatim: string[] = [];
     for (const tl of code) {
@@ -1483,7 +1482,7 @@ class RewriterImpl {
       const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.hiddenUses; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
       const isCalled = globalCalls.has(proto) || funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
-      return canBeRenamed && !isCalled && !funIsExternal(funcInfo.funcType, options);
+      return canBeRenamed && !isCalled;
     };
     const unused = funcInfos.filter(isUnused);
     if (unused.length > 0) {
@@ -1775,7 +1774,6 @@ const precisionBase = (name: string): string | null => {
 };
 
 export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: Stage | null = null): TopLevel[] {
-  if (options.hlsl) return code;
   stage = options.stage ?? stage ?? detectStage(options, code);
   const defaults = new Map<string, string>(lowpSamplers.map((s) => [s, "lowp"]));
   if (stage === "vertex") { defaults.set("float", "highp"); defaults.set("int", "highp"); }

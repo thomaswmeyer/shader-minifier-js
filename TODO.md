@@ -63,8 +63,6 @@ now decides.
 - **A callee pulled ahead of an `#ifdef` region** now follows every global
   declaration (`reorderFunctions`), which is safe unless the global's own
   initializer depends on a macro defined inside the region.
-- **HLSL** is kept as upstream has it and is not exercised by any semantic
-  test.
 
 ## 3. Vertex and fragment pairs in the pixel test
 

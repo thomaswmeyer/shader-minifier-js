@@ -61,10 +61,9 @@ externals consistent across files.
   rewriting every pass, not porting it, and the golden files would stop being
   an oracle.
 - Shader Minifier's parser is deliberately lax: unknown text in `//[ ... //]`
-  verbatim blocks, `#define`/`#if` directives as statements, HLSL semantics,
-  casts, templates, attributes, `layout(...)` kept as an opaque string.
-  glsl-parser is a strict GLSL ES 1.00/3.00 grammar and rejects the HLSL tests
-  and several desktop GLSL inputs in `tests/real`.
+  verbatim blocks, `#define`/`#if` directives as statements, `layout(...)`
+  kept as an opaque string. glsl-parser is a strict GLSL ES 1.00/3.00 grammar
+  and rejects several desktop GLSL inputs in `tests/real`.
 
 glsl-parser is used as an independent re-parse oracle in `test/reparse.test.ts`
 (every minified GLSL output must parse). Dev dependency only.
@@ -75,8 +74,8 @@ Vendored into `tests/` (Apache 2.0, with upstream's LICENSE and a
 `tests/UPSTREAM` file holding the commit hash; `scripts/sync-tests.sh`
 re-copies and re-applies `tests/DEVIATIONS.md`).
 
-1. **Golden tests** (`test/golden.test.ts`). `tests/commands.txt` has 96
-   commands (8 HLSL). The runner ports `Checker/main.fs`: same quote-aware
+1. **Golden tests** (`test/golden.test.ts`). `tests/commands.txt` has 88
+   commands. The runner ports `Checker/main.fs`: same quote-aware
    `splitArgs`, run in-process with the arg array, read the `-o` target as
    expected, normalise both with `cleanString` (CRLF -> LF, trim, strip
    `\bShader Minifier \d(\.\d+)+`). The banner therefore reads
@@ -118,7 +117,7 @@ Principle: replicate .NET/F# behaviour only where a golden test observes it.
 Everywhere else use plain JavaScript semantics. Floats are JS doubles with a
 shortest-round-trip printer. Sorted iteration is used in the renamer because
 it fixes the expected identifier names; other maps stay insertion-ordered.
-HLSL support is kept (small); WebGL is the focus.
+HLSL support is removed (section 5.2, item 26); WebGL is the focus.
 
 ### 5.1 Equality semantics
 F# uses structural equality on records/unions and reference identity where it
@@ -166,7 +165,7 @@ says so. Every site is ported deliberately:
    pi, tau or pi/2 at 8 decimals with `acos(-1.)`, `2.*acos(-1.)`,
    `acos(0.)`. Under mediump on mobile GPUs this can cost precision.
    `--no-pi-substitution` disables it. Default stays on to match the goldens
-   (`pi.frag`, `decimals.frag`, `geometry.hlsl`); the Vite plugin turns it off.
+   (`pi.frag`, `decimals.frag`); the Vite plugin turns it off.
 4. *Prefix sign spacing.* Upstream only guards binary `+`/`-` against
    merging into `++`/`--` (`printer.fs:142`), so `-(--a)` prints as `---a`,
    which is invalid. The port applies the same guard to prefix `+`/`-`
@@ -403,7 +402,31 @@ says so. Every site is ported deliberately:
     never dropped. Worth 42 bytes on the three.js corpus and nothing after
     compression (`TODO.md` section 7).
 
-25. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+25. *HLSL support removed.* Upstream minifies HLSL as well as GLSL, behind
+    `--hlsl`. Nothing on the web consumes it: WebGL takes GLSL ES and WebGPU
+    takes WGSL, so the mode was unreachable from the Vite plugin except
+    through the raw options escape hatch, and no semantic test covered it.
+    It was also actively wrong by then: with no `uniform` keyword in HLSL
+    every global looks internal to `typeIsExternal`, so
+    `--remove-unused-declarations` deleted constant-buffer globals the
+    application sets.
+
+    Removed: the flag and option; the HLSL type grammar (storage
+    qualifiers, generics); semantics (`: SV_TARGET`) on declarations and
+    functions, and so `funIsExternal`, which only semantics could make
+    true, and the `HlslFunction` export prefix; struct methods, struct
+    inheritance and templates; `[attribute]` blocks; C-style casts and
+    `{1,2,3}` vector expressions, neither of which is GLSL; the optional
+    semicolons after a struct or block; and the HLSL scoping rule that kept
+    a `for` initializer alive after its loop. Eight golden commands and
+    their fixtures went with it, leaving 88.
+
+    This is the port's one deliberate *subtraction* from upstream, so a
+    future sync has to skip these paths rather than merge them. The
+    remaining tests all pass unchanged, which is the evidence that nothing
+    removed was reachable from GLSL.
+
+26. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -439,7 +462,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 25, `test/port-flags.test.ts`).
+  (item 26, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

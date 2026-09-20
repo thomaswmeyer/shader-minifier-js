@@ -1,7 +1,7 @@
 {
   "name": "shader-minifier-js",
   "version": "1.5.1",
-  "description": "TypeScript port of Shader Minifier: a GLSL/HLSL minifier for size-constrained WebGL and demoscene shaders",
+  "description": "TypeScript port of Shader Minifier: a GLSL minifier for size-constrained WebGL and demoscene shaders",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -12,7 +12,6 @@
   "bugs": "https://github.com/thomaswmeyer/shader-minifier-js/issues",
   "keywords": [
     "glsl",
-    "hlsl",
     "shader",
     "minifier",
     "webgl",

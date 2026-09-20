@@ -186,10 +186,6 @@ class PrinterImpl {
         return `${this.exprToS(indent, f)}(${this.commaListToS((a: Expr) => this.exprToSLevel(indent, prec(",") + 1, a), args)})`;
       }
       case "Subscript": return `${this.exprToS(indent, e.arr)}[${this.exprToSOpt(indent, "", e.index)}]`;
-      case "Cast": // Cast seems to have the same precedence as unary minus
-        return `(${e.ident.name})${this.exprToSLevel(indent, prec("_-"), e.expr)}`;
-      case "VectorExp": // We set the level in case a comma operator is used in the argument list.
-        return `{${this.commaListToS((a: Expr) => this.exprToSLevel(indent, prec(",") + 1, a), e.exprs)}}`;
       case "Dot": return `${this.exprToSLevel(indent, prec("."), e.expr)}.${e.field.name}`;
       case "VerbatimExp": return e.text;
     }
@@ -199,20 +195,12 @@ class PrinterImpl {
   private sp(s: string): string { return s.length > 0 && isIdentChar(s[0]) ? " " + s : s; }
   private sp2(s: string, s2: string): string { return endsWithIdentChar(s) && startsWithIdentChar(s2) ? s + " " + s2 : s + s2; }
 
-  // Print HLSL semantics
-  private semToS(sem: Expr[]): string {
-    const res = sem.map((e) => this.exprToS(0, e)).join(":");
-    return res === "" ? res : ":" + res;
-  }
-
   private blockToS(indent: number, block: StructOrInterfaceBlock): string {
-    let name = block.name === null ? "" : " " + block.name.name;
-    name = name + block.template;
-    const c = block.baseClass === null ? "" : `:${block.baseClass}`;
+    const name = block.name === null ? "" : " " + block.name.name;
     const d = block.members.map((s) => `${this.nl(indent + 1)}${this.structMemberToS(indent + 1, s)};`).join("");
     const d2 = d === "" ? "" : `${d}${this.nl(indent)}`;
     const prefix = block.blockType.kind === "Struct" ? "struct" : block.blockType.prefix;
-    return `${this.sp2(prefix, name)}${c}{${d2}}`;
+    return `${this.sp2(prefix, name)}{${d2}}`;
   }
 
   private typeSpecToS(indent: number, t: TypeSpec): string {
@@ -235,7 +223,7 @@ class PrinterImpl {
       const sizes = decl.sizes.map((size) => (size.kind === "Int" && size.value === 0 ? "[]" : `[${this.exprToS(indent, size)}]`)).join("");
       // We set the level in case a comma operator is used in the argument list.
       const init = decl.init === null ? "" : `=${this.exprToSLevel(indent, prec(",") + 1, decl.init)}`;
-      return `${this.idToS(decl.name)}${sizes}${this.semToS(decl.semantics)}${init}`;
+      return `${this.idToS(decl.name)}${sizes}${init}`;
     };
     if (vars.length === 0) return "";
     return `${this.typeToS(indent, ty)} ${this.commaListToS(out1, vars)}`;
@@ -248,7 +236,7 @@ class PrinterImpl {
   }
 
   private structMemberToS(indent: number, m: StructMember): string {
-    return m.kind === "MemberVariable" ? this.declToS(indent, m.decl) : this.funDeclToS(indent, m.funcType, m.body);
+    return this.declToS(indent, m.decl);
   }
 
   private directiveToS(d: string[]): string {
@@ -324,7 +312,7 @@ class PrinterImpl {
   private stmtToSInd(indent: number, i: Stmt): string { return this.stmtToS(indent + 1, i); }
 
   funToS(indent: number, f: FunctionType): string {
-    return `${this.typeToS(indent, f.retType)} ${this.idToS(f.fName)}(${this.commaListToS((d: Decl) => this.declToS(indent, d), f.args)})${this.semToS(f.semantics)}`;
+    return `${this.typeToS(indent, f.retType)} ${this.idToS(f.fName)}(${this.commaListToS((d: Decl) => this.declToS(indent, d), f.args)})`;
   }
 
   private topLevelToS(tl: TopLevel): string {
@@ -367,7 +355,7 @@ class PrinterImpl {
         case "TypeDecl": symbolName = tl.block.name !== null ? tl.block.name.oldName : "*type decl*"; break; // struct or unnamed interface block
         case "Precision": symbolName = "*precision*"; break;
         case "TLDirective": symbolName = tl.parts[0] === "#define" ? "#define" : "*directive*"; break;
-        case "TLVerbatim": symbolName = "*verbatim*"; break; // HLSL attribute, //[ skipped //]
+        case "TLVerbatim": symbolName = "*verbatim*"; break; // //[ skipped //]
       }
       symbolMap.addMapping(tlStrings[i], symbolName);
     });
@@ -385,8 +373,7 @@ export const printWithLoc = (tl: TopLevel[]): string => new PrinterImpl(true).pr
 export function debugDecl(t: DeclElt): string {
   const sizes = t.sizes.map((s) => `[${exprToS(s)}]`).join("");
   const init = t.init === null ? "" : ` = ${exprToS(t.init)}`;
-  const sem = t.semantics.length === 0 ? "" : `: ${t.semantics.map(exprToS).join(":")}`;
-  return `${t.name.oldName}${sizes}${init}${sem}`;
+  return `${t.name.oldName}${sizes}${init}`;
 }
 
 export function debugIdent(ident: Ident): string {

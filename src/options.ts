@@ -33,7 +33,6 @@ export interface Options {
   canonicalFieldNames: string;
   preserveExternals: boolean;
   preserveAllGlobals: boolean;
-  hlsl: boolean;
   noInlining: boolean;
   noOverloading: boolean;
   aggroInlining: boolean;
@@ -75,7 +74,6 @@ export function defaultOptions(): Options {
     canonicalFieldNames: "xyzw",
     preserveExternals: false,
     preserveAllGlobals: false,
-    hlsl: false,
     noInlining: false,
     noOverloading: false,
     aggroInlining: false,
@@ -112,7 +110,6 @@ const usage: [string, string][] = [
   ["-o <name>", "Set the output filename (default is shader_code.h)"],
   ["-v", "Verbose, display additional information"],
   ["--debug", "Debug, display more additional information"],
-  ["--hlsl", "Use HLSL (default is GLSL)"],
   ["--format <fmt>", "Choose to format the output (use 'text' if you want just the shader): text, indented, c-variables, c-array, js, nasm, rust, json"],
   ["--field-names <set>", "Choose the field names for vectors: 'rgba', 'xyzw', or 'stpq'"],
   ["--preserve-externals", "Do not rename external values (e.g. uniform)"],
@@ -164,7 +161,6 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "-o": options.outputName = next(arg, i++); break;
       case "-v": options.verbose = true; break;
       case "--debug": options.debug = true; break;
-      case "--hlsl": options.hlsl = true; break;
       case "--format": {
         const f = next(arg, i++);
         if (!outputFormats.includes(f as OutputFormat)) throw new ArgumentError(`Unrecognized output format '${f}'\n${flagsHelp()}`);

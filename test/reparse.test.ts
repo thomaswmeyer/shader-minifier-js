@@ -12,8 +12,7 @@ import { loadCommands, repoRoot } from "./golden.js";
 
 // Re-parsing is not byte-idempotent for these (all are valid GLSL): comments are whitespace to
 // the parser, the trailing ';' of a do-while is a separate empty statement upstream too, and
-// compute `layout(...) in;` only differs in whitespace. Compared loosely instead. HLSL outputs
-// (verbatim `//[ ]` blocks, attributes) are only required to re-parse.
+// compute `layout(...) in;` only differs in whitespace. Compared loosely instead.
 const looseOnly = new Set([
   "tests/unit/verbatim.frag.expected",
   "tests/unit/loop.frag.expected",
@@ -50,11 +49,11 @@ describe("minified output re-parses", () => {
           } catch (e) {
             if (!swizzleLikeField.test(String(e))) throw e;
           }
-          if (again !== null && !options.hlsl) {
+          if (again !== null) {
             if (looseOnly.has(c.name)) expect(loose(again)).toBe(loose(out));
             else expect(again).toBe(out);
           }
-          if (!options.hlsl) expect(() => parse(out, { quiet: true })).not.toThrow();
+          expect(() => parse(out, { quiet: true })).not.toThrow();
         }
       } finally {
         process.chdir(cwd);

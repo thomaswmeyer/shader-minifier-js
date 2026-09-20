@@ -1,7 +1,7 @@
 # shader-minifier-js
 
 A TypeScript port of [Shader Minifier](https://github.com/laurentlb/Shader_Minifier)
-(Ctrl-Alt-Test, F#, Apache 2.0): a GLSL/HLSL minifier for size-constrained WebGL
+(Ctrl-Alt-Test, F#, Apache 2.0): a GLSL minifier for size-constrained WebGL
 and demoscene shaders. Zero runtime dependencies, Node >= 20, ESM.
 
 The port tracks upstream version 1.5.1 module for module and is validated by

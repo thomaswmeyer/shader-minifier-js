@@ -24,17 +24,6 @@ const glslStorage = [
   "invariant", "precise",
   "smooth", "flat", "noperspective",
 ];
-const hlslStorage = [
-  "extern", "nointerpolation", "precise", "shared", "groupshared",
-  "static", "uniform", "volatile", "const", "row_major", "column_major",
-  "inline", "target",
-  "out", "in", "inout",
-  "linear", "centroid", "nointerpolation", "noperspective", "sample",
-  "cbuffer", "tbuffer",
-  // https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-geometry-shader
-  "point", "line", "triangle", "lineadj", "triangleadj",
-];
-
 // Infix operators, from highest to lowest precedence.
 const infixLevels: [string[], "left" | "right"][] = [
   [["*", "/", "%"], "left"],
@@ -306,33 +295,12 @@ class ParserImpl {
     return e;
   }
 
-  private vectorExp(): Ast.Expr {
-    this.ch("{");
-    const inner = this.sepBy(() => this.exprNoComma(), ",");
-    this.ch("}");
-    return Ast.VectorExp(inner);
-  }
-
-  private primNoCast(): Ast.Expr {
+  private prim(): Ast.Expr {
     return this.choice<Ast.Expr>("expression",
-      () => this.vectorExp(),
       () => this.parenExp(),
       () => Ast.Var(this.ident()),
       () => this.anyNumber(),
     );
-  }
-
-  private cast(): Ast.Expr {
-    this.ch("(");
-    const id = this.ident();
-    this.ch(")");
-    const e = this.primNoCast();
-    return Ast.Cast(id, e);
-  }
-
-  private prim(): Ast.Expr {
-    const c = this.attempt(() => this.cast());
-    return c ?? this.primNoCast();
   }
 
   // Very high priority (parenthesis, function call, field access)
@@ -412,28 +380,9 @@ class ParserImpl {
 
   // ---- types --------------------------------------------------------------
 
-  private generic(): string {
-    const r = this.opt(() => {
-      this.ch("<");
-      const end = this.src.indexOf(">", this.pos);
-      if (end < 0) this.fail(">");
-      const s = this.src.slice(this.pos, end);
-      this.pos = end + 1;
-      this.ws();
-      return s;
-    });
-    return r === null ? "" : `<${r}>`;
-  }
-
   // A type block, like struct or interface blocks
   private blockSpecifier(prefix: string): Ast.StructOrInterfaceBlock {
     const name = this.opt(() => this.ident());
-    const template = this.generic();
-    const baseClass = this.opt(() => {
-      this.ch(":");
-      const id = this.ident();
-      return id.name + this.generic();
-    });
     // A field named like a swizzle (`q`, `rgb`) keeps its name: the renamer leaves such a use
     // alone since it cannot tell `hex.q` from `p.q`, and the rewriter checks the type before
     // treating one as a swizzle. Upstream refuses the declaration.
@@ -449,12 +398,6 @@ class ParserImpl {
     const structMember = (): Ast.StructMember =>
       this.choice<Ast.StructMember>("struct member",
         () => {
-          const f = this.pfunction();
-          if (f.kind !== "Function") throw new Error("unexpected");
-          this.opt(() => this.ch(";")); // the printer emits `};` after a method; accept it back (HLSL)
-          return { kind: "Method", funcType: f.funcType, body: f.body };
-        },
-        () => {
           const d = this.declaration();
           this.ch(";");
           return { kind: "MemberVariable", decl: check(d) };
@@ -465,7 +408,7 @@ class ParserImpl {
     this.ch("}");
     if (name !== null) this.forbiddenNames = [name.name, ...this.forbiddenNames];
     const blockType: Ast.BlockType = prefix === "struct" ? Ast.StructBlockType : { kind: "InterfaceBlock", prefix };
-    return { blockType, name, template, baseClass, members };
+    return { blockType, name, members };
   }
 
   private structSpecifier(): Ast.StructOrInterfaceBlock {
@@ -475,8 +418,7 @@ class ParserImpl {
 
   private structDecl(): Ast.TopLevel {
     const s = this.structSpecifier();
-    if (this.options.hlsl) this.opt(() => this.ch(";"));
-    else this.ch(";");
+    this.ch(";");
     return Ast.TypeDecl(s);
   }
 
@@ -498,10 +440,6 @@ class ParserImpl {
     ));
   }
 
-  private hlslQualifier(): string[] {
-    return this.many(() => this.choice("Type qualifier", ...hlslStorage.map((k) => () => this.keyword(k))));
-  }
-
   private arraySizes(): Ast.Expr[] {
     return this.many(() => { this.ch("["); const e = this.expr(); this.ch("]"); return e; });
   }
@@ -516,34 +454,14 @@ class ParserImpl {
     return Ast.makeType(name, tyQ, sizes);
   }
 
-  private specifiedTypeHLSL(): Ast.Type {
-    const tyQ = this.hlslQualifier();
-    const name = this.choice<Ast.TypeSpec>("type",
-      () => Ast.TypeBlock(this.structSpecifier()),
-      () => {
-        const id = this.ident();
-        const g = this.generic();
-        return Ast.TypeName(new Ident(id.name + g, id.loc));
-      },
-    );
-    this.generic();
-    const sizes = this.arraySizes();
-    return Ast.makeType(name, tyQ, sizes);
-  }
-
   private qualifier(): string[] {
-    const ret = this.options.hlsl ? this.hlslQualifier() : this.glslQualifier();
+    const ret = this.glslQualifier();
     if (ret.length === 0) this.fail("Expected a type qualifier, but got none");
     return ret;
   }
 
   private specifiedType(): Ast.Type {
-    return this.options.hlsl ? this.specifiedTypeHLSL() : this.specifiedTypeGLSL();
-  }
-
-  // For HLSL, e.g. ": color"
-  private semantics(): Ast.Expr[] {
-    return this.many(() => { this.ch(":"); return this.simpleExpr(); });
+    return this.specifiedTypeGLSL();
   }
 
   private brackets(): Ast.Expr[] {
@@ -561,9 +479,8 @@ class ParserImpl {
     const variable = (): Ast.DeclElt => {
       const id = this.ident();
       const sizes = this.brackets();
-      const sem = this.semantics();
       const init = this.opt(() => { this.ch("="); return this.exprNoComma(); });
-      return Ast.makeDecl(id, sizes, sem, init);
+      return Ast.makeDecl(id, sizes, init);
     };
     const list = this.sepBy1(variable, ",");
     return [ty, list];
@@ -574,19 +491,14 @@ class ParserImpl {
     const ty = this.specifiedType();
     const id = this.ident();
     const sizes = this.brackets();
-    const sem = this.semantics();
-    return [ty, [Ast.makeDecl(id, sizes, sem, null)]];
+    return [ty, [Ast.makeDecl(id, sizes, null)]];
   }
 
   // GLSL, eg. "uniform Transform { ... };"
   private interfaceBlock(): Ast.TopLevel {
     const ty = this.specifiedType();
-    const sem = this.semantics();
-    const s = sem.map((e) => ":" + Printer.exprToS(e)).join("");
-    const ret = Ast.TypeDecl(this.blockSpecifier(Printer.typeToS(ty) + s));
-    // semicolon seems to be optional in hlsl
-    if (this.options.hlsl) this.opt(() => this.ch(";"));
-    else this.ch(";");
+    const ret = Ast.TypeDecl(this.blockSpecifier(Printer.typeToS(ty)));
+    this.ch(";");
     return ret;
   }
 
@@ -700,31 +612,6 @@ class ParserImpl {
     return res;
   }
 
-  // HLSL attribute, eg. [maxvertexcount(12)]
-  private attribute(): string {
-    if (!this.options.hlsl) this.fail("attribute");
-    this.ch("[");
-    const end = this.src.indexOf("]", this.pos);
-    if (end < 0) this.fail("]");
-    const s = this.src.slice(this.pos, end);
-    this.pos = end + 1;
-    this.ws();
-    return "[" + s + "]";
-  }
-
-  // HLSL template, e.g. template<typename T>
-  private template(): string {
-    if (!this.options.hlsl) this.fail("template");
-    this.str("template");
-    this.ch("<");
-    const end = this.src.indexOf(">", this.pos);
-    if (end < 0) this.fail(">");
-    const s = this.src.slice(this.pos, end);
-    this.pos = end + 1;
-    this.ws();
-    return `template<${s}>`;
-  }
-
   private jump(): Ast.Stmt {
     const res = this.choice<Ast.Stmt>("jump",
       () => {
@@ -749,7 +636,6 @@ class ParserImpl {
 
   private statement(): Ast.Stmt {
     return this.choice<Ast.Stmt>("statement",
-      () => Ast.Verbatim(this.template()),
       () => this.block(),
       () => this.jump(),
       () => this.forLoop(),
@@ -759,7 +645,6 @@ class ParserImpl {
       () => this.switchStmt(),
       () => Ast.Verbatim(this.verbatim()),
       () => Ast.Directive(this.macro()),
-      () => Ast.Verbatim(this.attribute()),
       () => { const d = this.declaration(); this.ch(";"); return Ast.DeclStmt(d); },
       () => this.simpleStatement(),
     );
@@ -777,8 +662,7 @@ class ParserImpl {
       () => this.sepBy(() => this.singleDeclaration(), ","),
     );
     this.ch(")");
-    const sem = this.semantics();
-    return Ast.makeFunctionType(ty, id, args, sem);
+    return Ast.makeFunctionType(ty, id, args);
   }
 
   private pfunction(): Ast.TopLevel {
@@ -809,9 +693,7 @@ class ParserImpl {
   private topLevelItem(): Ast.TopLevel {
     return this.choice<Ast.TopLevel>("top-level declaration",
       () => { const ss = this.macro(); return Ast.TLDirective(ss, this.location()); },
-      () => Ast.TLVerbatim(this.template()),
       () => Ast.TLVerbatim(this.verbatim()),
-      () => Ast.TLVerbatim(this.attribute()),
       () => { const d = this.declaration(); this.ch(";"); return Ast.TLDecl(d); },
       () => this.structDecl(),
       () => this.interfaceBlock(),

@@ -18,12 +18,12 @@ function writeSample(): void {
 
 describe("vite plugin", () => {
   it("maps plugin options onto minifier options", () => {
-    const o = toMinifierOptions({ noRenamingList: ["uColor"], noSequence: true, options: { hlsl: true } });
+    const o = toMinifierOptions({ noRenamingList: ["uColor"], noSequence: true, options: { moveDeclarations: true } });
     expect(o.webgl).toBe(true);
     expect(o.preserveExternals).toBe(true);
     expect(o.noRenamingList).toEqual(["main", "mainImage", "uColor"]);
     expect(o.noSequence).toBe(true);
-    expect(o.hlsl).toBe(true);
+    expect(o.moveDeclarations).toBe(true);
     expect(o.outputFormat).toBe("text");
   });
 

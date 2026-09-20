@@ -180,12 +180,11 @@ describe("exported name sorting (F# Seq.sort on the record: prefix, name, newNam
     const options = { ...defaultOptions(), outputFormat: "js" as const };
     const shader = runParser(options, "x.frag", "void main(){}");
     const out = Formatter.print(options, [shader], [
-      { prefix: "HlslFunction", name: "a", newName: "x" },
       { prefix: "Variable", name: "b", newName: "y" },
       { prefix: "Variable", name: "B", newName: "z" },
       { prefix: "Variable", name: "a", newName: "w" },
     ]);
     const lines = out.split("\n").filter((l) => /^var (var|F)_/.test(l));
-    expect(lines).toEqual(['var var_B = "z"', 'var var_A = "w"', 'var var_B = "y"', 'var F_A = "x"']);
+    expect(lines).toEqual(['var var_B = "z"', 'var var_A = "w"', 'var var_B = "y"']);
   });
 });

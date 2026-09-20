@@ -1,7 +1,0 @@
-float r()
-{
-  float J=J;
-  for(;;)
-    ;
-  return J;
-}

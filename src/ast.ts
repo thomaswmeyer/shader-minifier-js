@@ -99,8 +99,6 @@ export type Expr =
   | { kind: "FunCall"; fn: Expr; args: Expr[] } // The first Expr of a FunCall can be: Op, Var, Subscript, or Dot.
   | { kind: "Subscript"; arr: Expr; index: Expr | null }
   | { kind: "Dot"; expr: Expr; field: Ident }
-  | { kind: "Cast"; ident: Ident; expr: Expr } // hlsl
-  | { kind: "VectorExp"; exprs: Expr[] } // hlsl
   | { kind: "VerbatimExp"; text: string };
 // Examples:
 // * "i++" = FunCall (Op "$++", [Var ident: i])
@@ -119,8 +117,6 @@ export const FunCall = (fn: Expr, args: Expr[]): Expr => ({ kind: "FunCall", fn,
 export const OpCall = (op: string, args: Expr[]): Expr => FunCall(Op(op), args);
 export const Subscript = (arr: Expr, index: Expr | null): Expr => ({ kind: "Subscript", arr, index });
 export const Dot = (expr: Expr, field: Ident): Expr => ({ kind: "Dot", expr, field });
-export const Cast = (ident: Ident, expr: Expr): Expr => ({ kind: "Cast", ident, expr });
-export const VectorExp = (exprs: Expr[]): Expr => ({ kind: "VectorExp", exprs });
 export const VerbatimExp = (text: string): Expr => ({ kind: "VerbatimExp", text });
 
 /** Matches FunCall(Op op, args); returns null otherwise. */
@@ -144,7 +140,7 @@ export const TypeBlock = (block: StructOrInterfaceBlock): TypeSpec => ({ kind: "
 
 export type StructMember =
   | { kind: "MemberVariable"; decl: Decl }
-  | { kind: "Method"; funcType: FunctionType; body: Stmt };
+;
 
 export type BlockType = { kind: "Struct" } | { kind: "InterfaceBlock"; prefix: string }; // things like "uniform" or "layout(...)"
 export const StructBlockType: BlockType = { kind: "Struct" };
@@ -155,8 +151,6 @@ export const StructBlockType: BlockType = { kind: "Struct" };
 export interface StructOrInterfaceBlock {
   blockType: BlockType;
   name: Ident | null; // Point
-  template: string; // "<T>" or ""
-  baseClass: string | null; // "Base"
   members: StructMember[];
 }
 
@@ -180,7 +174,6 @@ export const typeIsScalarOrVector = (t: Type): boolean =>
 export interface DeclElt {
   name: Ident; // e.g. foo
   sizes: Expr[]; // e.g. [3]
-  semantics: Expr[]; // e.g. : color
   init: Expr | null; // e.g. = f(x)
 }
 
@@ -222,10 +215,8 @@ export interface FunctionType {
   retType: Type;
   fName: Ident;
   args: Decl[];
-  semantics: Expr[];
 }
 
-export const funIsExternal = (f: FunctionType, options: Options): boolean => options.hlsl && f.semantics.length > 0;
 export const funHasOutOrInoutParams = (f: FunctionType): boolean =>
   f.args.some(([ty]) => ty.typeQ.includes("out") || ty.typeQ.includes("inout"));
 /** (name, arity) key, as a string. Uses the current (possibly renamed) name, like upstream. */
@@ -254,12 +245,12 @@ export const TypeDecl = (block: StructOrInterfaceBlock): TopLevel => ({ kind: "T
 export const Precision = (ty: Type): TopLevel => ({ kind: "Precision", ty });
 
 export const makeType = (name: TypeSpec, typeQ: string[], arraySizes: Expr[]): Type => ({ name, typeQ, arraySizes });
-export const makeDecl = (name: Ident, sizes: Expr[], semantics: Expr[], init: Expr | null): DeclElt => ({ name, sizes, semantics, init });
-export const makeFunctionType = (retType: Type, fName: Ident, args: Decl[], semantics: Expr[]): FunctionType => ({ retType, fName, args, semantics });
+export const makeDecl = (name: Ident, sizes: Expr[], init: Expr | null): DeclElt => ({ name, sizes, init });
+export const makeFunctionType = (retType: Type, fName: Ident, args: Decl[]): FunctionType => ({ retType, fName, args });
 
 // An ExportedName is a name that is used outside the shader code (e.g. uniform and attribute
 // values). We need to provide accessors for the developer (e.g. create macros for C/C++).
-export type ExportPrefix = "Variable" | "HlslFunction";
+export type ExportPrefix = "Variable";
 export interface ExportedName {
   prefix: ExportPrefix;
   name: string;
@@ -302,8 +293,6 @@ export function exprEquals(a: Expr, b: Expr): boolean {
       return exprEquals(a.arr, bb.arr) && (a.index === null ? bb.index === null : bb.index !== null && exprEquals(a.index, bb.index));
     }
     case "Dot": { const bb = b as typeof a; return exprEquals(a.expr, bb.expr) && a.field.name === bb.field.name; }
-    case "Cast": { const bb = b as typeof a; return a.ident.name === bb.ident.name && exprEquals(a.expr, bb.expr); }
-    case "VectorExp": return exprListEquals(a.exprs, (b as typeof a).exprs);
     case "VerbatimExp": return a.text === (b as typeof a).text;
   }
 }
@@ -383,8 +372,6 @@ export class MapEnv {
       case "FunCall": return this.fExpr(this, FunCall(this.mapExpr(e.fn), e.args.map((a) => this.mapExpr(a))));
       case "Subscript": return this.fExpr(this, Subscript(this.mapExpr(e.arr), e.index === null ? null : this.mapExpr(e.index)));
       case "Dot": return this.fExpr(this, Dot(this.mapExpr(e.expr), e.field));
-      case "Cast": return this.fExpr(this, Cast(e.ident, this.mapExpr(e.expr)));
-      case "VectorExp": return this.fExpr(this, VectorExp(e.exprs.map((x) => this.mapExpr(x))));
       default: return this.fExpr(this, e);
     }
   }
@@ -426,7 +413,7 @@ export class MapEnv {
         case "ForD": {
           const [env2, decl] = env.mapDecl(stmt.init);
           const res = ForD(decl, stmt.cond === null ? null : env2.mapExpr(stmt.cond), stmt.inc === null ? null : env2.mapExpr(stmt.inc), mapStmtNested(env2, stmt.body)[1]);
-          return [env.options.hlsl ? env2 : env, res];
+          return [env, res]; // a GLSL for-initializer does not stay in scope after the loop
         }
         case "ForE":
           return [env, ForE(
