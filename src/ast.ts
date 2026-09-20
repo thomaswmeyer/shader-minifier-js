@@ -99,7 +99,14 @@ export type Expr =
   | { kind: "FunCall"; fn: Expr; args: Expr[] } // The first Expr of a FunCall can be: Op, Var, Subscript, or Dot.
   | { kind: "Subscript"; arr: Expr; index: Expr | null }
   | { kind: "Dot"; expr: Expr; field: Ident }
-  | { kind: "VerbatimExp"; text: string };
+  | { kind: "VerbatimExp"; text: string }
+  // A `#if`/`#elif`/`#else` chain standing where one expression does, which engine shaders write
+  // inside an argument list (three.js: `getTangentFrame(-vViewPosition, normal,\n#if defined(
+  // USE_NORMALMAP )\n vNormalMapUv\n#elif ...`). Each branch holds the whole directive line as
+  // written and the expression it guards; the last branch of an `#else` has `directive` for the
+  // `#else` line itself. The compiler's own preprocessor picks a branch, so the minifier must keep
+  // all of them and may not assume any one is taken.
+  | { kind: "Conditional"; branches: { directive: string; expr: Expr }[] };
 // Examples:
 // * "i++" = FunCall (Op "$++", [Var ident: i])
 // * "sin(1.0)" = FunCall (Var ident: sin, [Float (1.0, "")])
@@ -118,6 +125,7 @@ export const OpCall = (op: string, args: Expr[]): Expr => FunCall(Op(op), args);
 export const Subscript = (arr: Expr, index: Expr | null): Expr => ({ kind: "Subscript", arr, index });
 export const Dot = (expr: Expr, field: Ident): Expr => ({ kind: "Dot", expr, field });
 export const VerbatimExp = (text: string): Expr => ({ kind: "VerbatimExp", text });
+export const Conditional = (branches: { directive: string; expr: Expr }[]): Expr => ({ kind: "Conditional", branches });
 
 /** Matches FunCall(Op op, args); returns null otherwise. */
 export function asOpCall(e: Expr): { op: string; args: Expr[] } | null {
@@ -294,6 +302,11 @@ export function exprEquals(a: Expr, b: Expr): boolean {
     }
     case "Dot": { const bb = b as typeof a; return exprEquals(a.expr, bb.expr) && a.field.name === bb.field.name; }
     case "VerbatimExp": return a.text === (b as typeof a).text;
+    case "Conditional": {
+      const bb = b as typeof a;
+      return a.branches.length === bb.branches.length
+        && a.branches.every((x, i) => x.directive === bb.branches[i].directive && exprEquals(x.expr, bb.branches[i].expr));
+    }
   }
 }
 export const exprListEquals = (a: Expr[], b: Expr[]): boolean => a.length === b.length && a.every((e, i) => exprEquals(e, b[i]));
@@ -372,6 +385,7 @@ export class MapEnv {
       case "FunCall": return this.fExpr(this, FunCall(this.mapExpr(e.fn), e.args.map((a) => this.mapExpr(a))));
       case "Subscript": return this.fExpr(this, Subscript(this.mapExpr(e.arr), e.index === null ? null : this.mapExpr(e.index)));
       case "Dot": return this.fExpr(this, Dot(this.mapExpr(e.expr), e.field));
+      case "Conditional": return this.fExpr(this, Conditional(e.branches.map((b) => ({ ...b, expr: this.mapExpr(b.expr) }))));
       default: return this.fExpr(this, e);
     }
   }

@@ -188,6 +188,15 @@ class PrinterImpl {
       case "Subscript": return `${this.exprToS(indent, e.arr)}[${this.exprToSOpt(indent, "", e.index)}]`;
       case "Dot": return `${this.exprToSLevel(indent, prec("."), e.expr)}.${e.field.name}`;
       case "VerbatimExp": return e.text;
+      case "Conditional": {
+        // The directives have to start their own lines for the compiler's preprocessor, whatever
+        // the output format asks for. The chain binds like a comma expression, the loosest thing
+        // there is: whichever branch the preprocessor keeps is then an operand of whatever
+        // surrounds it, so a tighter context has to parenthesise the whole chain. Parentheses may
+        // wrap the directives, since the preprocessor runs first and leaves one expression inside.
+        const chain = e.branches.map((b) => `\n${b.directive}\n${this.exprToSLevel(indent, prec(",") + 1, b.expr)}`).join("") + "\n#endif\n";
+        return level > prec(",") ? `(${chain})` : chain;
+      }
     }
   }
 

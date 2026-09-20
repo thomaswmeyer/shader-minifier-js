@@ -98,23 +98,33 @@ assumes the file is complete and so cannot serve a shader whose defines are
 injected at runtime. Lifting this is the change that would let the Vite plugin
 take engine shaders as they come.
 
-Plan, in the order that keeps every step shippable:
+**Done so far.** `Expr.kind = "Conditional"` holds a chain of branches, each
+with its directive line as written and the expression it guards, and the
+parser produces one where an argument of a call is expected. Uses and effects
+are the union over branches, the renamer walks all of them, and the printer
+parenthesises the whole chain when the surrounding precedence needs it, since
+whichever branch survives becomes an operand of what is around it. The
+measured effect on the corpus is small and worth stating honestly:
 
-1. **Lex directives as tokens.** Today a directive is recognised at statement
-   level by `#` at the start of a line. Make the lexer emit a `Directive`
-   token for any line starting with `#` (after whitespace), carrying the
-   line's text, wherever it appears. Statement and top-level parsing keep
-   their current handling by consuming the token there.
-2. **A conditional expression node.** Add `Expr.kind = "Conditional"` holding
-   `branches: { condition: string | null; exprs: Expr[] }[]` (the last branch
-   with `condition: null` for `#else`), produced when a `Directive` token is
-   met inside an argument list, an initializer, or an operand position. The
-   parser parses each branch's text as the same syntactic category as the
-   surrounding position expects: a list of arguments inside a call, one
-   expression elsewhere. `#endif` closes it.
-3. **Printing.** The printer emits the branches with their directives on
-   their own lines, which the text format already does for statement-level
-   directives.
+| three.js shaders parsing without `--preprocess` | |
+|---|--:|
+| before | 43 of 56 |
+| after | 45 of 56 |
+
+The eleven that still fail do not fail on expressions. Seven have a `#ifdef`
+around a group of *struct members*, and four have one around a group of
+*parameters*, with an `#else` giving the same parameter a different type.
+Those are conditionals around list items, a different shape from a
+conditional standing where one expression does, and they are what is left:
+
+1. **A conditional around list items.** Struct member lists and parameter
+   lists. Keeping every branch's items in one list is wrong where an `#else`
+   redeclares a name, which the `getSunShadow` case does. The cheap and safe
+   representation is to keep such a region as opaque text and pin every
+   identifier in it, reusing the mechanism that already protects a kept
+   `#define` body; that costs bytes on those shaders but stays correct.
+   Representing the alternatives properly is the fuller fix.
+2. **Printing.** Already handled for the expression case.
 4. **Analysis.** The visitor maps every branch. Purity, effects and variable
    uses are the union over branches. Inlining and folding never move an
    expression into or out of a `Conditional`, and a call with a `Conditional`

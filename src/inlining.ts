@@ -36,6 +36,7 @@ function hasCall(e: Expr): boolean {
     }
     case "Subscript": return hasCall(e.arr) || (e.index !== null && hasCall(e.index));
     case "Dot": return hasCall(e.expr);
+    case "Conditional": return e.branches.some((b) => hasCall(b.expr));
     default: return false;
   }
 }

@@ -92,6 +92,7 @@ export class VarVisitor {
         this.using({ ...this.varUse, isPartialAccess: true }, () => this.visitExpr(e.expr));
         return;
       case "Var": this.onVisitVar(e); return;
+      case "Conditional": for (const b of e.branches) this.visitExpr(b.expr); return; // every branch may be the one the compiler keeps
       default: return;
     }
   }
@@ -164,6 +165,9 @@ export namespace Effects {
   export function sideEffects(e: Expr): Expr[] {
     switch (e.kind) {
       case "Var": case "Int": case "Float": return [];
+      // Only one branch survives preprocessing, but which one is not known here, so the whole
+      // conditional has an effect if any branch does, and it cannot be split into its parts.
+      case "Conditional": return e.branches.some((b) => sideEffects(b.expr).length > 0) ? [e] : [];
       case "Dot": return sideEffects(e.expr);
       case "Subscript": return [e.arr, ...(e.index === null ? [] : [e.index])].flatMap(sideEffects);
       case "FunCall": {

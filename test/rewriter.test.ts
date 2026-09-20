@@ -162,3 +162,43 @@ describe("float constant folding", () => {
     );
   });
 });
+
+// A `#if`/`#elif`/`#else` chain standing where one expression does. Engine shaders write one
+// inside an argument list and leave the choice to the compiler's preprocessor, so all branches
+// are kept and none may be assumed taken (TODO.md section 1, first step).
+describe("a conditional in an argument position", () => {
+  const parse = (src: string): string => Printer.print(runParser(defaultOptions(), "t.frag", src).code);
+  const chain = "\n#if defined( X )\nb\n#elif defined( Y )\nc\n#else\nd\n#endif\n";
+  const shader = (call: string): string => `precision highp float;uniform float b,c,d;float g(float x,float y){return x+y;}void main(){gl_FragColor=vec4(${call});}`;
+
+  it("round-trips the branches and their directives", () => {
+    const src = `precision highp float;\nuniform float b,c,d;\nfloat g(float x,float y){return x+y;}\nvoid main(){gl_FragColor=vec4(g(b,\n#if defined( X )\nb\n#elif defined( Y )\nc\n#else\nd\n#endif\n));}`;
+    const out = parse(src);
+    expect(out).toContain(chain);
+    expect(out).toContain("g(b,");
+  });
+
+  it("parenthesises the chain where the surrounding precedence needs it", () => {
+    // Whichever branch survives becomes an operand of what surrounds it, so `* 2.` must not bind
+    // to the tail of a branch.
+    const out = minifyApi(shader("g(b,\n#if defined( X )\nb+c\n#else\nd\n#endif\n)*2."), { noRenaming: true, noPiSubstitution: true }).code;
+    expect(out).toContain("*2.");
+    expect(out).toMatch(/\(\n#if defined\( X \)/);
+  });
+
+  it("renames inside every branch, and counts a use in each", () => {
+    const out = minifyApi(shader("g(b,\n#if defined( X )\nb\n#else\nc\n#endif\n)"), { noPiSubstitution: true }).code;
+    // b and c are uniforms: renamed, and the uses inside the branches follow their declarations.
+    expect(out).not.toContain("uniform float b,c,d;");
+    expect(out).toContain("#if defined( X )");
+    for (const line of out.split("\n")) if (!line.startsWith("#")) expect(line).not.toMatch(/\bb\b|\bc\b/);
+  });
+
+  it("keeps an effect inside the branch that guards it", () => {
+    // bump() is inlined into the branch, which is right: the increment happens only when the
+    // preprocessor keeps that branch, exactly as the source had it.
+    const src = "precision highp float;int n;float bump(){return float(n++);}float g(float x,float y){return x+y;}void main(){gl_FragColor=vec4(g(1.,\n#if defined( X )\nbump()\n#else\n2.\n#endif\n));}";
+    const out = minifyApi(src, { noRenaming: true, noPiSubstitution: true }).code;
+    expect(out).toMatch(/#if defined\( X \)\nfloat\(n\+\+\)\n#else/);
+  });
+});

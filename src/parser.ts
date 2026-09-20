@@ -320,12 +320,44 @@ class ParserImpl {
         e = Ast.Subscript(e, ind);
       } else if (c === "(") {
         this.ch("(");
-        const args = this.sepBy(() => this.exprNoComma(), ",");
+        const args = this.sepBy(() => this.argument(), ",");
         this.ch(")");
         e = Ast.FunCall(e, args);
       } else {
         return e;
       }
+    }
+  }
+
+  // An argument of a call, which may be a `#if`/`#elif`/`#else` chain choosing between
+  // expressions. Engine shaders write one inside an argument list and the preprocessor picks a
+  // branch, so all of them are kept. Only this position is supported so far: a chain that spans
+  // several arguments, or one in an operand position, is still a parse error.
+  private argument(): Ast.Expr {
+    const cond = this.attempt(() => this.conditionalExpr());
+    return cond ?? this.exprNoComma();
+  }
+
+  private conditionalExpr(): Ast.Expr {
+    const directiveLine = (): string => {
+      if (this.peek() !== "#") this.fail("'#'");
+      const start = this.pos;
+      while (!this.eof() && this.peek() !== "\n") this.pos++;
+      const line = this.src.slice(start, this.pos).trim();
+      this.ws();
+      return line;
+    };
+    const opens = /^#\s*(if|ifdef|ifndef)\b/;
+    if (this.peek() !== "#" || !opens.test(this.src.slice(this.pos, this.pos + 16))) this.fail("'#if'");
+    const branches: { directive: string; expr: Ast.Expr }[] = [];
+    for (;;) {
+      const directive = directiveLine();
+      if (/^#\s*endif\b/.test(directive)) {
+        if (branches.length === 0) this.fail("a branch before #endif");
+        return Ast.Conditional(branches);
+      }
+      branches.push({ directive, expr: this.exprNoComma() });
+      if (this.peek() !== "#") this.fail("'#elif', '#else' or '#endif'");
     }
   }
 
