@@ -183,6 +183,14 @@ accounts for none of it on its own (3.0 ms without it, inside the noise).
 
 ## 8. Flag surface
 
+Adding one flag today touches six places: the `Options` field, the defaults,
+the usage table, the argv switch, the plugin's option type and the plugin's
+defaults. A descriptor table driving the help text and the parser would cut
+that, but the argv switch is ported from upstream and the changes below
+would rewrite the surface anyway, so the table is only worth building on top
+of whatever this section settles on.
+
+
 The port's flags grew one per discovery and are all off in the CLI so the
 goldens stay byte-identical, which is why reproducing the plugin's output
 from the command line takes nine of them. What that should become:

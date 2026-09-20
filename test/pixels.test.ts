@@ -8,16 +8,16 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
 import { ParseError, type Options } from "../src/options.js";
-import { toMinifierOptions } from "../src/vite.js";
+import { pluginOptions, upstreamOptions } from "./corpora.js";
 import { repoRoot } from "./golden.js";
 import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, toEs100, type RenderConfig } from "./pixels.js";
 import { readTomto, tomtoShaders } from "./tomto.js";
 
 interface Case { name: string; stage: "frag" | "vert"; source: string; options: Options }
 
-const pluginDefaults = toMinifierOptions();
+const pluginDefaults = pluginOptions();
 /** Upstream's rewrites alone (--webgl only skips two of them), externals kept so uniforms can be set by name. */
-const upstreamOnly: Options = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false });
+const upstreamOnly: Options = upstreamOptions();
 
 const cases: Case[] = [];
 const add = (name: string, source: string, variants: [string, Options][] = [["plugin", pluginDefaults], ["upstream", upstreamOnly]]): void => {

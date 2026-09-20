@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { Minifier } from "../src/api.js";
 import type { Options } from "../src/options.js";
-import { toMinifierOptions } from "../src/vite.js";
+import { glTransitions, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
 import { repoRoot } from "../test/golden.js";
 import { readTomto, tomtoShaders } from "../test/tomto.js";
 
@@ -23,19 +23,14 @@ try { spglsl = createRequire(import.meta.url)("spglsl") as Spglsl; } catch { /* 
 interface Shader { name: string; source: string; options?: Partial<Options> }
 interface Corpus { name: string; shaders: Shader[] }
 
+
 const corpora: Corpus[] = [];
 corpora.push({ name: "tom.to", shaders: tomtoShaders().map((n) => ({ name: n, source: readTomto(n) })) });
 
-const gltDir = path.join(repoRoot, "test/corpus/gl-transitions");
-if (fs.existsSync(gltDir)) {
-  const header = "precision highp float;\nvarying vec2 _uv;\nuniform sampler2D from, to;\nuniform float progress, ratio;\nvec4 getFromColor(vec2 uv) { return texture2D(from, uv); }\nvec4 getToColor(vec2 uv) { return texture2D(to, uv); }\n";
-  const footer = "\nvoid main() { gl_FragColor = transition(_uv); }\n";
-  corpora.push({ name: "gl-transitions", shaders: fs.readdirSync(gltDir).filter((f) => f.endsWith(".glsl")).sort().map((f) => ({ name: f, source: header + fs.readFileSync(path.join(gltDir, f), "utf8") + footer })) });
-}
-const threeDir = path.join(repoRoot, "test/corpus/three");
-if (fs.existsSync(threeDir)) {
-  corpora.push({ name: "three.js", shaders: fs.readdirSync(threeDir).filter((f) => /\.(vert|frag)$/.test(f)).sort().map((f) => ({ name: f, source: fs.readFileSync(path.join(threeDir, f), "utf8"), options: { preprocess: true } })) });
-}
+const glt = glTransitions();
+if (glt.length > 0) corpora.push({ name: "gl-transitions", shaders: glt });
+const three = threeShaders();
+if (three.length > 0) corpora.push({ name: "three.js", shaders: three });
 {
   const list = fs.readFileSync(path.join(repoRoot, "tests/compile.txt"), "utf8").split("\n").map((l) => l.trim().split(/\s+/)).filter((p) => p.length === 3 && !p[0].startsWith("#"));
   const header = "#version 300 es\nprecision highp float;\nuniform vec3 iResolution; uniform float iTime, iTimeDelta; uniform int iFrame; uniform vec4 iMouse, iDate;\nuniform float iChannelTime[4]; uniform vec3 iChannelResolution[4];\nuniform sampler2D iChannel0, iChannel1, iChannel2, iChannel3;\n";
@@ -50,8 +45,8 @@ if (fs.existsSync(threeDir)) {
   corpora.push({ name: "upstream shadertoy", shaders });
 }
 
-const upstream = toMinifierOptions({ noPiSubstitution: false, expandMacros: false, foldBuiltins: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false });
-const plugin = toMinifierOptions();
+const upstream = upstreamOptions();
+const plugin = pluginOptions();
 const bytes = (options: Options, s: Shader): number | null => {
   try {
     const o = { ...options, ...s.options };
