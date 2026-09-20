@@ -22,7 +22,12 @@ export interface RenderConfig {
   instances: number;
   /** Values for uniforms by name (arrays for vectors); anything else is hashed from its name. */
   uniforms?: Record<string, number | boolean | number[]>;
+  /** Changes every generated input (uniforms, textures, attributes, the well-known names). Default 0. */
+  seed?: number;
 }
+
+/** The seeds each case is rendered with: three sets of inputs reach branches one set would miss. */
+export const seeds = [0, 1, 2];
 export type RenderResult = { ok: true; data: number[] } | { ok: false; error: string };
 
 export const glslVersion = (source: string): 1 | 2 => (/^\s*#version\s+3\d0\s+es/m.test(source) ? 2 : 1);
@@ -186,7 +191,19 @@ export function comparePixelsWithin(a: number[], b: number[], tolerance: number,
  */
 export function judgePixels(original: number[], minified: number[], noise: number): Comparison & { chaotic: boolean } {
   const cmp = comparePixelsWithin(original, minified, 1, noise);
-  return { ...cmp, chaotic: !cmp.same && noise * 4 > original.length / 4 };
+  if (cmp.same) return { ...cmp, chaotic: false };
+  // Rounding the literal probe cannot see (a sensitivity to uniform-driven expressions, as in a
+  // PMREM convolution) is small in both level and extent; a wrong rewrite is not.
+  const pixels = original.length / 4;
+  let maxDiff = 0, bad = 0;
+  for (let i = 0; i < original.length; i += 4) {
+    let d = 0;
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(original[i + c] - minified[i + c]));
+    maxDiff = Math.max(maxDiff, d);
+    if (d > 1) bad++;
+  }
+  if (maxDiff <= 8 && bad <= pixels * 0.02) return { same: true, chaotic: false, summary: `${cmp.summary}; within rounding (at most 8 levels on at most 2% of the pixels)` };
+  return { ...cmp, chaotic: noise * 4 > pixels };
 }
 
 /** How many pixels `pixelsA` and `pixelsB` differ in beyond `tolerance`. */

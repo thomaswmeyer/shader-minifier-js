@@ -139,6 +139,25 @@ one float32 ulp off what the GPU computes from the source. Every output
 compiles under ANGLE (`test/angle-compile.test.ts`) and renders the same
 pixels as its source (`test/pixels.test.ts`).
 
+## Running the browser tests
+
+The pixel test and the corpus test render in headless Chromium and skip
+without one. They need Playwright's browser once:
+
+```sh
+npx playwright install chromium   # downloads Chromium for the installed Playwright
+npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about six minutes
+npm test                          # runs them too when the browser is there
+```
+
+On a machine with a Chromium of its own, `CHROMIUM_EXECUTABLE=/path/to/chrome
+npm run pixels` uses that binary instead. Every case renders with three sets
+of inputs; a failure message carries the seed, the pixel counts, the
+shader's own one-ulp noise and the minified source. A skip carries its
+reason: the source WebGL rejects, a shader the minifier refuses, or one so
+chaotic that a pixel comparison cannot judge it. The ANGLE compile test and
+the spglsl column of `npm run metrics` need `npm install --no-save spglsl`.
+
 ## Development
 
 ```sh
@@ -163,7 +182,10 @@ Three tests guard real output rather than upstream parity:
   the WebGL-compatible shaders of upstream's corpus, each under the plugin's
   defaults and under upstream's rewrites alone. A shader that flips pixels on
   a one-ulp change of its own literals (a raymarcher at a hit threshold) is
-  allowed as many again, since constant folding rounds like that. Needs a
+  allowed as many again, since constant folding rounds like that, and a
+  difference of at most 8 levels on at most 2% of the pixels counts as
+  rounding too (a PMREM convolution drifts that much with every rewrite
+  disabled). Needs a
   browser: `npx playwright install chromium`, or set `CHROMIUM_EXECUTABLE`;
   otherwise the test skips. `npm run pixels` runs just this test.
 - `test/corpus.test.ts` runs the same comparison over shaders from open
@@ -184,6 +206,28 @@ Three tests guard real output rather than upstream parity:
   ANGLE rejects (desktop GLSL, most of the demoscene corpus) and libraries
   without `main()` are skipped. `spglsl` is prebuilt wasm and not a
   dependency; the test skips unless you `npm install --no-save spglsl` first.
+
+### Results on the open source corpus
+
+`npm run metrics` minifies every corpus three ways and, when spglsl is
+installed, a fourth: the port with upstream's rewrites only (what the goldens
+pin), the Vite plugin's defaults, and Google ANGLE's minifier. Output bytes,
+externals kept in all of them; three.js runs with `--preprocess`:
+
+| corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
+| gl-transitions | 125 | 169,066 | 69,584 | 67,997 | 2.3% | 79,689 | 14.7% |
+| three.js | 56 | 1,337,454 | 213,498 | 153,187 | 28.2% | 143,890 | -6.5% |
+| upstream shadertoy | 8 | 99,447 | 44,812 | 44,124 | 1.5% | 33,164 (2 refused) | |
+
+Three things the table says. The plugin's additions are worth 2 to 3% on
+hand-written shaders and 28% on three.js, where `--expand-macros` and
+`--preprocess` fold away the chunk machinery. ANGLE is ahead on three.js by
+6.5%, since it also drops unused uniforms and functions the minifier keeps
+for the application's sake, and behind everywhere else. And one shader,
+gl-transitions' InvertedPageCurl, comes out 58 bytes larger under the plugin
+than under upstream's rewrites, which `TODO.md` lists to investigate.
 
 ### Reproducing the comparison
 

@@ -1,5 +1,6 @@
 // Port of Minifier/api.fs
 import type { ExportedName, Shader } from "./ast.js";
+import { Analyzer } from "./analyzer.js";
 import * as Formatter from "./formatter.js";
 import type { Options } from "./options.js";
 import * as Options_ from "./options.js";
@@ -35,6 +36,8 @@ export class Minifier {
       this.exportedNames = [];
     } else {
       this.exportedNames = rename(options, this.shaders);
+      // Renaming only changes names, so every use must still name the declaration it resolved to.
+      for (const shader of this.shaders) new Analyzer(options).checkScopes(shader.code);
       vprint("Identifiers renamed. "); printSize(this.shaders);
     }
   }

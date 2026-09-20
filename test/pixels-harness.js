@@ -24,6 +24,11 @@
 
   window.runShader = function runShader(cfg) {
     const size = cfg.size;
+    // Every generated value depends on the seed too, so a case can be rendered with several sets of inputs.
+    const seed = cfg.seed || 0;
+    const unit = (s) => fnv(`${seed}|${s}`) / 4294967296;
+    const texel = (k, x, y, z, c) => fnv(`${seed}|${k}:${x}:${y}:${z}:${c}`) & 255;
+    const depthData = (k, w, h) => Uint16Array.from({ length: w * h }, (_, i) => fnv(`${seed}|d${k}:${i}`) & 0xffff);
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = size;
     const gl = canvas.getContext(cfg.version === 2 ? "webgl2" : "webgl", { preserveDrawingBuffer: true, antialias: false, premultipliedAlpha: false, alpha: true });
@@ -59,9 +64,9 @@
       const s = supplied(name, j);
       if (s !== undefined) return s;
       if (isResolution(name)) return [size, size, 1][j % 3];
-      if (isTime(name)) return 3.7;
-      if (isMouse(name)) return [size * 0.5, size * 0.3, 0, 0][j % 4];
-      if (isProgress(name)) return 0.4;
+      if (isTime(name)) return 3.7 + 1.3 * seed;
+      if (isMouse(name)) return [size * (0.5 + 0.1 * seed), size * (0.3 + 0.1 * seed), 0, 0][j % 4];
+      if (isProgress(name)) return [0.4, 0.15, 0.8][seed % 3];
       if (isRatio(name)) return 1;
       return 0.3 + 1.4 * unit(`${name}#${j}`);
     };
@@ -72,14 +77,12 @@
     };
 
     let textureUnits = 0;
-    const texel = (k, x, y, z, c) => fnv(`${k}:${x}:${y}:${z}:${c}`) & 255;
     const texData = (k, w, h, d) => {
       const data = new Uint8Array(w * h * d * 4);
       for (let z = 0; z < d; z++) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) data[((z * h + y) * w + x) * 4 + c] = texel(k, x, y, z, c);
       return data;
     };
     // A shadow sampler gets a depth texture in compare mode, with deterministic depths.
-    const depthData = (k, w, h) => Uint16Array.from({ length: w * h }, (_, i) => fnv(`d${k}:${i}`) & 0xffff);
     const bindTexture = (target, k, shadow) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + k);

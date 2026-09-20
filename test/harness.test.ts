@@ -72,6 +72,15 @@ describe("pixel and varying comparisons", () => {
     expect(judgePixels(a, b, 3)).toMatchObject({ same: false, chaotic: true });
     expect(judgePixels(a, b, 4)).toMatchObject({ same: true, chaotic: false });
   });
+  it("accepts a difference that is small in level and extent as rounding", () => {
+    const a = black(100);
+    const b = [...a]; b[0] = 8; b[4] = 5; // two of a hundred pixels, at most 8 levels
+    expect(judgePixels(a, b, 0)).toMatchObject({ same: true, chaotic: false });
+    const c = [...a]; c[0] = 9;
+    expect(judgePixels(a, c, 0)).toMatchObject({ same: false });
+    const d = [...a]; for (let i = 0; i < 3; i++) d[i * 4] = 8; // three pixels: over 2%
+    expect(judgePixels(a, d, 0)).toMatchObject({ same: false });
+  });
   it("compares varyings with a relative tolerance and lets NaN match NaN", () => {
     expect(compareVaryings([1, 1000, NaN], [1.000001, 1000.001, NaN], 1e-5).same).toBe(true);
     expect(compareVaryings([1, 1000], [1.001, 1000], 1e-5).same).toBe(false);

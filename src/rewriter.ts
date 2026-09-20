@@ -1506,7 +1506,10 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   if (regionFunctions.size === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
 
   const emitted = new Set<TopLevel>();
-  const out: TopLevel[] = [];
+  // Every declaration outside a region first, as upstream lays them out, so a function pulled
+  // ahead of a region never precedes a global it reads; then the regions, each preceded by the
+  // functions it calls; then the rest.
+  const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" ? [s.tl] : []));
   const emitWithCallees = (n: FuncInfo): void => {
     if (emitted.has(n.func)) return;
     emitted.add(n.func);
@@ -1514,7 +1517,7 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     out.push(n.func);
   };
   for (const s of segments) {
-    if (!s.region) { if (s.tl.kind !== "Function") out.push(s.tl); continue; }
+    if (!s.region) continue;
     for (const n of infos) if (regionFunctions.has(n.func)) for (const c of n.callSites) { const callee = freeByProto.get(c.prototype); if (callee !== undefined) emitWithCallees(callee); }
     out.push(...s.items);
   }

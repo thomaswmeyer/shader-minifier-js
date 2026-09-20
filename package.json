@@ -59,7 +59,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pixels": "vitest run test/pixels.test.ts test/corpus.test.ts",
     "corpus:gl-transitions": "tsx scripts/fetch-gl-transitions.ts",
-    "corpus:three": "tsx scripts/dump-three-shaders.ts"
+    "corpus:three": "tsx scripts/dump-three-shaders.ts",
+    "metrics": "tsx scripts/corpus-metrics.ts"
   },
   "devDependencies": {
     "@shaderfrog/glsl-parser": "^7.0.1",

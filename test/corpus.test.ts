@@ -15,7 +15,7 @@ import { Minifier } from "../src/api.js";
 import { ParseError, type Options } from "../src/options.js";
 import { toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
-import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, shaderInterface, ShaderRunner, type RenderConfig } from "./pixels.js";
+import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, type RenderConfig } from "./pixels.js";
 
 interface Case { name: string; stage: "frag" | "vert"; source: string; options: Options; uniforms?: RenderConfig["uniforms"] }
 
@@ -75,21 +75,25 @@ describe("open source shader corpus renders the same", () => {
       const mode = c.stage === "frag" ? "pixels" : "varyings";
       const inputs = shaderInterface(file, c.source, c.stage);
       const cfg = (source: string): RenderConfig => ({ mode, version, source, inputs, size: 48, vertices: 16, instances: 2, uniforms: c.uniforms });
-      const original = await runner.run(cfg(c.source));
-      if (!original.ok) { ctx.skip(`WebGL rejects the original: ${original.error.split("\n")[0]}`); return; }
-      const result = await runner.run(cfg(minified));
-      expect(result.ok, `minified shader failed: ${result.ok ? "" : result.error}\n${minified.slice(0, 4000)}`).toBe(true);
-      if (!result.ok) return;
-      if (mode === "varyings") {
-        const cmp = compareVaryings(original.data, result.data, 1e-5);
-        expect(cmp.same, `${cmp.summary}\n${minified.slice(0, 4000)}`).toBe(true);
-        return;
+      // Several sets of inputs, so branches one set misses are still exercised.
+      for (const seed of seeds) {
+        const at = (source: string): RenderConfig => ({ ...cfg(source), seed });
+        const original = await runner.run(at(c.source));
+        if (!original.ok) { ctx.skip(`WebGL rejects the original: ${original.error.split("\n")[0]}`); return; }
+        const result = await runner.run(at(minified));
+        expect(result.ok, `minified shader failed: ${result.ok ? "" : result.error}\n${minified.slice(0, 4000)}`).toBe(true);
+        if (!result.ok) return;
+        if (mode === "varyings") {
+          const cmp = compareVaryings(original.data, result.data, 1e-5);
+          expect(cmp.same, `seed ${seed}: ${cmp.summary}\n${minified.slice(0, 4000)}`).toBe(true);
+          continue;
+        }
+        const perturbed = await runner.run(at(perturbFloatLiterals(c.source)));
+        const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
+        const cmp = judgePixels(original.data, result.data, noise);
+        if (cmp.chaotic) { ctx.skip(`chaotic shader (seed ${seed}): ${cmp.summary}`); return; }
+        expect(cmp.same, `seed ${seed}: ${cmp.summary}\n${minified.slice(0, 4000)}`).toBe(true);
       }
-      const perturbed = await runner.run(cfg(perturbFloatLiterals(c.source)));
-      const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
-      const cmp = judgePixels(original.data, result.data, noise);
-      if (cmp.chaotic) { ctx.skip(`chaotic shader: ${cmp.summary}`); return; }
-      expect(cmp.same, `${cmp.summary}\n${minified.slice(0, 4000)}`).toBe(true);
     }, 120000);
   }
 });

@@ -10,7 +10,7 @@ import { Minifier } from "../src/api.js";
 import { ParseError, type Options } from "../src/options.js";
 import { toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
-import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, shaderInterface, ShaderRunner, toEs100, type RenderConfig } from "./pixels.js";
+import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, toEs100, type RenderConfig } from "./pixels.js";
 import { readTomto, tomtoShaders } from "./tomto.js";
 
 interface Case { name: string; stage: "frag" | "vert"; source: string; options: Options }
@@ -75,23 +75,27 @@ describe("minified shaders render the same pixels", () => {
       const mode = c.stage === "frag" ? "pixels" : "varyings";
       const inputs = shaderInterface(c.name, c.source, c.stage);
       const cfg = (source: string): RenderConfig => ({ mode, version, source, inputs, size: 48, vertices: 16, instances: 2 });
-      const original = await runner.run(cfg(c.source));
-      if (!original.ok) { ctx.skip(`WebGL rejects the original: ${original.error.split("\n")[0]}`); return; }
-      const result = await runner.run(cfg(minified));
-      expect(result.ok, `minified shader failed: ${result.ok ? "" : result.error}\n${minified}`).toBe(true);
-      if (!result.ok) return;
-      if (mode === "varyings") {
-        const cmp = compareVaryings(original.data, result.data, 1e-5);
-        expect(cmp.same, `${cmp.summary}\n${minified}`).toBe(true);
-        return;
+      // Several sets of inputs, so branches one set misses are still exercised.
+      for (const seed of seeds) {
+        const at = (source: string): RenderConfig => ({ ...cfg(source), seed });
+        const original = await runner.run(at(c.source));
+        if (!original.ok) { ctx.skip(`WebGL rejects the original: ${original.error.split("\n")[0]}`); return; }
+        const result = await runner.run(at(minified));
+        expect(result.ok, `minified shader failed: ${result.ok ? "" : result.error}\n${minified}`).toBe(true);
+        if (!result.ok) return;
+        if (mode === "varyings") {
+          const cmp = compareVaryings(original.data, result.data, 1e-5);
+          expect(cmp.same, `seed ${seed}: ${cmp.summary}\n${minified}`).toBe(true);
+          continue;
+        }
+        // Constant folding rounds like a one-ulp change of a literal; a shader that flips pixels on
+        // that (a raymarcher at a hit threshold) may flip as many again in its minified form.
+        const perturbed = await runner.run(at(perturbFloatLiterals(c.source)));
+        const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
+        const cmp = judgePixels(original.data, result.data, noise);
+        if (cmp.chaotic) { ctx.skip(`chaotic shader (seed ${seed}): ${cmp.summary}`); return; }
+        expect(cmp.same, `seed ${seed}: ${cmp.summary}\n${minified}`).toBe(true);
       }
-      // Constant folding rounds like a one-ulp change of a literal; a shader that flips pixels on
-      // that (a raymarcher at a hit threshold) may flip as many again in its minified form.
-      const perturbed = await runner.run(cfg(perturbFloatLiterals(c.source)));
-      const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
-      const cmp = judgePixels(original.data, result.data, noise);
-      if (cmp.chaotic) { ctx.skip(`chaotic shader: ${cmp.summary}`); return; }
-      expect(cmp.same, `${cmp.summary}\n${minified}`).toBe(true);
     }, 60000);
   }
 });
