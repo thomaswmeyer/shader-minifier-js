@@ -25,6 +25,51 @@ runners, only here:
 Consider also requiring the check on `master` once it is green, since the
 goldens are the thing most easily broken by accident.
 
+## 0b. WebGPU, aimed at TensorFlow.js
+
+The idea to try: a WGSL path targeting the compute shaders the TensorFlow.js
+WebGPU backend (`@tensorflow/tfjs-backend-webgpu`, 4.22.0 at the time of
+writing) generates for its kernels, rather than the rendering shaders an
+engine emits.
+
+Why it is a different problem from everything above, and worth stating
+plainly before anyone starts:
+
+- **Speed is the point here, not size.** Section 6 established that for
+  rendering shaders minification buys bytes and not frames, because the
+  driver re-optimises everything anyway. A machine-learning kernel is a hot
+  loop that runs over a large tensor, so the arithmetic in it is the work.
+  That inverts the whole case and means the pixel-equivalence harness is the
+  wrong oracle: the right one compares tensor outputs and wall-clock time.
+- **WGSL is a different language,** not a dialect. Rust-like syntax, explicit
+  `@group`/`@binding` attributes, struct-based IO, and no preprocessor at
+  all. The parser, the printer and the entire preprocessor layer do not
+  transfer; renaming, dead-code elimination and inlining transfer in shape
+  but not in code, since this syntax tree is built around GLSL's qualifiers
+  and precision. That argues for a sibling package sharing the harness and
+  the method, not a mode inside this one. Adding a second language to this
+  tree is how the HLSL situation happened.
+- **Someone is already optimising it.** Chrome compiles WGSL through Tint,
+  and the kernels themselves are generated from templates that already
+  specialise on shape and dtype. The honest first question is whether there
+  is anything left on the table after both, or whether the win is in how the
+  kernels are generated rather than in rewriting them afterwards.
+
+What to measure first, before writing any parser:
+
+1. Capture the WGSL tf.js actually runs. The same trick the engine dumpers
+   use works: wrap the WebGPU device's `createShaderModule` and record every
+   kernel a model compiles, for a few models the package lists (MobileNet,
+   BlazeFace, PoseDetection).
+2. Time them. Kernel wall-clock over a realistic input, and compilation
+   time, which matters at model load.
+3. Only then ask what a rewrite could change: fewer bounds checks, hoisted
+   loop invariants, workgroup sizes, less indexing arithmetic. If Tint
+   already does all of it the answer is to stop, and that is a good answer
+   cheaply bought.
+
+Section 6's rule applies to any size claim here too: judge it compressed.
+
 ## 1. Directives inside expressions (a fuller parser)
 
 Engine shaders put `#if` blocks inside argument lists, parameter lists and
