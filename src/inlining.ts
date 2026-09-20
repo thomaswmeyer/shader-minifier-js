@@ -492,6 +492,18 @@ export class ArgumentInlining {
     return new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr)).some((i) => params.includes(i.name));
   }
 
+  // The argument moves into the function's body, so every global it reads must be declared
+  // before the function (not in upstream: three.js passes `uniform sampler2D envMap`, declared
+  // after `bilinearCubeUV(sampler2D envMap, ...)`, and the sampler parameter can only be replaced
+  // by the global itself).
+  private globalsDeclaredBefore(argExpr: Expr, func: TopLevel, code: readonly TopLevel[]): boolean {
+    const position = new Map<VarDecl, number>();
+    code.forEach((tl, i) => { if (tl.kind === "TLDecl") for (const e of tl.decl[1]) { const vd = e.name.varDecl; if (vd !== null) position.set(vd, i); } });
+    const at = code.indexOf(func);
+    return new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr))
+      .every((i) => i.varDecl === null || i.varDecl.scope !== "Global" || (position.get(i.varDecl) ?? -1) < at);
+  }
+
   // Find when functions are always called with the same trivial expr, that can be inlined into the function body.
   private findInlinings(code: readonly TopLevel[]): Inlining[] {
     const argInlinings: Inlining[] = [];
@@ -508,7 +520,7 @@ export class ArgumentInlining {
           const varDecl = argDecl.name.varDecl;
           if (varDecl !== null && !Ast.typeIsOutOrInout(varDecl.ty)) { // Only inline 'in' parameters.
             const argExprs = distinctExprs(callSites.map((c) => c.argExprs[argIndex]));
-            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && !this.namesAnotherParameter(argExprs[0], funcInfo, argDecl)) { // The argExpr must always be the same at all call sites.
+            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && !this.namesAnotherParameter(argExprs[0], funcInfo, argDecl) && this.globalsDeclaredBefore(argExprs[0], funcInfo.func, code)) { // The argExpr must always be the same at all call sites.
               const argExpr = argExprs[0];
               trace(this.options, `${locToS(varDecl.decl.name.loc)}: inlining expression '${Printer.exprToS(argExpr)}' into argument '${Printer.debugDecl(varDecl.decl)}' of '${Printer.debugFunc(funcInfo.funcType)}'`);
               argInlinings.unshift({ func: funcInfo.func, argIndex, varDecl, argExpr });
@@ -590,8 +602,10 @@ export class ArgumentInlining {
       // Handle argument inlining for f. Insert in front of the body a declaration for each inlined argument.
       const decls = argInlinings
         .filter((inl) => inl.func === f)
+        // A `const in` parameter's local copy cannot stay const: its init is the argument, often
+        // a uniform (`const mat4 m = modelMatrix;` is an error). Upstream keeps the qualifier.
         .map((inl) => Ast.DeclStmt([
-          { ...inl.varDecl.ty, typeQ: inl.varDecl.ty.typeQ.filter((q) => q === "const") },
+          { ...inl.varDecl.ty, typeQ: [] },
           [{ ...inl.varDecl.decl, init: inl.argExpr }],
         ]));
       return Ast.Function(fct, Ast.Block([...decls, ...Ast.asStmtList(body)]));

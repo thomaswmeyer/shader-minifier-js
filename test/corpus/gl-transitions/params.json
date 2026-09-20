@@ -1,0 +1,528 @@
+{
+ "AdvancedMosaic": {
+  "pixelSize": 50
+ },
+ "angular": {
+  "startingAngle": 90
+ },
+ "BlockDissolve": {
+  "blocksize": 0.02
+ },
+ "BookFlip": {},
+ "Bounce": {
+  "shadow_colour": [
+   0,
+   0,
+   0,
+   0.6
+  ],
+  "shadow_height": 0.075,
+  "bounces": 3
+ },
+ "BowTieHorizontal": {},
+ "BowTieVertical": {},
+ "BowTieWithParameter": {
+  "adjust": 0.5,
+  "reverse": false
+ },
+ "Box": {
+  "rectIn": 1,
+  "location": 0
+ },
+ "burn": {},
+ "burn0": {
+  "burnColor": [
+   1,
+   0.5,
+   0
+  ]
+ },
+ "ButterflyWaveScrawler": {
+  "amplitude": 1,
+  "waves": 30,
+  "colorSeparation": 0.3
+ },
+ "cannabisleaf": {},
+ "chessboard": {
+  "grid_num": 10
+ },
+ "circle": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "backColor": [
+   0.1,
+   0.1,
+   0.1
+  ]
+ },
+ "CircleCrop": {
+  "bgcolor": [
+   0,
+   0,
+   0,
+   1
+  ]
+ },
+ "circleopen": {
+  "smoothness": 0.3,
+  "opening": true
+ },
+ "colorphase": {
+  "fromStep": [
+   0,
+   0.2,
+   0.4,
+   0
+  ],
+  "toStep": [
+   0.6,
+   0.8,
+   1,
+   1
+  ]
+ },
+ "ColourDistance": {
+  "power": 5
+ },
+ "coord-from-in": {},
+ "CrazyParametricFun": {
+  "a": 4,
+  "b": 1,
+  "amplitude": 120,
+  "smoothness": 0.1
+ },
+ "crosshatch": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "threshold": 3,
+  "fadeEdge": 0.1
+ },
+ "crosswarp": {},
+ "CrossZoom": {
+  "strength": 0.4
+ },
+ "cube": {
+  "persp": 0.7,
+  "unzoom": 0.3,
+  "reflection": 0.4,
+  "floating": 3
+ },
+ "DefocusBlur": {
+  "blurSize": 0.02
+ },
+ "Directional": {
+  "direction": [
+   0,
+   1
+  ]
+ },
+ "directional-easing": {
+  "direction": [
+   0,
+   1
+  ]
+ },
+ "DirectionalScaled": {
+  "direction": [
+   0,
+   1
+  ],
+  "scale": 0.7
+ },
+ "directionalwarp": {
+  "smoothness": 0.1,
+  "direction": [
+   -1,
+   1
+  ]
+ },
+ "directionalwipe": {
+  "direction": [
+   1,
+   -1
+  ],
+  "smoothness": 0.5
+ },
+ "displacement": {
+  "strength": 0.5
+ },
+ "dissolve": {
+  "uLineWidth": 0.1,
+  "uSpreadClr": [
+   1,
+   0,
+   0
+  ],
+  "uHotClr": [
+   0.9,
+   0.9,
+   0.2
+  ],
+  "uPow": 5,
+  "uIntensity": 1
+ },
+ "DoomScreenTransition": {
+  "bars": 30,
+  "amplitude": 2,
+  "noise": 0.1,
+  "frequency": 0.5,
+  "dripScale": 0.5
+ },
+ "doorway": {
+  "reflection": 0.4,
+  "perspective": 0.4,
+  "depth": 3
+ },
+ "Dreamy": {},
+ "DreamyZoom": {
+  "rotation": 6,
+  "scale": 1.2
+ },
+ "Drop_Zone_Flicker": {
+  "frameRate": 24,
+  "rgbOffset": 0.014,
+  "blockAmount": 0.72,
+  "ghostAmount": 0.62,
+  "redCyan": 0.58,
+  "scanline": 0.075
+ },
+ "EdgeTransition": {
+  "edge_thickness": 0.001,
+  "edge_brightness": 8
+ },
+ "fade": {},
+ "fadecolor": {
+  "color": [
+   0,
+   0,
+   0
+  ],
+  "colorPhase": 0.4
+ },
+ "fadegrayscale": {
+  "intensity": 0.3
+ },
+ "FilmBurn": {
+  "Seed": 2.31
+ },
+ "flyeye": {
+  "size": 0.04,
+  "zoom": 50,
+  "colorSeparation": 0.3
+ },
+ "Fold": {},
+ "fragment": {},
+ "GlitchDisplace": {},
+ "GlitchMemories": {},
+ "GridFlip": {
+  "size": [
+   4,
+   4
+  ],
+  "pause": 0.1,
+  "dividerWidth": 0.05,
+  "bgcolor": [
+   0,
+   0,
+   0,
+   1
+  ],
+  "randomness": 0.1
+ },
+ "heart": {},
+ "hexagonalize": {
+  "steps": 50,
+  "horizontalHexagons": 20
+ },
+ "HorizontalClose": {},
+ "HorizontalOpen": {},
+ "HSVfade": {},
+ "InvertedPageCurl": {},
+ "kaleidoscope": {
+  "speed": 1,
+  "angle": 1,
+  "power": 1.5
+ },
+ "LeftRight": {},
+ "LinearBlur": {
+  "intensity": 0.1
+ },
+ "luma": {},
+ "luminance_melt": {
+  "direction": false,
+  "l_threshold": 0.8,
+  "above": false
+ },
+ "morph": {
+  "strength": 0.1
+ },
+ "Mosaic": {
+  "endx": 2,
+  "endy": -1
+ },
+ "mosaic_transition": {
+  "mosaicNum": 10
+ },
+ "multiply_blend": {},
+ "old_tv_lost_signal": {},
+ "Overexposure": {
+  "strength": 0.6
+ },
+ "parametric_glitch": {
+  "ampx": 1,
+  "ampy": 1
+ },
+ "perlin": {
+  "scale": 4,
+  "smoothness": 0.01,
+  "seed": 12.9898
+ },
+ "pinwheel": {
+  "speed": 2
+ },
+ "pixelize": {
+  "squaresMin": [
+   20,
+   20
+  ],
+  "steps": 50
+ },
+ "polar_function": {
+  "segments": 5
+ },
+ "PolkaDotsCurtain": {
+  "dots": 20,
+  "center": [
+   0,
+   0
+  ]
+ },
+ "powerKaleido": {
+  "scale": 2,
+  "z": 1.5,
+  "speed": 5
+ },
+ "PuzzleRight": {
+  "size": [
+   4,
+   4
+  ],
+  "pause": 0.1,
+  "dividerWidth": 0.005
+ },
+ "Radial": {
+  "smoothness": 1
+ },
+ "randomNoisex": {},
+ "randomsquares": {
+  "size": [
+   10,
+   10
+  ],
+  "smoothness": 0.5
+ },
+ "Rectangle": {
+  "bgcolor": [
+   0,
+   0,
+   0,
+   1
+  ]
+ },
+ "RectangleCrop": {
+  "bgcolor": [
+   0,
+   0,
+   0,
+   1
+  ]
+ },
+ "Revolve_Left": {
+  "center": [
+   0.46,
+   0.52
+  ],
+  "direction": -1,
+  "maxRotation": 1.95,
+  "peakZoom": 2.22,
+  "swirl": 2.85,
+  "barrel": 0.38,
+  "motionBlur": 1,
+  "switchStart": 0.3,
+  "switchEnd": 0.5,
+  "shadow": 0.16
+ },
+ "ripple": {
+  "amplitude": 100,
+  "speed": 50
+ },
+ "Rolls": {
+  "type": 0,
+  "RotDown": false
+ },
+ "rotate_scale_fade": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "rotations": 1,
+  "scale": 8,
+  "backColor": [
+   0.15,
+   0.15,
+   0.15,
+   1
+  ]
+ },
+ "RotateScaleVanish": {
+  "FadeInSecond": true,
+  "ReverseEffect": false,
+  "ReverseRotation": false
+ },
+ "rotateTransition": {},
+ "scale-in": {},
+ "SimpleFlip": {},
+ "SimpleZoom": {
+  "zoom_quickness": 0.8
+ },
+ "SimpleZoomOut": {
+  "zoom_quickness": 0.8,
+  "fade": true
+ },
+ "Slides": {
+  "type": 0,
+  "In": false
+ },
+ "splitSlideInHorizontal": {
+  "reverse": false
+ },
+ "splitSlideInOutHorizontal": {
+  "reverse": false
+ },
+ "splitSlideInOutVertical": {
+  "reverse": false
+ },
+ "splitSlideInVertical": {
+  "reverse": false
+ },
+ "splitSlideOutHorizontal": {
+  "reverse": false
+ },
+ "splitSlideOutVertical": {
+  "reverse": false
+ },
+ "squareswire": {
+  "squares": [
+   10,
+   10
+  ],
+  "direction": [
+   1,
+   -0.5
+  ],
+  "smoothness": 1.6
+ },
+ "squeeze": {
+  "colorSeparation": 0.04
+ },
+ "StarWipe": {
+  "border_thickness": 0.01,
+  "star_rotation": 0.75,
+  "border_color": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "star_center": [
+   0.5,
+   0.5
+  ]
+ },
+ "static_wipe": {
+  "u_transitionUpToDown": true,
+  "u_max_static_span": 0.5
+ },
+ "StaticFade": {
+  "n_noise_pixels": 200,
+  "static_luminosity": 0.8
+ },
+ "StereoViewer": {
+  "zoom": 0.88,
+  "corner_radius": 0.22
+ },
+ "StripDatamoshGlitch": {
+  "strength": 1,
+  "horizontalBars": 42,
+  "verticalSlits": 18,
+  "tear": 0.18,
+  "chroma": 0.032,
+  "residue": 0.62,
+  "noiseAmount": 0.16,
+  "scanAmount": 0.13,
+  "flashAmount": 0.2
+ },
+ "swap": {
+  "reflection": 0.4,
+  "perspective": 0.2,
+  "depth": 3
+ },
+ "Swirl": {},
+ "tangentMotionBlur": {},
+ "TilesWave": {
+  "tileCount": [
+   8,
+   8
+  ],
+  "flipX": true,
+  "flipY": false
+ },
+ "TopBottom": {},
+ "TVStatic": {
+  "offset": 0.05
+ },
+ "undulatingBurnOut": {
+  "smoothness": 0.03,
+  "center": [
+   0.5,
+   0.5
+  ],
+  "color": [
+   0,
+   0,
+   0
+  ]
+ },
+ "VerticalClose": {},
+ "VerticalOpen": {},
+ "WaterDrop": {
+  "amplitude": 30,
+  "speed": 30
+ },
+ "wind": {
+  "size": 0.2,
+  "reversed": false
+ },
+ "windowblinds": {},
+ "windowslice": {
+  "count": 10,
+  "smoothness": 0.5
+ },
+ "wipeDown": {},
+ "wipeLeft": {},
+ "wipeRight": {},
+ "wipeUp": {},
+ "x_axis_translation": {},
+ "ZoomInCircles": {},
+ "zoomInOut": {},
+ "ZoomLeftWipe": {
+  "zoom_quickness": 0.8
+ },
+ "ZoomRigthWipe": {
+  "zoom_quickness": 0.8
+ }
+}

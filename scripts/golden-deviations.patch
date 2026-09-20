@@ -44,3 +44,20 @@ index ab7baf1..214984e 100644
  }
  float PrRoundBoxDf(vec3 p,vec3 b)
  {
+diff --git a/tests/unit/preprocess_if.frag.expected b/tests/unit/preprocess_if.frag.expected
+index f493d3d..8414581 100644
+--- a/tests/unit/preprocess_if.frag.expected
++++ b/tests/unit/preprocess_if.frag.expected
+@@ -3,12 +3,6 @@
+ #define DEF 1
+ 
+ void keep_if(){}
+-
+-#if DEF
+-
+ void keep_nested(){}
+ void also_keep(){}
+-
+-#endif
+-
+ void end(){}

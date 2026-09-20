@@ -57,7 +57,9 @@
     "golden:update": "tsx test/golden-cli.ts --update-golden",
     "webgl-page": "tsx scripts/webgl-compile-page.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "pixels": "vitest run test/pixels.test.ts"
+    "pixels": "vitest run test/pixels.test.ts test/corpus.test.ts",
+    "corpus:gl-transitions": "tsx scripts/fetch-gl-transitions.ts",
+    "corpus:three": "tsx scripts/dump-three-shaders.ts"
   },
   "devDependencies": {
     "@shaderfrog/glsl-parser": "^7.0.1",

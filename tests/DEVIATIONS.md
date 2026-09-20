@@ -17,3 +17,8 @@ in `PORTING.md` section 5.2.
    so the port never merges that local into another (`PORTING.md` 5.2 item
    11); upstream's expected output reuses the parameter `p` for it in
    `PrBoxDf`. Two lines differ.
+
+3. `tests/unit/preprocess_if.frag.expected` — `--preprocess` decides `#if`
+   expressions. Upstream keeps `#if DEF ... #endif` as text even with
+   `#define DEF 1` in the file; the port decides it (`PORTING.md` 5.2 item
+   16), so the two directive lines are gone from the expected output.

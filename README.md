@@ -100,7 +100,12 @@ file pattern, and `options` passes any raw minifier option.
   use of its name, argument inlining into a body whose other parameter has
   the name, function reordering pulling alternatives out of `#ifdef` blocks,
   and identifiers named in a kept `#define` being renamed or removed (they
-  are pinned). `PORTING.md` section 5.2 lists each.
+  are pinned). `PORTING.md` section 5.2 lists each, and its "Upstream
+  candidates" note lists the ones worth offering back to upstream.
+- `--preprocess` also decides constant `#if` expressions (`#if ( 1 > 0 ) &&
+  defined( USE_MAP )`), which engine shaders like three.js's put inside
+  argument lists where the parser cannot keep them. A bare identifier in the
+  condition still leaves it to the compiler.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 
@@ -159,6 +164,14 @@ Three tests guard real output rather than upstream parity:
   allowed as many again, since constant folding rounds like that. Needs a
   browser: `npx playwright install chromium`, or set `CHROMIUM_EXECUTABLE`;
   otherwise the test skips. `npm run pixels` runs just this test.
+- `test/corpus.test.ts` runs the same comparison over shaders from open
+  source projects that ship on the web, vendored under `test/corpus/` with
+  their licenses: the 125 gl-transitions (MIT, two BSD), wrapped for WebGL1
+  with each transition's default parameters, and the programs three.js (MIT)
+  assembles for its materials, dumped from a real renderer in the harness's
+  browser so the chunk expansion and the runtime `#define`s are the ones a
+  game ships. `npm run corpus:gl-transitions` and `npm run corpus:three`
+  refresh them from the npm packages; the version is recorded next to each.
 
 - `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
   plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`

@@ -305,6 +305,82 @@ says so. Every site is ported deliberately:
     covers upstream's safe and simple inlining, aggressive inlining, and
     `--inline-single-use`. Found by the scope check.
 
+16. *`--preprocess` and constant `#if` expressions.* Upstream decides `#if 0`
+    and `#if 1` only, keeping every other `#if` as text. Engine shaders put
+    `#if` blocks inside argument and parameter lists (three.js:
+    `getTangentFrame( -vViewPosition, normal,\n#if defined( USE_NORMALMAP )`),
+    which the parser cannot represent, so under `--preprocess` the port also
+    decides a constant expression of integer literals, `defined(X)` and the C
+    operators (`evalConstantExpression`), and a bare identifier by its
+    `#define`'s integer value (0 when not defined in the file, as `#ifdef`
+    already assumes; unknown when the value is not an integer). So `#if DEF`
+    with `#define DEF 1` is decided, which changes the `preprocess_if.frag`
+    golden (`tests/DEVIATIONS.md`). A directive may also be indented (`\t#ifdef USE_TANGENT`, again
+    three.js); upstream only recognises `#` at column 0 and lets the rest
+    through as code. And upstream's status stack forgets whether a branch
+    was taken: `#if 1 ... #else` activated the else branch, and an `#elif 1`
+    inside an inactive block woke its text up. The port tracks the taken
+    branch per block, keeps an undecidable later branch as `#if` when the
+    block's own `#if` line was dropped, and emits `#endif` only for a block
+    that reached the output. Upstream also records a `#define` inside an
+    inactive block (`#define ENV_WORLDPOS` under a false condition decided a
+    later `#ifdef ENV_WORLDPOS`); the port ignores every non-conditional
+    directive there. The three.js programs in `test/corpus/three` need this
+    flag.
+
+17. *Fields of external structs.* Under `--preserve-externals` the name an
+    application looks up for a struct uniform includes the field
+    (`directionalLights[0].direction` in three.js), so the fields of every
+    struct an external declaration uses, transitively, keep their names
+    (`pinExternalStructFields`). Upstream renames them, which breaks every
+    `getUniformLocation` on such a member.
+
+18. *Argument inlining and declaration order.* An inlined argument moves
+    into the function's body, so a global it reads must be declared before
+    the function. Upstream does not check: three.js passes
+    `uniform sampler2D envMap`, declared after `bilinearCubeUV( sampler2D
+    envMap, ...)`, and since a sampler cannot be a local the parameter is
+    replaced by the global, used before its declaration. Also fixed: the
+    local an inlined `const in` parameter becomes no longer keeps `const`
+    (its init is the argument, `const mat4 m = modelMatrix;` is an error).
+
+19. *Tabs after a macro name.* `#define RE_Direct\t\t\tRE_Direct_Lambert`
+    (three.js) printed as `#define RE_DirectRE_Direct_Lambert`: the space
+    stripping only knew a space as the separator between an object-like
+    macro's name and body. A tab counts too.
+
+### Upstream candidates
+
+Several of the deviations above fix bugs that upstream has too, found by the
+scope check, the pixel test and the open source corpus rather than by
+reading the F#. Offering them upstream would be a kindness to the project the
+port is built on; each is a small, self-contained change with a reproducing
+shader in this repository:
+
+- argument inlining into a body whose other parameter carries the argument's
+  name (item 9, `test/pixels/shadow-param.frag`);
+- identifiers named in a kept `#define` being renamed or removed (item 11,
+  `controllable-machinery` under renaming);
+- function reordering pulling alternative definitions out of `#ifdef`
+  blocks (item 12, `frozen-wasteland` with a prototype);
+- a generated name colliding with a preserved external declared later
+  (item 13, `test/pixels/preserved-names.frag`);
+- `--move-declarations` hoisting a declaration above an earlier use of its
+  name (item 14, `ohanami`);
+- local variable inlining past a later local of a name the value reads
+  (item 15, `test/port-flags.test.ts`);
+- `--preprocess` taking a branch after one was already taken, recording a
+  `#define` inside an inactive block, and missing indented directives (item
+  16, every lit three.js material);
+- renaming the fields of a struct a uniform uses under `--preserve-externals`
+  (item 17, `directionalLights[0].direction`);
+- argument inlining moving a global declared after the function into its
+  body, and keeping `const` on the local (item 18, three.js `envMap`);
+- a tab after a macro name glued to the name (item 19).
+
+The scope check itself (item 10) would catch regressions of all of these and
+is a few dozen lines against upstream's analyzer.
+
 ### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
 - `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse
   picks the alphabetically-first function name. Ported with sorted iteration.

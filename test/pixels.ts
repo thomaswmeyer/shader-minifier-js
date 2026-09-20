@@ -10,7 +10,7 @@ import { defaultOptions } from "../src/options.js";
 import { runParser } from "../src/parser.js";
 import { repoRoot } from "./golden.js";
 
-export interface ShaderInput { name: string; type: string; size: number; flat: boolean }
+export interface ShaderInput { name: string; type: string; size: number; array: boolean; flat: boolean }
 export interface RenderConfig {
   mode: "pixels" | "varyings";
   version: 1 | 2;
@@ -20,23 +20,71 @@ export interface RenderConfig {
   size: number;
   vertices: number;
   instances: number;
+  /** Values for uniforms by name (arrays for vectors); anything else is hashed from its name. */
+  uniforms?: Record<string, number | boolean | number[]>;
 }
 export type RenderResult = { ok: true; data: number[] } | { ok: false; error: string };
 
 export const glslVersion = (source: string): 1 | 2 => (/^\s*#version\s+3\d0\s+es/m.test(source) ? 2 : 1);
 
-/** The `in`/`varying` (fragment) or `out`/`varying` (vertex) declarations of a shader, from the port's parser. */
+/**
+ * The shader with its conditional directives decided from the #defines in the file (three.js
+ * puts `#define NUM_DIR_LIGHT_SHADOWS 1` above `#if NUM_DIR_LIGHT_SHADOWS > 0`), and those
+ * defines' integer values. The minifier's own preprocessor only decides `#if 0/1` and `#ifdef`.
+ */
+export function activeSource(source: string): { source: string; defines: Map<string, number> } {
+  const defines = new Map<string, number>();
+  const evaluate = (expr: string): boolean => {
+    const js = expr
+      .replace(/\bdefined\s*\(\s*(\w+)\s*\)|\bdefined\s+(\w+)/g, (_m, a, b) => (defines.has(a ?? b) ? "1" : "0"))
+      .replace(/\b(\d+)[uU]?\b/g, "$1")
+      .replace(/\b[A-Za-z_]\w*\b/g, (id) => String(defines.get(id) ?? 0));
+    try { return Boolean(new Function(`return (${js});`)()); } catch { return false; }
+  };
+  const stack: boolean[] = []; // whether each open block is active
+  const taken: boolean[] = []; // whether a branch of it has been taken
+  const active = (): boolean => stack.every(Boolean);
+  const out: string[] = [];
+  for (const line of source.split("\n")) {
+    const m = /^\s*#\s*(\w+)\s*(.*?)\s*$/.exec(line);
+    if (m === null) { if (active()) out.push(line); continue; }
+    const [, kw, rest] = m;
+    if (kw === "if" || kw === "ifdef" || kw === "ifndef") {
+      const cond = kw === "if" ? evaluate(rest) : defines.has(rest.split(/\s/)[0]) === (kw === "ifdef");
+      stack.push(active() && cond); taken.push(cond);
+    } else if (kw === "elif") {
+      const outer = stack.slice(0, -1).every(Boolean);
+      const cond = !taken[taken.length - 1] && evaluate(rest);
+      stack[stack.length - 1] = outer && cond; if (cond) taken[taken.length - 1] = true;
+    } else if (kw === "else") {
+      const outer = stack.slice(0, -1).every(Boolean);
+      stack[stack.length - 1] = outer && !taken[taken.length - 1]; taken[taken.length - 1] = true;
+    } else if (kw === "endif") { stack.pop(); taken.pop(); }
+    else if (active()) {
+      if (kw === "define") { const d = /^(\w+)\s*(.*)$/.exec(rest); if (d !== null && !/^\(/.test(d[2])) { const v = Number(d[2].replace(/[uU]$/, "")); defines.set(d[1], Number.isFinite(v) ? v : NaN); } }
+      else if (kw === "undef") defines.delete(rest.split(/\s/)[0]);
+      out.push(line);
+    }
+  }
+  return { source: out.join("\n"), defines };
+}
+
+/** The `in`/`varying` (fragment) or `out`/`varying` (vertex) declarations of a shader, from the port's parser, after deciding its conditionals. */
 export function shaderInterface(name: string, source: string, stage: "frag" | "vert"): ShaderInput[] {
   const wanted = stage === "frag" ? ["in", "varying", "attribute"] : ["out", "varying"];
   const inputs: ShaderInput[] = [];
-  for (const tl of runParser(defaultOptions(), name, source).code) {
+  const active = activeSource(source);
+  const sizeOf = (s: { kind: string; value?: number; ident?: { name: string } }): number =>
+    s.kind === "Int" ? s.value! : s.kind === "Var" ? active.defines.get(s.ident!.name) ?? NaN : NaN;
+  for (const tl of runParser(defaultOptions(), name, active.source).code) {
     if (tl.kind !== "TLDecl") continue;
     const [ty, elts] = tl.decl;
     if (!ty.typeQ.some((q) => wanted.includes(q)) || ty.name.kind !== "TypeName") continue;
     for (const elt of elts) {
       const sizes = [...ty.arraySizes, ...elt.sizes];
-      const size = sizes.length === 0 ? 1 : sizes.reduce((a, s) => a * (s.kind === "Int" ? s.value : NaN), 1);
-      inputs.push({ name: elt.name.name, type: ty.name.ident.name, size, flat: ty.typeQ.includes("flat") });
+      const size = sizes.length === 0 ? 1 : sizes.reduce((a, s) => a * sizeOf(s as { kind: string; value?: number; ident?: { name: string } }), 1);
+      if (size === 0) continue; // an array behind `#if N > 0` with N = 0
+      inputs.push({ name: elt.name.name, type: ty.name.ident.name, size, array: sizes.length > 0, flat: ty.typeQ.includes("flat") });
     }
   }
   return inputs;
@@ -124,6 +172,17 @@ export function comparePixelsWithin(a: number[], b: number[], tolerance: number,
     same: badPixels <= allowed,
     summary: `${badPixels} of ${a.length / 4} pixels differ by more than ${tolerance} (max ${maxDiff}); ${allowed} allowed, the original flips ${noise} on one-ulp literal changes; the original image has ${distinct.size} distinct colours`,
   };
+}
+
+/**
+ * The verdict on a fragment shader: `same` within the noise allowance; `chaotic` when the shader
+ * flips more than a quarter of its pixels on a one-ulp literal change (a mosaic keyed on
+ * `int(rand()*4.)`), where a pixel comparison cannot tell a rewrite's rounding from a bug and the
+ * test skips with the numbers instead of failing.
+ */
+export function judgePixels(original: number[], minified: number[], noise: number): Comparison & { chaotic: boolean } {
+  const cmp = comparePixelsWithin(original, minified, 1, noise);
+  return { ...cmp, chaotic: !cmp.same && noise * 4 > original.length / 4 };
 }
 
 /** How many pixels `pixelsA` and `pixelsB` differ in beyond `tolerance`. */

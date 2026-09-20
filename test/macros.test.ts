@@ -17,6 +17,21 @@ describe("macroBodyIdents", () => {
   });
 });
 
+describe("fields of structs that externals use", () => {
+  // Incident is not external but shares the field name `color`, which the renamer maps once for every struct.
+  const src = "struct Light{vec3 direction;vec3 color;};struct Shadow{float bias;Light light;};struct Incident{vec3 color;bool visible;};uniform Light lights[2];uniform Shadow shadow;struct Local{float uu;float vv;};void main(){Local l;l.uu=1.;l.vv=2.;Incident i;i.color=lights[1].color;i.visible=true;gl_FragColor=vec4(lights[0].direction+i.color*shadow.light.color,shadow.bias+l.uu*l.vv+float(i.visible));}";
+  it("keep their names under --preserve-externals, transitively and in every struct", () => {
+    const out = minify(src, { preserveExternals: true }).code;
+    expect(out).toMatch(/struct \w+\{vec3 direction;vec3 color;\};struct \w+\{float bias;\w+ light;\};struct \w+\{vec3 color;bool \w+;\};/);
+    expect(out).toContain("lights[0].direction+");
+    expect(out).toContain("shadow.light.color,shadow.bias");
+    expect(out).not.toContain("float uu;float vv;"); // a struct no external uses is still renamed
+  });
+  it("are renamed like any other field without the flag", () => {
+    expect(minify(src).code).not.toContain("direction");
+  });
+});
+
 describe("pinned names", () => {
   const dmin = "#define DMIN(id) if(d<dMin){dMin=d;idObj=id;}\n";
   const src = dmin + "uniform float u;int idObj;float scene(vec3 p){float dMin=100.,d;d=length(p)-1.;DMIN(1);d=p.y+u;DMIN(2);return dMin;}void main(){gl_FragColor=vec4(scene(vec3(gl_FragCoord.xy,0)),idObj,0,1);}";

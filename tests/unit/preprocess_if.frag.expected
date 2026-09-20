@@ -3,12 +3,6 @@
 #define DEF 1
 
 void keep_if(){}
-
-#if DEF
-
 void keep_nested(){}
 void also_keep(){}
-
-#endif
-
 void end(){}

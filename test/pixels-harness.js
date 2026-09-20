@@ -16,6 +16,8 @@
   const isResolution = (n) => /^(i|u_?|u)?res(olution)?$|^uCRes$|^iChannelResolution/i.test(n);
   const isTime = (n) => /^(i|u_?|u)?t(ime)?$/i.test(n);
   const isMouse = (n) => /^(i|u_?|u)?mouse$/i.test(n);
+  const isProgress = (n) => /^progress$/i.test(n); // gl-transitions
+  const isRatio = (n) => /^ratio$/i.test(n);
 
   const scalarTypes = { float: 1, vec2: 2, vec3: 3, vec4: 4, int: 1, ivec2: 2, ivec3: 3, ivec4: 4, uint: 1, uvec2: 2, uvec3: 3, uvec4: 4, bool: 1, bvec2: 2, bvec3: 3, bvec4: 4 };
   const isIntegral = (t) => /^(u?int|[iu]vec[234])$/.test(t);
@@ -44,14 +46,30 @@
       return p;
     };
 
-    // The j-th float of uniform `name`.
+    // The j-th float of uniform `name`: a value the case supplies (cfg.uniforms), a well-known
+    // name's value, else a hash of the name.
+    const supplied = (name, j) => {
+      const v = cfg.uniforms && cfg.uniforms[name];
+      if (v === undefined) return undefined;
+      const arr = Array.isArray(v) ? v : [v];
+      const x = arr[j % arr.length];
+      return typeof x === "boolean" ? (x ? 1 : 0) : x;
+    };
     const floatFor = (name, j) => {
+      const s = supplied(name, j);
+      if (s !== undefined) return s;
       if (isResolution(name)) return [size, size, 1][j % 3];
       if (isTime(name)) return 3.7;
       if (isMouse(name)) return [size * 0.5, size * 0.3, 0, 0][j % 4];
+      if (isProgress(name)) return 0.4;
+      if (isRatio(name)) return 1;
       return 0.3 + 1.4 * unit(`${name}#${j}`);
     };
-    const intFor = (name, j) => (name === "iFrame" ? 12 : 1 + Math.floor(unit(`${name}#${j}`) * 4));
+    const intFor = (name, j) => {
+      const s = supplied(name, j);
+      if (s !== undefined) return Math.round(s);
+      return name === "iFrame" ? 12 : 1 + Math.floor(unit(`${name}#${j}`) * 4);
+    };
 
     let textureUnits = 0;
     const texel = (k, x, y, z, c) => fnv(`${k}:${x}:${y}:${z}:${c}`) & 255;
@@ -60,11 +78,18 @@
       for (let z = 0; z < d; z++) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) data[((z * h + y) * w + x) * 4 + c] = texel(k, x, y, z, c);
       return data;
     };
-    const bindTexture = (target, k) => {
+    // A shadow sampler gets a depth texture in compare mode, with deterministic depths.
+    const depthData = (k, w, h) => Uint16Array.from({ length: w * h }, (_, i) => fnv(`d${k}:${i}`) & 0xffff);
+    const bindTexture = (target, k, shadow) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + k);
       gl.bindTexture(target, t);
-      if (target === gl.TEXTURE_CUBE_MAP) {
+      if (shadow) {
+        const faces = target === gl.TEXTURE_CUBE_MAP ? [0, 1, 2, 3, 4, 5].map((f) => gl.TEXTURE_CUBE_MAP_POSITIVE_X + f) : [target];
+        for (const face of faces) gl.texImage2D(face, 0, gl.DEPTH_COMPONENT16, 8, 8, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, depthData(k + face, 8, 8));
+        gl.texParameteri(target, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+        gl.texParameteri(target, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+      } else if (target === gl.TEXTURE_CUBE_MAP) {
         for (let f = 0; f < 6; f++) gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, gl.RGBA, 8, 8, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData(k * 6 + f, 8, 8, 1));
       } else if (target === gl.TEXTURE_2D) {
         gl.texImage2D(target, 0, gl.RGBA, 8, 8, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData(k, 8, 8, 1));
@@ -86,8 +111,10 @@
       const uintTypes = { [gl2.UNSIGNED_INT]: 1, [gl2.UNSIGNED_INT_VEC2]: 2, [gl2.UNSIGNED_INT_VEC3]: 3, [gl2.UNSIGNED_INT_VEC4]: 4 };
       const samplerTargets = {
         [gl.SAMPLER_2D]: gl.TEXTURE_2D, [gl.SAMPLER_CUBE]: gl.TEXTURE_CUBE_MAP,
-        [gl2.SAMPLER_3D]: gl2.TEXTURE_3D, [gl2.SAMPLER_2D_ARRAY]: gl2.TEXTURE_2D_ARRAY, [gl2.SAMPLER_2D_SHADOW]: gl.TEXTURE_2D,
+        [gl2.SAMPLER_3D]: gl2.TEXTURE_3D, [gl2.SAMPLER_2D_ARRAY]: gl2.TEXTURE_2D_ARRAY,
+        [gl2.SAMPLER_2D_SHADOW]: gl.TEXTURE_2D, [gl2.SAMPLER_CUBE_SHADOW]: gl.TEXTURE_CUBE_MAP,
       };
+      const shadowSamplers = new Set([gl2.SAMPLER_2D_SHADOW, gl2.SAMPLER_CUBE_SHADOW]);
       for (let i = 0; i < n; i++) {
         const info = gl.getActiveUniform(program, i);
         const loc = gl.getUniformLocation(program, info.name);
@@ -109,7 +136,7 @@
           gl[`uniformMatrix${d}fv`](loc, false, vals);
         } else if (info.type in samplerTargets) {
           const units = [];
-          for (let e = 0; e < count; e++) { bindTexture(samplerTargets[info.type], textureUnits); units.push(textureUnits++); }
+          for (let e = 0; e < count; e++) { bindTexture(samplerTargets[info.type], textureUnits, shadowSamplers.has(info.type)); units.push(textureUnits++); }
           gl.uniform1iv(loc, new Int32Array(units));
         } else {
           throw new Error(`uniform ${info.name}: unsupported type 0x${info.type.toString(16)}`);
@@ -141,12 +168,12 @@
         const comps = scalarTypes[inp.type];
         if (comps === undefined) throw new Error(`fragment input ${inp.name}: unsupported type ${inp.type}`);
         const flat = inp.flat || isIntegral(inp.type) ? "flat " : "";
-        lines.push(`${flat}${es3 ? "out" : "varying"} ${inp.type} ${inp.name}${inp.size > 1 ? `[${inp.size}]` : ""};`);
+        lines.push(`${flat}${es3 ? "out" : "varying"} ${inp.type} ${inp.name}${inp.array ? `[${inp.size}]` : ""};`);
         for (let e = 0; e < inp.size; e++) {
           const q = `(vec4(aPos, aPos.x * aPos.y, .5) * (1. + ${(k * 0.37 + e * 0.13).toFixed(2)}) + ${(k * 0.11 + e * 0.05).toFixed(2)})`;
           const swz = ["x", "xy", "xyz", "xyzw"][comps - 1];
           const conv = isIntegral(inp.type) ? `${inp.type}(${q}.${swz} * 4.)` : inp.type === "bool" ? `${q}.x > .5` : /^bvec/.test(inp.type) ? `greaterThan(${q}.${swz}, vec${comps}(.5))` : `${q}.${swz}`;
-          body.push(`${inp.name}${inp.size > 1 ? `[${e}]` : ""} = ${conv};`);
+          body.push(`${inp.name}${inp.array ? `[${e}]` : ""} = ${conv};`);
         }
       });
       lines.push(`void main(){ ${body.join(" ")} gl_Position = vec4(aPos, 0., 1.); }`);
@@ -175,7 +202,8 @@
       if (cfg.version !== 2) throw new Error("varyings mode needs WebGL2");
       const vertices = cfg.vertices, instances = cfg.instances;
       const src = cfg.source.replace(/^(\s*#version[^\n]*\n)?/, (v) => `${v}#define main _main_orig\n`) + "\n#undef main\nout vec4 _p;void main(){_main_orig();_p=gl_Position;}\n";
-      const outs = [...cfg.inputs, { name: "_p", type: "vec4", size: 1 }];
+      // ANGLE captures neither an array varying nor its elements ("undefined and not supported"), so arrays are left out.
+      const outs = [...cfg.inputs.filter((o) => !o.array), { name: "_p", type: "vec4", size: 1 }];
       const names = outs.map((o) => o.name);
       const program = link(src, "#version 300 es\nvoid main(){}", (p) => gl.transformFeedbackVaryings(p, names, gl.INTERLEAVED_ATTRIBS));
       gl.useProgram(program);
@@ -192,10 +220,19 @@
         const buf = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
         gl.enableVertexAttribArray(loc);
+        const matTypes = { [gl.FLOAT_MAT2]: 2, [gl.FLOAT_MAT3]: 3, [gl.FLOAT_MAT4]: 4 };
         if (info.type in floatTypes) {
           const c = floatTypes[info.type];
           gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * c }, (_, j) => 2 * unit(`${info.name}@${j}`) - 1), gl.STATIC_DRAW);
           gl.vertexAttribPointer(loc, c, gl.FLOAT, false, 0, 0);
+        } else if (info.type in matTypes) {
+          // A matrix attribute (three.js instanceMatrix) takes one location per column: near-identity per vertex.
+          const d = matTypes[info.type];
+          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * d * d }, (_, j) => ((j % (d * d)) % (d + 1) === 0 ? 1 : 0) + 0.2 * (unit(`${info.name}@${j}`) - 0.5)), gl.STATIC_DRAW);
+          for (let col = 0; col < d; col++) {
+            gl.enableVertexAttribArray(loc + col);
+            gl.vertexAttribPointer(loc + col, d, gl.FLOAT, false, d * d * 4, col * d * 4);
+          }
         } else if (info.type in intTypes || info.type in uintTypes) {
           const c = intTypes[info.type] || uintTypes[info.type];
           const signed = info.type in intTypes;

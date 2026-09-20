@@ -179,6 +179,14 @@ describe("--inline-single-use", () => {
         expect(out).toContain("flow(uT,2.)+flow(uT,3.)");
       }
     });
+    it("does not move a global declared after the function into its body", () => {
+      // upstream: the sampler parameter can only be replaced by the global, which is declared later
+      const src = "vec4 look(sampler2D s,vec2 p){return texture2D(s,p*.5);}uniform sampler2D tex;void main(){gl_FragColor=look(tex,gl_FragCoord.xy)+look(tex,gl_FragCoord.yx);}";
+      // (cleanup then moves the declaration up, as upstream does; the parameter stays)
+      expect(minify(src)).toBe("uniform sampler2D tex;vec4 look(sampler2D s,vec2 p){return texture2D(s,p*.5);}void main(){gl_FragColor=look(tex,gl_FragCoord.xy)+look(tex,gl_FragCoord.yx);}");
+      const after = "uniform sampler2D tex;vec4 look(sampler2D s,vec2 p){return texture2D(s,p*.5);}void main(){gl_FragColor=look(tex,gl_FragCoord.xy)+look(tex,gl_FragCoord.yx);}";
+      expect(minify(after)).toBe("uniform sampler2D tex;vec4 look(vec2 p){return texture2D(tex,p*.5);}void main(){gl_FragColor=look(gl_FragCoord.xy)+look(gl_FragCoord.yx);}");
+    });
     it("substitutes when only the parameter itself carries the global's name", () => {
       const src = "uniform float uT;float flow(float uT){float s=0.;for(int i=0;i<2;i++)s+=uT;return s;}void main(){gl_FragColor=vec4(flow(uT));}";
       expect(minify(src, { inlineSingleUse: true })).toBe(

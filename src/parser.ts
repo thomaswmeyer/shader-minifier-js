@@ -438,7 +438,7 @@ class ParserImpl {
     const check = (decl: Ast.Decl): Ast.Decl => {
       for (const d of decl[1]) {
         if (d.name.name !== renameField(this.options, d.name.name)) {
-          throw new Error(`Record field name '${d.name.name}' is not allowed by Shader Minifier,\nbecause it looks like a vec4 field name.`);
+          throw new ParseError(`Record field name '${d.name.name}' is not allowed by Shader Minifier,\nbecause it looks like a vec4 field name.`);
         }
       }
       return decl;
@@ -854,7 +854,42 @@ export function runParser(options: Options, streamName: string, content: string)
   if (options.expandMacros) src = expandMacros(src);
   const shader = new ParserImpl(options, src, streamName).run();
   pinMacroNames(options, shader);
+  if (options.preserveExternals || options.preserveAllGlobals) pinExternalStructFields(shader);
   return shader;
+}
+
+// Under --preserve-externals a uniform's name is what the application looks up, and for a struct
+// uniform that name includes the field: three.js sets `directionalLights[0].direction`. The
+// fields of every struct an external declaration uses, and of the structs those fields use, keep
+// their names. Upstream renames them.
+function pinExternalStructFields(shader: Ast.Shader): void {
+  const structs = new Map<string, Ast.StructOrInterfaceBlock>();
+  for (const tl of shader.code) if (tl.kind === "TypeDecl" && tl.block.name !== null) structs.set(tl.block.name.name, tl.block);
+  const pending: string[] = [];
+  for (const tl of shader.code) {
+    if (tl.kind === "TLDecl" && Ast.typeIsExternal(tl.decl[0]) && tl.decl[0].name.kind === "TypeName") pending.push(tl.decl[0].name.ident.name);
+  }
+  const done = new Set<string>();
+  const fieldNames = new Set<string>();
+  while (pending.length > 0) {
+    const name = pending.pop()!;
+    const block = structs.get(name);
+    if (block === undefined || done.has(name)) continue;
+    done.add(name);
+    for (const m of block.members) {
+      if (m.kind !== "MemberVariable") continue;
+      const [ty, elts] = m.decl;
+      for (const e of elts) fieldNames.add(e.name.name);
+      if (ty.name.kind === "TypeName") pending.push(ty.name.ident.name);
+    }
+  }
+  // The renamer renames a field name the same way in every struct, so a name kept in one struct
+  // is kept in all of them.
+  for (const block of structs.values()) {
+    for (const m of block.members) {
+      if (m.kind === "MemberVariable") for (const e of m.decl[1]) if (fieldNames.has(e.name.name)) e.name.pinned = true;
+    }
+  }
 }
 
 /** The identifiers a macro body refers to, minus its parameters: `(a,b) a+b*k.x` gives names `k` and fields `x`. */

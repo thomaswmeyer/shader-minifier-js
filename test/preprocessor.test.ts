@@ -3,7 +3,58 @@ import { parse } from "@shaderfrog/glsl-parser";
 import { describe, expect, it } from "vitest";
 import { spglslShaders } from "../scripts/webgl-compile-page.js";
 import { minify } from "../src/api.js";
-import { expandMacros } from "../src/preprocessor.js";
+import { evalConstantExpression, expandMacros, preprocess } from "../src/preprocessor.js";
+
+describe("--preprocess decides constant #if expressions (PORTING.md 5.2 item 16)", () => {
+  const defined = (n: string) => n === "USE_MAP";
+  it("evaluates integers, defined() and the C operators", () => {
+    expect(evalConstantExpression("( 1 > 0 ) && defined( USE_MAP )", defined)).toBe(1);
+    expect(evalConstantExpression("0 > 0 || 1 > 0", defined)).toBe(1);
+    expect(evalConstantExpression("! defined( USE_FOG )", defined)).toBe(1);
+    expect(evalConstantExpression("defined USE_FOG", defined)).toBe(0);
+    expect(evalConstantExpression("2 + 3 * 4 == 14 && 7 / 2 == 3 && 7 % 2 == 1", defined)).toBe(1);
+    expect(evalConstantExpression("1 << 3", defined)).toBe(8);
+    expect(evalConstantExpression("-1 < 0", defined)).toBe(1);
+  });
+  it("leaves a bare identifier without a value, a division by zero and malformed text undecided", () => {
+    expect(evalConstantExpression("DEF", defined)).toBeNull();
+    expect(evalConstantExpression("NUM_LIGHTS > 0", defined, (n) => (n === "NUM_LIGHTS" ? 2 : null))).toBe(1);
+    expect(evalConstantExpression("1 / 0", defined)).toBeNull();
+    expect(evalConstantExpression("(1", defined)).toBeNull();
+    expect(evalConstantExpression("1 2", defined)).toBeNull();
+  });
+  it("drops the inactive branch of a block inside an argument list", () => {
+    const src = "#define USE_MAP\nvoid main(){f(a,\n#if defined( USE_MAP ) && 1 > 0\n b\n#else\n c\n#endif\n);}";
+    expect(preprocess("t", src)).toBe("#define USE_MAP\nvoid main(){f(a,\n\n b\n\n\n\n);}"); // removed lines stay blank
+  });
+  it("takes one branch of an #if/#elif/#else chain", () => {
+    expect(preprocess("t", "#if 1\nint a;\n#elif 1\nint b;\n#else\nint c;\n#endif")).toBe("\nint a;\n\n\n\n\n");
+    expect(preprocess("t", "#if 0\nint a;\n#elif 1\nint b;\n#else\nint c;\n#endif")).toBe("\n\n\nint b;\n\n\n");
+    expect(preprocess("t", "#if 0\nint a;\n#elif 0\nint b;\n#else\nint c;\n#endif")).toBe("\n\n\n\n\nint c;\n");
+  });
+  it("keeps everything under an inactive block inactive, whatever its inner branches say", () => {
+    expect(preprocess("t", "#if 0\n#if 0\nint a;\n#elif 1\nint b;\n#else\nint c;\n#endif\nint d;\n#endif\nint e;")).toBe("\n\n\n\n\n\n\n\n\n\nint e;");
+  });
+  it("keeps an undecidable chain, and turns a kept #elif after a dropped #if into #if", () => {
+    // DEF's value is not an integer, so nothing about it is decided.
+    const def = "#define DEF (1+FOO)\n";
+    expect(preprocess("t", def + "#if DEF\nint a;\n#else\nint b;\n#endif")).toBe(def + "#if DEF\nint a;\n#else\nint b;\n#endif");
+    expect(preprocess("t", def + "#if 0\nint a;\n#elif DEF\nint b;\n#else\nint c;\n#endif")).toBe(def + "\n\n#if DEF\nint b;\n#else\nint c;\n#endif");
+    expect(preprocess("t", def + "#if 1\nint a;\n#elif DEF\nint b;\n#endif")).toBe(def + "\nint a;\n\n\n");
+  });
+  it("ignores a #define inside an inactive block", () => {
+    const src = "#if 0\n#define ENV_WORLDPOS\n#endif\n#ifdef ENV_WORLDPOS\nint a;\n#else\nint b;\n#endif";
+    expect(preprocess("t", src)).toBe("\n\n\n\n\n\nint b;\n");
+  });
+  it("recognises an indented directive", () => {
+    expect(preprocess("t", "\t#ifdef NOPE\n\tint a;\n\t#else\n\tint b;\n\t#endif")).toBe("\n\n\n\tint b;\n");
+  });
+  it("decides a bare identifier from its integer #define, and an undefined one as 0", () => {
+    expect(preprocess("t", "#define DEF 1\n#if DEF\nint a;\n#endif")).toBe("#define DEF 1\n\nint a;\n");
+    expect(preprocess("t", "#define N 0\n#if N > 0\nint a;\n#else\nint b;\n#endif")).toBe("#define N 0\n\n\n\nint b;\n");
+    expect(preprocess("t", "#if UNDEFINED\nint a;\n#endif")).toBe("\n\n");
+  });
+});
 
 describe("expandMacros", () => {
   it("expands object-like macros and drops their definitions", () => {

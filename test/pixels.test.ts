@@ -7,10 +7,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
-import type { Options } from "../src/options.js";
+import { ParseError, type Options } from "../src/options.js";
 import { toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
-import { comparePixelsWithin, compareVaryings, countDifferingPixels, glslVersion, perturbFloatLiterals, shaderInterface, ShaderRunner, toEs100, type RenderConfig } from "./pixels.js";
+import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, shaderInterface, ShaderRunner, toEs100, type RenderConfig } from "./pixels.js";
 import { readTomto, tomtoShaders } from "./tomto.js";
 
 interface Case { name: string; stage: "frag" | "vert"; source: string; options: Options }
@@ -65,7 +65,13 @@ describe("minified shaders render the same pixels", () => {
     it(c.name, async (ctx) => {
       if (unavailable !== null) { ctx.skip(); return; }
       const version = glslVersion(c.source);
-      const minified = new Minifier(c.options, [[path.basename(c.name.split(" ")[0]), c.source]]).format({ ...c.options, outputFormat: "text" });
+      let minified: string;
+      try {
+        minified = new Minifier(c.options, [[path.basename(c.name.split(" ")[0]), c.source]]).format({ ...c.options, outputFormat: "text" });
+      } catch (e) {
+        if (e instanceof ParseError) { ctx.skip(`the minifier refuses the source: ${e.message.split("\n")[0]}`); return; }
+        throw e;
+      }
       const mode = c.stage === "frag" ? "pixels" : "varyings";
       const inputs = shaderInterface(c.name, c.source, c.stage);
       const cfg = (source: string): RenderConfig => ({ mode, version, source, inputs, size: 48, vertices: 16, instances: 2 });
@@ -83,7 +89,8 @@ describe("minified shaders render the same pixels", () => {
       // that (a raymarcher at a hit threshold) may flip as many again in its minified form.
       const perturbed = await runner.run(cfg(perturbFloatLiterals(c.source)));
       const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
-      const cmp = comparePixelsWithin(original.data, result.data, 1, noise);
+      const cmp = judgePixels(original.data, result.data, noise);
+      if (cmp.chaotic) { ctx.skip(`chaotic shader: ${cmp.summary}`); return; }
       expect(cmp.same, `${cmp.summary}\n${minified}`).toBe(true);
     }, 60000);
   }

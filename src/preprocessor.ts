@@ -7,25 +7,64 @@
 //   Unknown: condition could not be evaluated, keep both the directive and the text
 type Status = "Active" | "Inactive" | "Unknown";
 
+// A conditional block: the status of the branch being read, whether an earlier branch of the
+// same block was taken (Active: yes, Inactive: no, Unknown: one of them could not be decided),
+// and whether a directive of the block reached the output, so that its #endif must too.
+interface Frame { status: Status; taken: Status; emitted: boolean }
+
 class Impl {
   // Dict of macro name to value
   private readonly defines = new Map<string, string>();
-  private readonly stack: Status[] = [];
+  private readonly stack: Frame[] = [];
 
   private currentStatus(): Status {
-    return this.stack.length === 0 ? "Active" : this.stack[this.stack.length - 1];
+    return this.stack.length === 0 ? "Active" : this.stack[this.stack.length - 1].status;
+  }
+
+  // The status enclosing the block on top of the stack.
+  private parentStatus(): Status {
+    return this.stack.length < 2 ? "Active" : this.stack[this.stack.length - 2].status;
   }
 
   private enterScope(evaluated: Status): void {
-    this.stack.push(this.currentStatus() === "Inactive" ? "Inactive" : evaluated);
+    const status = this.currentStatus() === "Inactive" ? "Inactive" : evaluated;
+    this.stack.push({ status, taken: evaluated, emitted: status === "Unknown" });
   }
 
+  // Upstream ports these as a flat status stack that forgets whether a branch was taken, so
+  // `#if 1 ... #else` activated the else branch and an `#elif 1` inside an inactive block woke
+  // its text up (three.js's nested chains). A branch after a taken one is inactive; after an
+  // undecidable one it is undecidable too, and its directive is kept (as `#if` when the block's
+  // own `#if` line was dropped, so the output stays well formed).
+  private nextBranch(cond: Status, text: string): string {
+    const frame = this.stack[this.stack.length - 1] ?? { status: "Active", taken: "Inactive", emitted: false };
+    if (this.stack.length === 0) this.stack.push(frame);
+    const parent = this.parentStatus();
+    let status: Status;
+    if (parent === "Inactive" || frame.taken === "Active") status = "Inactive";
+    else if (frame.taken === "Unknown" || cond === "Unknown") status = "Unknown";
+    else status = cond;
+    if (cond === "Active" && frame.taken === "Inactive") frame.taken = "Active";
+    else if (cond === "Unknown" && frame.taken !== "Active") frame.taken = "Unknown";
+    frame.status = status;
+    if (status !== "Unknown") return "";
+    const line = frame.emitted ? text : text.replace(/^#elif\b/, "#if").replace(/^#else$/, "#if 1");
+    frame.emitted = true;
+    return line;
+  }
+
+  // Upstream decides `#if 0` and `#if 1` only. The port also decides a constant expression of
+  // integer literals, `defined(X)` and the C operators (`#if ( 1 > 0 ) && defined( USE_MAP )`, the
+  // form engines like three.js emit after substituting their counts); a bare identifier still
+  // makes the condition unknown, as upstream's `#if DEF` golden expects.
   private evalCond(str: string): Status {
-    switch (str.trim()) {
-      case "0": return "Inactive";
-      case "1": return "Active";
-      default: return "Unknown";
-    }
+    const v = evalConstantExpression(str, (name) => this.defines.has(name), (name) => {
+      const d = this.defines.get(name);
+      if (d === undefined) return 0; // not defined in the file: 0, as for #ifdef
+      const n = /^\s*(\d+)[uU]?\s*$/.exec(d);
+      return n === null ? null : parseInt(n[1], 10);
+    });
+    return v === null ? "Unknown" : v !== 0 ? "Active" : "Inactive";
   }
 
   // Splits "ident rest" where ident is [A-Za-z0-9_]* (may be empty), like parseIdent + parseEndLine.
@@ -39,6 +78,11 @@ class Impl {
     const kw = /^([A-Za-z]+)(?![A-Za-z0-9_])/.exec(body);
     const keyword = kw ? kw[1] : "";
     const afterKw = kw ? body.slice(kw[0].length).replace(/^[ \t]*/, "") : "";
+    // Inside an inactive block only the conditional directives matter: a #define there must
+    // neither be recorded nor kept (upstream recorded it, so `#define ENV_WORLDPOS` under a false
+    // condition decided a later `#ifdef ENV_WORLDPOS`).
+    const conditional = keyword === "if" || keyword === "ifdef" || keyword === "ifndef" || keyword === "elif" || keyword === "else" || keyword === "endif";
+    if (!conditional && this.currentStatus() === "Inactive") return "";
     switch (keyword) {
       case "line":
         return "";
@@ -56,28 +100,11 @@ class Impl {
         this.defines.delete(name);
         return `#undef ${name}`;
       }
-      case "elif": {
-        const oldStatus = this.stack.pop() ?? "Active";
-        const cond = this.evalCond(afterKw);
-        let newStatus: Status;
-        if (oldStatus === "Unknown" || cond === "Unknown") newStatus = "Unknown";
-        else if (cond === "Inactive") newStatus = "Inactive";
-        else if (oldStatus === "Active") newStatus = "Inactive";
-        else newStatus = "Active";
-        this.stack.push(newStatus);
-        return newStatus === "Unknown" ? "#elif " + afterKw : "";
-      }
-      case "else": {
-        const st = this.stack.pop() ?? "Active";
-        switch (st) {
-          case "Active": this.stack.push("Inactive"); return "";
-          case "Inactive": this.stack.push("Active"); return "";
-          default: this.stack.push("Unknown"); return "#else";
-        }
-      }
+      case "elif": return this.nextBranch(this.evalCond(afterKw), "#elif " + afterKw);
+      case "else": return this.nextBranch("Active", "#else");
       case "endif": {
-        const st = this.stack.pop() ?? "Active";
-        return st === "Unknown" ? "#endif" : "";
+        const frame = this.stack.pop();
+        return frame !== undefined && frame.emitted ? "#endif" : "";
       }
       case "if": {
         const status = this.evalCond(afterKw);
@@ -104,8 +131,11 @@ class Impl {
     const out: string[] = [];
     for (const rawLine of lines) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-      if (line.startsWith("#")) {
-        out.push(this.directive(line.slice(1).replace(/^[ \t]*/, "")));
+      // GLSL allows whitespace before `#` (three.js indents its directives with tabs); upstream
+      // only recognises a directive at column 0 and lets the rest through as code.
+      const trimmed = line.replace(/^[ \t]*/, "");
+      if (trimmed.startsWith("#")) {
+        out.push(this.directive(trimmed.slice(1).replace(/^[ \t]*/, "")));
       } else {
         out.push(this.currentStatus() === "Inactive" ? "" : line);
       }
@@ -116,6 +146,68 @@ class Impl {
 
 export function preprocess(_streamName: string, content: string): string {
   return new Impl().parse(content);
+}
+
+/**
+ * The integer value of a preprocessor constant expression, or null when it is not one the port
+ * decides: anything with a bare identifier, a function-like form other than `defined`, or a
+ * syntax error. Precedence climbing over the C operators; division by zero is null too.
+ */
+export function evalConstantExpression(text: string, isDefined: (name: string) => boolean, valueOf: (name: string) => number | null = () => null): number | null {
+  const tokens = text.match(/\d+[uU]?|[A-Za-z_]\w*|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%<>!~()&|^]/g) ?? [];
+  if (tokens.join("") !== text.replace(/\s+/g, "")) return null; // something the tokenizer skipped
+  let i = 0;
+  const peek = (): string | undefined => tokens[i];
+  const take = (): string => tokens[i++];
+  const fail = { failed: false };
+  const primary = (): number => {
+    const t = take();
+    if (t === undefined) { fail.failed = true; return 0; }
+    if (t === "(") { const v = expr(0); if (take() !== ")") fail.failed = true; return v; }
+    if (t === "!") return primary() === 0 ? 1 : 0;
+    if (t === "-") return -primary();
+    if (t === "+") return primary();
+    if (t === "~") return ~primary();
+    if (/^\d/.test(t)) return parseInt(t, 10);
+    if (t === "defined") {
+      const paren = peek() === "(";
+      if (paren) take();
+      const name = take();
+      if (name === undefined || !/^[A-Za-z_]/.test(name)) { fail.failed = true; return 0; }
+      if (paren && take() !== ")") fail.failed = true;
+      return isDefined(name) ? 1 : 0;
+    }
+    const v = valueOf(t); // a bare identifier: its #define's integer value, 0 when undefined, else not decided
+    if (v === null) { fail.failed = true; return 0; }
+    return v;
+  };
+  const precedence: Record<string, number> = { "||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7, "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10 };
+  const apply = (op: string, a: number, b: number): number => {
+    switch (op) {
+      case "||": return a !== 0 || b !== 0 ? 1 : 0;
+      case "&&": return a !== 0 && b !== 0 ? 1 : 0;
+      case "|": return a | b; case "^": return a ^ b; case "&": return a & b;
+      case "==": return a === b ? 1 : 0; case "!=": return a !== b ? 1 : 0;
+      case "<": return a < b ? 1 : 0; case ">": return a > b ? 1 : 0; case "<=": return a <= b ? 1 : 0; case ">=": return a >= b ? 1 : 0;
+      case "<<": return a << b; case ">>": return a >> b;
+      case "+": return a + b; case "-": return a - b; case "*": return a * b;
+      case "/": if (b === 0) { fail.failed = true; return 0; } return Math.trunc(a / b);
+      case "%": if (b === 0) { fail.failed = true; return 0; } return a % b;
+      default: fail.failed = true; return 0;
+    }
+  };
+  const expr = (minPrec: number): number => {
+    let left = primary();
+    for (;;) {
+      const op = peek();
+      if (op === undefined || !(op in precedence) || precedence[op] < minPrec) return left;
+      take();
+      const right = expr(precedence[op] + 1);
+      left = apply(op, left, right);
+    }
+  };
+  const value = expr(0);
+  return fail.failed || i !== tokens.length ? null : value;
 }
 
 // ---------------------------------------------------------------------------
