@@ -25,12 +25,50 @@ runners, only here:
 Consider also requiring the check on `master` once it is green, since the
 goldens are the thing most easily broken by accident.
 
-## 0b. WebGPU, aimed at TensorFlow.js
+## 0b. WebGPU, aimed at TensorFlow.js: measured, and the answer is no
 
-The idea to try: a WGSL path targeting the compute shaders the TensorFlow.js
-WebGPU backend (`@tensorflow/tfjs-backend-webgpu`, 4.22.0 at the time of
-writing) generates for its kernels, rather than the rendering shaders an
-engine emits.
+The idea was a WGSL path targeting the compute shaders the TensorFlow.js
+WebGPU backend (`@tensorflow/tfjs-backend-webgpu`, 4.22.0) generates for its
+kernels, rather than the rendering shaders an engine emits. It was measured
+before anything was built, and the answer is not to build it.
+
+**What was measured.** 25 distinct kernels captured from a real run by
+hooking `createShaderModule` (WebGPU does run headlessly here), 192,710 bytes
+in total, median 7 KB, of which a byte-identical prelude is 36.6% and
+functions unreachable from `_start` are about half. Compressed as a set:
+6,806 bytes, a 28:1 ratio, so the boilerplate is nearly free already.
+
+| | result |
+|---|---|
+| Kernel runtime, original vs minified | 1.004x on matMul, 0.996x on softmax: no effect |
+| Tint parse over 75 pipelines | 4.6 ms to 2.4 ms after removing 88% of the text |
+| Pipeline compile | unchanged; Tint's own dead-code elimination gets there first |
+| `nagami-rs` at its safe profile | -83% raw, -10% compressed, outputs bit-exact |
+| `miniray` 0.3.1 | rejects all 25: it cannot lex `bitcast<vec4<u32>>` |
+
+So there is no runtime gap, the compile-time gap is about 2 ms across a whole
+model's kernels, and on size an existing tool already takes most of it. The
+one place real bytes sit is tf.js's own JavaScript bundle, where the kernel
+templates keep their comments and indentation, worth about 2.9 KB brotli;
+that belongs in tf.js's build, not in a shader minifier.
+
+**Two things worth passing on rather than building on.**
+
+- `nagami-rs` miscompiles at its `aggressive` and `max` profiles. tf.js's
+  tiled conv2d kernel, the one with `var<workgroup>` tiles and
+  `workgroupBarrier`, computes the wrong answer: relative sum error 1.1,
+  while the other eleven kernels stay bit-exact. It compiles cleanly and the
+  tool reports validation OK. Bisected with `optBisectLimit` to the pass
+  introduced at 3, `function_inlining`. Its `baseline` profile is correct.
+  Worth reporting upstream with the reproducer.
+- `miniray` returns its input verbatim when it fails to parse, with the error
+  in a field a caller is unlikely to check. Silently doing nothing is a bad
+  failure mode for a minifier.
+
+The original reasoning is kept below, since it is why the measurement was
+worth doing.
+
+The idea as first written:
 
 Why it is a different problem from everything above, and worth stating
 plainly before anyone starts:
