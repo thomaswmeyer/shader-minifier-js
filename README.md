@@ -119,8 +119,11 @@ file pattern, and `options` passes any raw minifier option.
   alone because its members are looked up through the block. Opt-in and off
   by default: an application looks a uniform up by name and may treat a null
   location as an error rather than a no-op. Worth 2.9% of the three.js
-  programs and 4.0% of the PlayCanvas ones raw, and slightly *more* bytes
-  after compression, since what it removes is text those programs shared.
+  programs and 4.0% of the PlayCanvas ones raw, and 811 and 258 bytes with
+  each program compressed on its own. Compressed as one blob it costs a few
+  bytes instead, because each program's dead uniforms are a different subset
+  and removing them desynchronises programs that were compressing against
+  each other; that is the blob's artifact, not a reason to skip it.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader. Upstream rules that could
@@ -256,11 +259,42 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | PlayCanvas | 20 | 191,012 | 36,026 (5 refused) | 48,662 | | 60,037 | 18.9% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
-Shaders ship compressed, so the same corpora compressed as one bundle each,
-under brotli at quality 11 (what a CDN serves a static asset with) and gzip
-at level 9 (an older server, or a proxy without brotli):
+Shaders ship compressed, so the same corpora again after compression. Two
+things have to be said before the numbers, because both change them.
 
-**brotli -q 11**
+The **codec**: brotli at quality 11 is what a CDN serves a static asset with,
+gzip -9 what an older server gives. They differ mostly in window size, 32 KB
+against much more.
+
+The **unit**: compressing a whole corpus as one blob lets every shader
+compress against its near-twins, and for the engines that is most of the
+win. It is also not how anything ships. three.js sends its chunk library and
+assembles these 56 programs in the browser, so the blob never exists;
+Babylon and PlayCanvas likewise. Compressing each shader on its own is the
+pessimistic end, and a shader sitting somewhere in a real JavaScript bundle,
+far from any twin, is much nearer that. Judge a change on the per-shader
+table; read the blob as an optimistic bound.
+
+| corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
+|---|--:|--:|--:|--:|
+| tom.to | 2,378 | 1,591 | 1,093 | 31% |
+| gl-transitions | 67,931 | 35,875 | 14,104 | 61% |
+| three.js | 131,598 | 43,331 | 12,764 | 71% |
+| Babylon.js | 57,789 | 16,070 | 6,717 | 58% |
+| PlayCanvas | 48,662 | 17,957 | 5,278 | 71% |
+
+**brotli -q 11, each shader on its own**
+
+| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|
+| tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,621 | 1.9% |
+| gl-transitions | 67,081 | 36,734 | 35,875 | 2.3% | 39,307 | 8.7% |
+| three.js | 269,870 | 68,840 | 43,331 | 37.1% | 46,531 | 6.9% |
+| Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 17,418 | 7.7% |
+| PlayCanvas | 47,336 | 11,511 (5 refused) | 17,957 | | 20,615 | 12.9% |
+| upstream shadertoy | 30,115 | 17,372 | 17,008 | 2.1% | 12,564 | |
+
+**brotli -q 11, whole corpus as one blob**
 
 | corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
@@ -282,22 +316,17 @@ at level 9 (an older server, or a proxy without brotli):
 | PlayCanvas | 24,421 | 2,298 (5 refused) | 7,072 | | 7,276 | 2.8% |
 | upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 11,962 | |
 
-Three things these say. The order of the three minifiers never changes, under
-either codec, so none of the choices here are ones a compressor would have
-made for free. The plugin's margin is consistently *larger* under gzip, 20.0%
-against 16.0% on three.js and 12.7% against 6.9% versus ANGLE, so brotli's
-numbers are the conservative ones. And the two codecs disagree wildly about
-the *source*: three.js is 23 KB under brotli and 196 KB under gzip, an
-eight-fold gap, because brotli's window spans the whole corpus and sees 56
-near-identical programs where gzip's 32 KB window cannot.
+The order of the three minifiers never changes, under either codec or either
+unit, so none of the choices here are ones a compressor would have made for
+free. Beyond that the unit decides the story. On the blob the plugin's win
+over upstream's rewrites on three.js is 16.0%; per shader it is 37.1%,
+because the blob was already getting the repetition for free. The codec
+matters less, and in the same direction: gzip gives the plugin a larger
+margin than brotli, so brotli is the conservative choice.
 
-That gap is what to hold on to when reading any compressed number here.
-Compressing a corpus as one blob is the compressor's best case: it assumes
-every shader sits next to its near-twin. A real bundle spreads them through
-hundreds of kilobytes of JavaScript, where even brotli will not have them in
-view of each other. So the brotli column is a lower bound on what
-minification is worth, the raw column an upper bound, and any given site
-lands between them.
+The engine corpora compress 17 to 58 fold as blobs, and most of that is one
+program against another rather than anything inside a program. That is what
+makes them excellent for finding bugs and poor for judging size.
 
 ### Reproducing the comparison
 

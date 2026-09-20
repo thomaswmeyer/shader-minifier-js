@@ -343,17 +343,23 @@ optimisations most likely to still pay are the ones that remove *unique*
 text rather than repeated text, which is an argument for unused varyings and
 uniforms (section 7) over macro extraction or rerolling.
 
-`npm run metrics` reports gzip -9 beside brotli -q 11, because the two
-disagree about how much redundancy there is to find: brotli's window spans a
-whole corpus, gzip's 32 KB window does not, so three.js source is 23 KB under
-one and 196 KB under the other. Every verdict recorded here was re-checked
-under gzip and none of them moved, which is the useful part. Unused uniforms
-still costs bytes compressed under both codecs (three.js +53 brotli, +24
-gzip; PlayCanvas +66 and +220), and pi substitution is still worth about 30
-bytes under both. What does change is the presentation: compressing a corpus
-as one blob is the compressor's best case, since it assumes every shader sits
-beside its near-twin, so treat brotli-on-a-blob as the lower bound on what
-minification is worth.
+`npm run metrics` reports three compressed views: each shader on its own,
+the whole corpus as one blob, and the blob again under gzip -9. The unit
+matters more than the codec, and getting it wrong reversed a verdict here
+once already.
+
+Cross-shader redundancy is most of the blob's compression: 71% of it for
+three.js and PlayCanvas, 61% for gl-transitions, 31% for the six hand-written
+tom.to shaders. The engines are near-duplicates of each other, which is what
+makes them so compressible as a blob. But none of them ship that way:
+three.js sends its chunk library and assembles the programs in the browser.
+The blob is a scenario that does not occur.
+
+So judge a size change with each shader compressed on its own, and read the
+blob as an optimistic bound. Re-checked under that unit: unused uniforms
+*saves* (811 bytes on three.js) where the blob said it cost 53; pi
+substitution is still worth only about 45 bytes, so that verdict stands
+under every unit and codec.
 
 ## 7. Optimizations not done yet
 
@@ -386,18 +392,20 @@ minification is worth.
   30) removes a plain uniform no shader of the run reads, under the same
   both-stages gate as the varyings. Measured over the engine pairs:
 
-  | corpus | raw | compressed |
-  |---|--:|--:|
-  | three.js | -3,890 (2.9%) | +53 |
-  | PlayCanvas | -1,941 (4.0%) | +66 |
-  | Babylon.js | -25 | +14 |
+  | corpus | raw | each program alone | as one blob |
+  |---|--:|--:|--:|
+  | three.js | -3,890 (2.9%) | -811 | +53 |
+  | PlayCanvas | -1,941 (4.0%) | -258 | +66 |
+  | Babylon.js | -25 | -11 | +14 |
 
-  The third time the compressed column has changed a verdict, and the most
-  interesting of the three: the raw win is the largest of any optimisation
-  here, and it still costs bytes on the wire. Each program's dead uniforms
-  are a different subset, so removing them desynchronises programs that were
-  compressing against each other. Worth having for a shader shipped alone,
-  or for the raw comparison against ANGLE; not for a bundle.
+  Worth recording how this reads, because the first version of this note got
+  it wrong. Measured on the blob it *costs* bytes, and that was written down
+  as a third case of the compressed column overturning a raw win. It is not:
+  the blob lets 28 near-identical programs compress against each other, and
+  each program's dead uniforms are a different subset, so removing them
+  desynchronises them. Compress each program on its own, which is nearer how
+  a shader sits in a real bundle, and it saves. The lesson is about the unit,
+  not the flag.
 
 - **Unused uniforms, the original note.** What ANGLE still drops and the port keeps, since the
   application looks uniforms up by name. Opt-in only, for applications that

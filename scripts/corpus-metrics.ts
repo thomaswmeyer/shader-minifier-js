@@ -71,10 +71,18 @@ const pct = (a: number, b: number): string => (b === 0 ? "" : `${(100 * (b - a) 
 // the number that matters is the compression of their concatenation, not the sum of compressing
 // each alone. It also counts what the shaders share, which is most of an engine's chunk text.
 // Brotli at quality 11 is what a CDN serves a static asset with.
-// Brotli at quality 11 is what a CDN serves a static asset with; gzip -9 is what an older server
-// or a proxy without brotli gives. The two disagree here, and the reason is the window: gzip looks
-// back 32 KB, brotli much further, so gzip cannot compress one shader against another once a
-// corpus is bigger than its window. Any claim about "compressed size" has to say which.
+// Two axes, and both matter.
+//
+// The codec: brotli at quality 11 is what a CDN serves a static asset with, gzip -9 what an older
+// server or a proxy without brotli gives. They disagree because of the window, 32 KB against much
+// more, so gzip cannot compress one shader against another once a corpus outgrows it.
+//
+// The unit: "as one blob" concatenates a corpus and compresses it once, which lets every shader
+// compress against its near-twins. That flatters the compressor and is not how anything ships:
+// three.js sends its chunk library and assembles these programs in the browser, so the blob does
+// not exist. "Each alone" compresses every shader by itself, which is the pessimistic end, and a
+// shader embedded somewhere in a real JavaScript bundle is nearer that. Judge a size change on
+// "each alone"; the blob is the optimistic bound.
 const brotli = (parts: string[]): number =>
   zlib.brotliCompressSync(Buffer.from(parts.join("\n"), "utf8"), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
 const gzip = (parts: string[]): number => zlib.gzipSync(Buffer.from(parts.join("\n"), "utf8"), { level: 9 }).length;
@@ -84,6 +92,7 @@ rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|`);
 const header = `| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|`;
 const compressed: string[] = [header];
 const compressedGz: string[] = [header];
+const perShader_: string[] = [header];
 const largest: string[] = [];
 for (const corpus of corpora) {
   let source = 0, up = 0, pl = 0, sp = 0, spSource = 0, upSource = 0, plSource = 0, refusedUp = 0, refusedPl = 0, refusedSp = 0;
@@ -98,6 +107,11 @@ for (const corpus of corpora) {
     if (a === null) refusedSp++; else { sp += a.length; spSource += s.source.length; texts.sp.push(a); }
     perShader.push([s.name, s.source.length, u === null ? null : u.length, p === null ? null : p.length, a === null ? null : a.length]);
   }
+  const aloneSource = texts.source.reduce((a, t) => a + brotli([t]), 0);
+  const aloneUp = texts.up.reduce((a, t) => a + brotli([t]), 0);
+  const alonePl = texts.pl.reduce((a, t) => a + brotli([t]), 0);
+  const aloneSp = spglsl === null ? null : texts.sp.reduce((a, t) => a + brotli([t]), 0);
+  perShader_.push(`| ${corpus.name} | ${aloneSource.toLocaleString("en")} | ${aloneUp.toLocaleString("en")} | ${alonePl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(alonePl, aloneUp) : ""} | ${aloneSp === null ? "n/a" : aloneSp.toLocaleString("en")} | ${aloneSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(alonePl, aloneSp) : ""} |`);
   for (const [rows, z] of [[compressed, brotli], [compressedGz, gzip]] as [string[], (p: string[]) => number][]) {
     const cSource = z(texts.source), cUp = z(texts.up), cPl = z(texts.pl);
     const cSp = spglsl === null ? null : z(texts.sp);
@@ -109,7 +123,9 @@ for (const corpus of corpora) {
   for (const [name, src, u, p, a] of perShader.slice(0, 3)) largest.push(`| ${corpus.name}/${name} | ${src.toLocaleString("en")} | ${u ?? "refused"} | ${p ?? "refused"} | ${a === null ? (spglsl === null ? "n/a" : "refused") : a} |`);
 }
 console.log(rows.join("\n"));
-console.log("\nAfter brotli -q 11, each corpus compressed as one bundle:\n");
+console.log("\nAfter brotli -q 11, each shader compressed on its own (the unit to judge a change on):\n");
+console.log(perShader_.join("\n"));
+console.log("\nAfter brotli -q 11, each corpus compressed as one bundle (the optimistic bound):\n");
 console.log(compressed.join("\n"));
 console.log("\nAfter gzip -9, the same:\n");
 console.log(compressedGz.join("\n"));
