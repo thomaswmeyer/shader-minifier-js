@@ -364,4 +364,25 @@ export class Analyzer {
     // Then, visit all uses and associate them to their declaration.
     Ast.visitor(this.options, resolveExpr).iterTopLevel(topLevel);
   }
+
+  // Every variable use must still name the declaration it was resolved to. A rewrite that copies
+  // an expression into a scope where one of its names is bound to another variable (a capture)
+  // leaves the use pointing at the old declaration while the name means the new one; the next
+  // resolve() would silently rebind it by name, so only the pass that made the copy can tell.
+  // Called by the rewriter after every pass. Uses of a name no declaration in scope binds
+  // (builtins, verbatim code) are not checked.
+  checkScopes(topLevel: readonly TopLevel[]): void {
+    const check = (env: Ast.MapEnv, e: Expr): Expr => {
+      const r = resolvedVariableUse(e);
+      if (r === null) return e;
+      const [ident, vd] = r;
+      const found = env.vars.get(ident.name)?.[1].name;
+      if (found !== undefined && found.varDecl !== null && found.varDecl !== vd) {
+        const at = (l: Ast.Location): string => `${l.line}:${l.col}`;
+        throw new Error(`Internal error: a rewrite captured '${ident.name}' at ${at(ident.loc)}: it referred to the ${vd.scope.toLowerCase()} declared at ${at(vd.decl.name.loc)} but now names the ${found.varDecl.scope.toLowerCase()} declared at ${at(found.loc)}`);
+      }
+      return e;
+    };
+    Ast.visitor(this.options, check).iterTopLevel(topLevel);
+  }
 }

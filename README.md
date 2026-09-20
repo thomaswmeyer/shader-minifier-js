@@ -71,13 +71,21 @@ file pattern, and `options` passes any raw minifier option.
   `acos(-1.)`, which can cost precision under `mediump`.
 - `--drop-default-precision`: drop precision statements that restate the
   stage's default (`precision highp float;` in a vertex shader, `mediump int`
-  in a fragment shader, `lowp` samplers). The stage is read off the code: a
-  shader that writes `gl_Position` or `gl_PointSize` is a vertex shader.
+  in a fragment shader, `lowp` samplers). The stage is `--stage`, else the
+  file extension (`.vert`/`.vs`, `.frag`/`.fs`), else a builtin only one stage
+  has (`gl_Position`, `gl_FragCoord`, `discard`, ...). A shader that proves
+  neither, such as a transform-feedback vertex shader that never writes
+  `gl_Position`, keeps its `float` and `int` statements.
 - `--inline-single-use`: inline a never-written global used exactly once
   (outside loops) into that use, and substitute a global passed as an
   always-identical argument straight into the function body instead of
   declaring a local for it, when that is not longer. Upstream does both only
   under `--aggressive-inlining`, which also copies every constant to every use.
+  Neither happens where a local or parameter at the use would capture a name
+  of the inlined value.
+- After every rewrite pass the minifier checks that no variable use was
+  copied into a scope where its name means another variable, and fails with
+  an internal error instead of emitting the shader.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 

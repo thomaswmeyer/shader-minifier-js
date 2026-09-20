@@ -18,7 +18,7 @@ export interface ShaderMinifierPluginOptions {
   expandMacros?: boolean;
   /** Evaluate builtin calls on literals at float32 precision when shorter (`--fold-builtins`). Default true. */
   foldBuiltins?: boolean;
-  /** Drop precision statements that restate the stage's default (`--drop-default-precision`). Default true. */
+  /** Drop precision statements that restate the stage's default (`--drop-default-precision`); the stage comes from the file extension. Default true. */
   dropDefaultPrecision?: boolean;
   /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
   inlineSingleUse?: boolean;

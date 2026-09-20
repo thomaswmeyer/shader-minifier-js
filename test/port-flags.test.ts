@@ -1,9 +1,14 @@
-// --drop-default-precision and --inline-single-use (PORTING.md 5.2).
+// --drop-default-precision and --inline-single-use (PORTING.md 5.2), and the port flags on the
+// whole upstream corpus.
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { Minifier, minify as minifyApi } from "../src/api.js";
 import { defaultOptions, type Options } from "../src/options.js";
 import { runParser } from "../src/parser.js";
 import * as Printer from "../src/printer.js";
 import { simplify } from "../src/rewriter.js";
+import { loadCommands, repoRoot } from "./golden.js";
 
 function minify(src: string, extra: Partial<Options> = {}): string {
   const options = { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...extra };
@@ -13,7 +18,9 @@ function minify(src: string, extra: Partial<Options> = {}): string {
 
 describe("--drop-default-precision", () => {
   const vert = "precision highp float;precision highp int;uniform float u;void main(){gl_Position=vec4(u);}";
-  const frag = "precision highp float;precision mediump int;precision lowp sampler2D;uniform sampler2D s;out vec4 o;void main(){o=texture(s,vec2(0));}";
+  const frag = "precision highp float;precision mediump int;precision lowp sampler2D;uniform sampler2D s;out vec4 o;void main(){o=texture(s,gl_FragCoord.xy);}";
+  // A transform-feedback vertex shader: nothing in the code says which stage it is.
+  const stageless = "precision highp float;precision mediump int;precision lowp sampler2D;in vec2 p;out vec2 q;void main(){q=p*2.;}";
   it("is off by default", () => {
     expect(minify(vert)).toContain("precision highp float;precision highp int;");
   });
@@ -22,8 +29,35 @@ describe("--drop-default-precision", () => {
   });
   it("keeps highp float in a fragment shader, drops mediump int and lowp samplers", () => {
     expect(minify(frag, { dropDefaultPrecision: true })).toBe(
-      "precision highp float;uniform sampler2D s;out vec4 o;void main(){o=texture(s,vec2(0));}",
+      "precision highp float;uniform sampler2D s;out vec4 o;void main(){o=texture(s,gl_FragCoord.xy);}",
     );
+  });
+  it("keeps float and int statements when the code proves no stage", () => {
+    expect(minify(stageless, { dropDefaultPrecision: true })).toBe(
+      "precision highp float;precision mediump int;in vec2 p;out vec2 q;void main(){q=p*2.;}",
+    );
+  });
+  it("takes the stage from --stage", () => {
+    // mediump int is not the vertex default (highp), so it stays there.
+    expect(minify(stageless, { dropDefaultPrecision: true, stage: "vertex" })).toBe("precision mediump int;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+    expect(minify(stageless, { dropDefaultPrecision: true, stage: "fragment" })).toBe("precision highp float;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+  });
+  it("takes the stage from the file extension, and --stage wins over it", () => {
+    const opts = { dropDefaultPrecision: true, noRenaming: true };
+    const run = (name: string, extra: Partial<Options> = {}): string => minifyApi([{ name, content: stageless }], { ...opts, ...extra }).code;
+    expect(run("sim.vert")).toBe("precision mediump int;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+    expect(run("sim.vs")).toBe("precision mediump int;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+    expect(run("sim.frag")).toBe("precision highp float;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+    expect(run("sim.glsl")).toBe("precision highp float;precision mediump int;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+    expect(run("sim.vert", { stage: "fragment" })).toBe("precision highp float;in vec2 p;out vec2 q;void main(){q=p*2.;}");
+  });
+  it("reads the fragment stage off discard and gl_FragCoord", () => {
+    const src = "precision highp float;precision mediump int;void main(){if(gl_FragCoord.x<0.)discard;gl_FragColor=vec4(0);}";
+    expect(minify(src, { dropDefaultPrecision: true })).toBe("precision highp float;void main(){if(gl_FragCoord.x<0.)discard;gl_FragColor=vec4(0);}");
+  });
+  it("treats a shader that names builtins of both stages as stageless", () => {
+    const src = "precision mediump int;void main(){gl_Position=gl_FragCoord;}";
+    expect(minify(src, { dropDefaultPrecision: true })).toBe(src);
   });
   it("keeps a non-default precision", () => {
     expect(minify("precision mediump float;void main(){gl_Position=vec4(0);}", { dropDefaultPrecision: true }))
@@ -80,4 +114,62 @@ describe("--inline-single-use", () => {
     const src = "uniform float uSomeLongName;float flow(vec2 p,float t){return sin(p.x+t)+cos(p.y-t)+sin(p.x+t)+cos(p.y*t);}void main(){gl_FragColor=vec4(flow(gl_FragCoord.xy,uSomeLongName));}";
     expect(minify(src, { inlineSingleUse: true })).toContain("float t=uSomeLongName;");
   });
+
+  describe("does not let a local or parameter capture a name it inlines", () => {
+    it("keeps a global whose value reads a name a local shadows at the use", () => {
+      // Inlining K would make (a+b) read the local a.
+      const src = "uniform float a,b;const float K=a+b;void main(){float a=2.;for(int i=0;i<2;i++)a+=b;gl_FragColor=vec4(2.*K*a);}";
+      expect(minify(src, { inlineSingleUse: true })).toBe(src);
+    });
+    it("inlines once a later pass has removed the shadowing local", () => {
+      const src = "uniform float a,b;const float K=a+b;void main(){float a=2.;a+=b;gl_FragColor=vec4(2.*K*a);}";
+      expect(minify(src, { inlineSingleUse: true })).toBe("uniform float a,b;void main(){gl_FragColor=vec4(2.*(a+b)*(2.+b));}");
+      expect(minifyApi(src, { inlineSingleUse: true, noPiSubstitution: true }).code).toBe("uniform float f,C;void main(){gl_FragColor=vec4(2.*(f+C)*(2.+C));}");
+    });
+    it("still inlines when the shadowing local is in a sibling block", () => {
+      const src = "uniform float a,b;const float K=a+b;void main(){{float a=2.;for(int i=0;i<2;i++)a+=b;gl_FragColor=vec4(a);}gl_FragColor+=vec4(2.*K);}";
+      expect(minify(src, { inlineSingleUse: true })).toBe(
+        "uniform float a,b;void main(){{float a=2.;for(int i=0;i<2;i++)a+=b;gl_FragColor=vec4(a);}gl_FragColor+=vec4(2.*(a+b));}",
+      );
+    });
+    it("keeps a global whose value reads a name a parameter shadows, until the function is inlined", () => {
+      const src = "uniform float a,b;const float K=a+b;float f(float a){return a*K;}void main(){gl_FragColor=vec4(f(b));}";
+      expect(minify(src, { inlineSingleUse: true })).toBe("uniform float a,b;void main(){gl_FragColor=vec4(b*(a+b));}");
+    });
+    it("declares the local when the body binds the global's name", () => {
+      // Substituting uT for t would make t*uT read the local uT twice.
+      const src = "uniform float uT;float flow(float t){float uT=2.;for(int i=0;i<2;i++)uT+=t;return t*uT;}void main(){gl_FragColor=vec4(flow(uT));}";
+      expect(minify(src, { inlineSingleUse: true })).toBe(
+        "uniform float uT;float flow(){float t=uT,uT=2.;for(int i=0;i<2;i++)uT+=t;return t*uT;}void main(){gl_FragColor=vec4(flow());}",
+      );
+    });
+    it("leaves the argument alone when another parameter carries the global's name", () => {
+      // Even upstream's `float t=uT;` local would read the parameter uT here.
+      const src = "uniform float uT;float flow(float t,float uT){float s=0.;for(int i=0;i<2;i++)s+=t*uT;return s;}void main(){gl_FragColor=vec4(flow(uT,2.)+flow(uT,3.));}";
+      for (const inlineSingleUse of [false, true]) {
+        const out = minify(src, { inlineSingleUse });
+        expect(out).not.toContain("t=uT");
+        expect(out).toContain("flow(uT,2.)+flow(uT,3.)");
+      }
+    });
+    it("substitutes when only the parameter itself carries the global's name", () => {
+      const src = "uniform float uT;float flow(float uT){float s=0.;for(int i=0;i<2;i++)s+=uT;return s;}void main(){gl_FragColor=vec4(flow(uT));}";
+      expect(minify(src, { inlineSingleUse: true })).toBe(
+        "uniform float uT;float flow(){float s=0.;for(int i=0;i<2;i++)s+=uT;return s;}void main(){gl_FragColor=vec4(flow());}",
+      );
+    });
+  });
+});
+
+// The goldens run upstream's flags only. Run every command again with the port flags on, so the
+// additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite.
+describe("port flags on the upstream corpus", () => {
+  const portFlags: Partial<Options> = { expandMacros: true, foldBuiltins: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
+  for (const argv of loadCommands()) {
+    const { options, filenames } = Minifier.parseOptionsWithFiles(argv);
+    it(filenames.join(" "), () => {
+      const files = filenames.map((f): [string, string] => [f, fs.readFileSync(path.join(repoRoot, f), "utf8")]);
+      expect(() => new Minifier({ ...options, ...portFlags }, files)).not.toThrow();
+    });
+  }
 });

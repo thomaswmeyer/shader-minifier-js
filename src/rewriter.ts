@@ -11,7 +11,7 @@ import { Analyzer, Effects, IdentKind, VarVisitor, type FuncInfo, type VarUse } 
 import * as Builtin from "./builtin.js";
 import { float32Literal, foldBuiltinCall } from "./fold-builtins.js";
 import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining.js";
-import { renameField, trace, type Options } from "./options.js";
+import { renameField, trace, type Options, type Stage } from "./options.js";
 import * as Printer from "./printer.js";
 
 const locToS = (loc: Location): string => `${loc.line}:${loc.col}`;
@@ -1033,7 +1033,7 @@ class RewriterImpl {
         const declElt1 = compatibleDeclElt;
         trace(this.options, `${locToS(declElt2.name.loc)}: eliminating local variable '${declElt2.name}' by reusing existing local variable '${declElt1.name}'`);
         for (const v of new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2]))) { // Rename all uses of var2 to use var1 instead.
-          if (v.name === declElt2.name.name) v.rename(declElt1.name.name);
+          if (v.name === declElt2.name.name) { v.rename(declElt1.name.name); v.declaration = declElt1.name.declaration; }
         }
         if (declElt2.init !== null) return [ExprStmt(OpCall("=", [Var(declElt1.name), declElt2.init]))];
         return [];
@@ -1456,7 +1456,9 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   // now that the functions were inlined, we can remove them
   code = code.filter((t) => !(t.kind === "Function" && t.funcType.fName.toBeInlined && !t.funcType.fName.name.startsWith("i_")));
 
+  new Analyzer(options).checkScopes(code); // before argument inlining's resolve() hides a capture
   code = options.noInlining ? code : new ArgumentInlining(options).apply(didInline, code);
+  new Analyzer(options).checkScopes(code);
 
   if (passCount > 20) {
     trace(options, "! possible unstable loop in change detection. stopping analysis.");
@@ -1514,20 +1516,40 @@ export function processPragmas(options: Options, li: TopLevel[]): TopLevel[] {
 // --drop-default-precision (port addition). GLSL ES defaults: vertex highp float and int,
 // fragment mediump int (no float default), samplers lowp in both. A precision statement
 // restating the default is a no-op, unless an earlier one for the same type overrode it.
-// A shader that writes gl_Position or gl_PointSize is a vertex shader.
+// The stage is --stage, else the file extension (api.ts), else what the code proves; a shader
+// that proves neither (a transform-feedback vertex shader that never writes gl_Position, say)
+// only loses the sampler statements, which are the default in both stages.
 const lowpSamplers = ["sampler2D", "sampler3D", "samplerCube", "samplerCubeShadow", "sampler2DShadow", "sampler2DArray", "sampler2DArrayShadow",
   "isampler2D", "isampler3D", "isamplerCube", "isampler2DArray", "usampler2D", "usampler3D", "usamplerCube", "usampler2DArray"];
-export function dropDefaultPrecision(options: Options, code: TopLevel[]): TopLevel[] {
-  if (options.hlsl) return code;
+const vertexOnlyBuiltins = new Set(["gl_Position", "gl_PointSize", "gl_VertexID", "gl_InstanceID"]);
+const fragmentOnlyBuiltins = new Set(["gl_FragCoord", "gl_FrontFacing", "gl_PointCoord", "gl_FragColor", "gl_FragData", "gl_FragDepth"]);
+
+/** The stage the code proves by using a builtin only one stage has, or by `discard`; null when it proves neither or both. */
+export function detectStage(options: Options, code: readonly TopLevel[]): Stage | null {
   let vertex = false;
-  const spotStage = (_env: Ast.MapEnv, e: Expr): Expr => {
-    if (e.kind === "Var" && (e.ident.name === "gl_Position" || e.ident.name === "gl_PointSize")) vertex = true;
+  let fragment = false;
+  const spotExpr = (_env: Ast.MapEnv, e: Expr): Expr => {
+    if (e.kind === "Var") {
+      if (vertexOnlyBuiltins.has(e.ident.name)) vertex = true;
+      else if (fragmentOnlyBuiltins.has(e.ident.name)) fragment = true;
+    }
     return e;
   };
-  Ast.visitor(options, spotStage).iterTopLevel(code);
+  const spotStmt = (_env: Ast.MapEnv, s: Stmt): Stmt => {
+    if (s.kind === "Jump" && s.keyword === "discard") fragment = true;
+    return s;
+  };
+  Ast.visitor(options, spotExpr, spotStmt).iterTopLevel(code);
+  if (vertex === fragment) return null;
+  return vertex ? "vertex" : "fragment";
+}
+
+export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: Stage | null = null): TopLevel[] {
+  if (options.hlsl) return code;
+  stage = options.stage ?? stage ?? detectStage(options, code);
   const defaults = new Map<string, string>(lowpSamplers.map((s) => [s, "lowp"]));
-  if (vertex) { defaults.set("float", "highp"); defaults.set("int", "highp"); }
-  else defaults.set("int", "mediump");
+  if (stage === "vertex") { defaults.set("float", "highp"); defaults.set("int", "highp"); }
+  else if (stage === "fragment") defaults.set("int", "mediump");
   const seen = new Set<string>();
   return code.filter((tl) => {
     if (tl.kind !== "Precision" || tl.ty.name.kind !== "TypeName") return true;
@@ -1535,17 +1557,18 @@ export function dropDefaultPrecision(options: Options, code: TopLevel[]): TopLev
     const prec = tl.ty.typeQ.find((q) => q === "lowp" || q === "mediump" || q === "highp");
     const drop = !seen.has(tyName) && prec !== undefined && defaults.get(tyName) === prec;
     seen.add(tyName);
-    if (drop) trace(options, `dropping 'precision ${prec} ${tyName};': the ${vertex ? "vertex" : "fragment"} stage's default`);
+    if (drop) trace(options, `dropping 'precision ${prec} ${tyName};': the default of the ${stage ?? "unknown"} stage`);
     return !drop;
   });
 }
 
-export function simplify(options: Options, li: TopLevel[]): TopLevel[] {
+/** `fileStage` is the stage the file name implies, if any; `--stage` overrides it. */
+export function simplify(options: Options, li: TopLevel[], fileStage: Stage | null = null): TopLevel[] {
   let code = processPragmas(options, li);
   code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code);
   code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code);
   let out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
-  if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out);
+  if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out, fileStage);
   if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
   return out;
 }

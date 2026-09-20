@@ -15,6 +15,15 @@ const outputFormats: readonly OutputFormat[] = ["text", "indented", "c-variables
 
 export type FieldSet = "rgba" | "xyzw" | "stpq";
 
+export type Stage = "vertex" | "fragment";
+
+/** The stage a file name implies: `.vert`/`.vs` or `.frag`/`.fs`; null for anything else. */
+export function stageOfFilename(filename: string): Stage | null {
+  if (/\.(vert|vs)$/i.test(filename)) return "vertex";
+  if (/\.(frag|fs)$/i.test(filename)) return "fragment";
+  return null;
+}
+
 export interface Options {
   version: boolean;
   outputName: string;
@@ -46,6 +55,8 @@ export interface Options {
   foldBuiltins: boolean;
   /** Drop precision statements that restate the stage's default (vertex: highp float/int; fragment: mediump int; samplers: lowp). */
   dropDefaultPrecision: boolean;
+  /** The shader stage, for dropDefaultPrecision. null: from the file extension, else from the code, else unknown (samplers only). */
+  stage: Stage | null;
   /** Inline a never-written global used once, and substitute an always-identical global argument into a function body when that is not longer. */
   inlineSingleUse: boolean;
 }
@@ -78,6 +89,7 @@ export function defaultOptions(): Options {
     expandMacros: false,
     foldBuiltins: false,
     dropDefaultPrecision: false,
+    stage: null,
     inlineSingleUse: false,
   };
 }
@@ -117,6 +129,7 @@ const usage: [string, string][] = [
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
   ["--fold-builtins", "Evaluate builtin calls on literals at float32 precision when shorter (port addition)"],
   ["--drop-default-precision", "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader (port addition)"],
+  ["--stage <stage>", "The shader stage for --drop-default-precision: 'vertex' or 'fragment'. Default: from the file extension, else from the code (port addition)"],
   ["--inline-single-use", "Inline a never-written global used once, and substitute a global passed as an always-identical argument when that is not longer (port addition)"],
   ["--version", "Display the version and exit"],
   ["<filenames>...", "List of files to minify"],
@@ -179,6 +192,12 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--expand-macros": options.expandMacros = true; break;
       case "--fold-builtins": options.foldBuiltins = true; break;
       case "--drop-default-precision": options.dropDefaultPrecision = true; break;
+      case "--stage": {
+        const s = next(arg, i++).toLowerCase();
+        if (s !== "vertex" && s !== "fragment") throw new ArgumentError(`Unrecognized stage '${s}': expected 'vertex' or 'fragment'\n${flagsHelp()}`);
+        options.stage = s;
+        break;
+      }
       case "--inline-single-use": options.inlineSingleUse = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
       default:

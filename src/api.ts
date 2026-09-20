@@ -25,7 +25,7 @@ export class Minifier {
     const parseAndRewrite = ([filename, content]: InputFile): Shader => {
       const shader = runParser(options, filename, content);
       const code = shader.reorderFunctions ? reorderFunctions(options, shader.code) : shader.code;
-      return { ...shader, code: simplify(options, code) };
+      return { ...shader, code: simplify(options, code, Options_.stageOfFilename(filename)) };
     };
 
     this.shaders = files.map(parseAndRewrite);

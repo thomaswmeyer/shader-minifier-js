@@ -204,10 +204,15 @@ says so. Every site is ported deliberately:
 8. *`--drop-default-precision`.* GLSL ES stage defaults (ES 3.00 §4.5.4):
    vertex `highp float`/`highp int`, fragment `mediump int` and no float
    default, samplers `lowp` in both. A statement restating the default is a
-   no-op; ANGLE drops it, upstream keeps it. The pass runs after cleanup,
-   reads the stage off `gl_Position`/`gl_PointSize`, and keeps a statement
-   that follows an earlier one for the same type, since that one restores
-   the default. Default off.
+   no-op; ANGLE drops it, upstream keeps it. The pass runs after cleanup and
+   keeps a statement that follows an earlier one for the same type, since
+   that one restores the default. The stage is `--stage`, else the file
+   extension (`api.ts` passes it to `simplify`), else what the code proves:
+   a builtin only one stage has (`gl_Position`, `gl_VertexID`, ...;
+   `gl_FragCoord`, `gl_FragColor`, ...) or `discard`. Absence of
+   `gl_Position` is not evidence (transform-feedback vertex shaders), so a
+   shader that proves neither, or both, only loses the sampler statements,
+   which are the default in both stages. Default off.
 9. *`--inline-single-use`.* Two cases upstream handles only under
    `--aggressive-inlining`: a never-written global with a pure const init
    referenced exactly once outside loops is inlined into that use; and a
@@ -216,7 +221,25 @@ says so. Every site is ported deliberately:
    `uses × name length` is no more than the declaration plus one letter per
    use and the body never writes the parameter (a uniform is not an l-value).
    The substitution can leave a single-expression function, which then
-   inlines in turn. Default off.
+   inlines in turn. Both rules apply the function inliner's rule [A]: a
+   global is not inlined where a local or parameter at the use has the name
+   of something its init reads, and a global is not substituted into a body
+   that binds its name to another parameter or a local at a use of the
+   parameter (the parameter itself may carry the name: dropping it uncovers
+   the global). Default off.
+10. *Scope check.* Uses are resolved to declarations by name on every pass,
+    so a rewrite that copies an expression into a scope where one of its
+    names is shadowed (a capture) is rebound and hidden by the next
+    `resolve`. `Analyzer.checkScopes` runs after each pass of
+    `iterateSimplifyAndInline`, before that resolve, and throws if a use's
+    declaration is not the one its name finds in scope. Var reuse
+    (`reuseExistingVarDecl`) updates the declaration of the uses it renames
+    so the check holds. Upstream has no such check; running it over the
+    corpus found nothing, and it found one capture in upstream's argument
+    inlining: with `float flow(float t,float uT)` always called as
+    `flow(uT,...)`, the local `float t=uT;` it declares at the top of the
+    body reads the parameter `uT`, not the global. `findInlinings` now skips
+    an argument whose expression names another parameter of the function.
 
 ### 5.3 Ordering (F# Map/Set are sorted, JS Map is insertion-ordered)
 - `env.funOverloads |> Seq.tryFind` iterates by sorted key: overload reuse

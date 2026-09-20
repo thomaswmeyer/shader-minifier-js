@@ -18,6 +18,15 @@ function isTrivialExpr(e: Expr): boolean { // "trivial" means "small enough to i
   }
 }
 
+// Whether `name` is bound to a local or parameter (other than `except`) in the visitor's scope.
+// An expression copied into that scope would have `name` captured by it.
+function isShadowedAt(env: Ast.MapEnv, name: string, except: VarDecl | null = null): boolean {
+  const found = env.vars.get(name);
+  if (found === undefined) return false;
+  const vd = found[1].name.varDecl;
+  return vd !== null && vd !== except && vd.scope !== "Global";
+}
+
 // Return the list of variables used in the statements, with the number of references.
 function countReferences(options: Options, stmtList: readonly Stmt[]): Map<VarDecl, number> {
   const counts = new Map<VarDecl, number>();
@@ -200,6 +209,8 @@ export class VariableInlining {
   // --inline-single-use (port addition): a never-written global with a pure const init,
   // referenced exactly once outside any loop, is inlined into that use. Upstream inlines
   // globals only when the init is a literal, or anything const under aggressive inlining.
+  // The init must not be captured at the use: a local or parameter there with the name of
+  // something the init reads would take it over (the function inliner's rule [A]).
   private markSingleUseGlobals(li: readonly TopLevel[]): void {
     const allStmts: Stmt[] = [];
     const outsideLoops: Expr[] = [];
@@ -215,6 +226,8 @@ export class VariableInlining {
     }
     const allReferences = this.countReferences(allStmts);
     const outsideLoopReferences = this.countReferences(outsideLoops.map((e) => Ast.ExprStmt(e)));
+
+    const candidates = new Map<VarDecl, { def: Ast.DeclElt; initIdents: Ident[] }>();
     for (const tl of li) {
       if (tl.kind !== "TLDecl") continue;
       const [ty, defs] = tl.decl;
@@ -224,11 +237,29 @@ export class VariableInlining {
         if (varDecl === null) throw new Error(`unresolved declaration: ${Printer.debugDecl(def)}`);
         if (def.init === null || def.sizes.length > 0 || def.name.toBeInlined || def.name.doNotInline || varDecl.isEverWrittenAfterDecl) continue;
         if ((allReferences.get(varDecl) ?? 0) !== 1 || (outsideLoopReferences.get(varDecl) ?? 0) !== 1) continue;
-        const isConst = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init)).every((i) => this.isEffectivelyConst(i));
-        if (!isConst || !Effects.isPure(def.init)) continue;
-        trace(this.options, `${locToS(def.name.loc)}: inlining global variable '${Printer.debugDecl(def)}' because it's const and used only once`);
-        def.name.toBeInlined = true;
+        const initIdents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init));
+        if (!initIdents.every((i) => this.isEffectivelyConst(i)) || !Effects.isPure(def.init)) continue;
+        candidates.set(varDecl, { def, initIdents });
       }
+    }
+    if (candidates.size === 0) return;
+
+    const captured = new Set<VarDecl>();
+    const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
+      const r = resolvedVariableUse(e);
+      const candidate = r === null ? undefined : candidates.get(r[1]);
+      if (candidate !== undefined && candidate.initIdents.some((i) => isShadowedAt(env, i.name))) captured.add(r![1]);
+      return e;
+    };
+    Ast.visitor(this.options, visitUse).iterTopLevel(li);
+
+    for (const [varDecl, { def }] of candidates) {
+      if (captured.has(varDecl)) {
+        trace(this.options, `${locToS(def.name.loc)}: not inlining global variable '${Printer.debugDecl(def)}': a name in its value is shadowed at its use`);
+        continue;
+      }
+      trace(this.options, `${locToS(def.name.loc)}: inlining global variable '${Printer.debugDecl(def)}' because it's const and used only once`);
+      def.name.toBeInlined = true;
     }
   }
 
@@ -405,6 +436,15 @@ export class ArgumentInlining {
     }
   }
 
+  // The inlined expression becomes the init of a local declared at the top of the body, where a
+  // parameter of the same name as a global it reads would capture it (not in upstream, which
+  // declares `float t=uT;` in a body whose other parameter is `uT`). The parameter being inlined
+  // may carry the name: it is removed.
+  private namesAnotherParameter(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt): boolean {
+    const params = Ast.funParameters(funcInfo.funcType).map(([, d]) => d.name.name).filter((n) => n !== argDecl.name.name);
+    return new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr)).some((i) => params.includes(i.name));
+  }
+
   // Find when functions are always called with the same trivial expr, that can be inlined into the function body.
   private findInlinings(code: readonly TopLevel[]): Inlining[] {
     const argInlinings: Inlining[] = [];
@@ -421,7 +461,7 @@ export class ArgumentInlining {
           const varDecl = argDecl.name.varDecl;
           if (varDecl !== null && !Ast.typeIsOutOrInout(varDecl.ty)) { // Only inline 'in' parameters.
             const argExprs = distinctExprs(callSites.map((c) => c.argExprs[argIndex]));
-            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0])) { // The argExpr must always be the same at all call sites.
+            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && !this.namesAnotherParameter(argExprs[0], funcInfo, argDecl)) { // The argExpr must always be the same at all call sites.
               const argExpr = argExprs[0];
               trace(this.options, `${locToS(varDecl.decl.name.loc)}: inlining expression '${Printer.exprToS(argExpr)}' into argument '${Printer.debugDecl(varDecl.decl)}' of '${Printer.debugFunc(funcInfo.funcType)}'`);
               argInlinings.unshift({ func: funcInfo.func, argIndex, varDecl, argExpr });
@@ -465,13 +505,31 @@ export class ArgumentInlining {
       // --inline-single-use (port addition): an argument that reads a never-written global
       // is substituted into the body instead of declared as a local, when n uses of its name
       // cost no more than the declaration plus n one-letter uses. The parameter must never
-      // be written: the local is a writable copy, the global is not.
+      // be written: the local is a writable copy, the global is not. And the global's name
+      // must not be captured by another parameter or a local at any use of the parameter.
       if (this.options.inlineSingleUse) {
         const uses = countReferences(this.options, [body]);
+        const captured = new Set<VarDecl>();
+        const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
+          const r = resolvedVariableUse(e);
+          if (r === null) return e;
+          for (const inl of argInlinings) {
+            if (inl.func !== f || inl.varDecl !== r[1]) continue;
+            const g = resolvedVariableUse(inl.argExpr);
+            // The parameter itself may carry the global's name: dropping it uncovers the global.
+            if (g !== null && isShadowedAt(env, g[0].name, inl.varDecl)) captured.add(inl.varDecl);
+          }
+          return e;
+        };
+        Ast.visitor(this.options, visitUse).iterTopLevel([f]);
         for (const inl of argInlinings) {
           if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl) continue;
           const r = resolvedVariableUse(inl.argExpr);
           if (r === null) continue;
+          if (captured.has(inl.varDecl)) {
+            trace(this.options, `${locToS(inl.varDecl.decl.name.loc)}: not substituting '${r[0].name}' for argument '${Printer.debugDecl(inl.varDecl.decl)}': the name is shadowed in the body`);
+            continue;
+          }
           const n = uses.get(inl.varDecl) ?? 0;
           const nameLen = r[0].name.length;
           const tyName = inl.varDecl.ty.name;
