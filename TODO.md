@@ -55,6 +55,24 @@ plainly before anyone starts:
   is anything left on the table after both, or whether the win is in how the
   kernels are generated rather than in rewriting them afterwards.
 
+**What already exists** (npm, checked 2026-09-20; neither evaluated here):
+
+- `miniray` 0.3.1, a WGSL minifier shipped as a WebAssembly build
+  (github.com/HugoDaniel/miniray), last published 2025-12-28.
+- `nagami-rs` 2026.10.2, which shrinks WGSL through Naga's IR optimisation
+  passes (github.com/ekarad1um/Nagami), published 2026-09-19.
+- `vite-plugin-glsl` and `rsbuild-plugin-glsl` both claim to minify WGSL,
+  which for a bundler plugin usually means stripping comments and
+  whitespace rather than renaming.
+
+Both dedicated tools are young and low-profile, so there is room. But note
+what they are: *size* minifiers, the same job this project does for GLSL.
+Neither addresses kernel runtime, which is the thing that would matter for
+tf.js, and the runtime job is Tint's inside the browser. Before building
+anything, the first move is to run tf.js's kernels through `nagami-rs` and
+see what it already achieves, since it is the closest existing thing and
+riding Naga's IR is a cheaper base than a new front end.
+
 What to measure first, before writing any parser:
 
 1. Capture the WGSL tf.js actually runs. The same trick the engine dumpers
