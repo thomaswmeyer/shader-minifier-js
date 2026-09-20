@@ -244,6 +244,7 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
 | gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
 | three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
+| Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 59,928 | 3.6% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
 Shaders ship compressed, so the same corpora compressed as one bundle each
@@ -254,6 +255,7 @@ Shaders ship compressed, so the same corpora compressed as one bundle each
 | tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,132 | 3.4% |
 | gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
 | three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
+| Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
 | upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
 
 The second table is the one to believe, and it says two things. Minifying is

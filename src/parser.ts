@@ -495,11 +495,22 @@ class ParserImpl {
   }
 
   // GLSL, eg. "uniform Transform { ... };"
+  // `uniform Transform { mat4 m; };` introduces its members as globals, and is a TypeDecl.
+  // `uniform Light0 { vec4 d; } light0;` declares an instance instead, and is a declaration whose
+  // type is written out as the block: Babylon.js emits one per light. The application looks the
+  // block up by its own name (`Light0`), which lives in the block's opaque prefix, and its members
+  // by `Light0.d`; the instance name is the shader's own and is renamed like any other global.
   private interfaceBlock(): Ast.TopLevel {
     const ty = this.specifiedType();
-    const ret = Ast.TypeDecl(this.blockSpecifier(Printer.typeToS(ty)));
+    const block = this.blockSpecifier(Printer.typeToS(ty));
+    const instance = this.opt(() => this.ident());
+    if (instance === null) {
+      this.ch(";");
+      return Ast.TypeDecl(block);
+    }
+    const sizes = this.brackets();
     this.ch(";");
-    return ret;
+    return Ast.TLDecl([Ast.makeType(Ast.TypeBlock(block), [], []), [Ast.makeDecl(instance, sizes, null)]]);
   }
 
   // ---- statements ---------------------------------------------------------
@@ -770,6 +781,10 @@ function pinExternalStructFields(shader: Ast.Shader): void {
     // `uniform Blk { ... };` with no instance name: the members are external globals, so the
     // structs they use are part of the interface too.
     if (tl.kind === "TypeDecl" && tl.block.blockType.kind === "InterfaceBlock") pending.push(tl.block);
+    // `uniform Blk { ... } inst;`: the qualifier is inside the block's prefix rather than on the
+    // declaration, so typeIsExternal cannot see it, but the application still looks the members up
+    // as `Blk.member`.
+    if (tl.kind === "TLDecl" && tl.decl[0].name.kind === "TypeBlock" && tl.decl[0].name.block.blockType.kind === "InterfaceBlock") pending.push(tl.decl[0].name.block);
   }
   const done = new Set<Ast.StructOrInterfaceBlock>();
   const fieldNames = new Set<string>();

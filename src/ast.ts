@@ -133,7 +133,7 @@ export const isVarNamed = (e: Expr, name: string): boolean => e.kind === "Var" &
 
 export type TypeSpec =
   | { kind: "TypeName"; ident: Ident }
-  | { kind: "TypeBlock"; block: StructOrInterfaceBlock }; // anonymous struct only. TODO: support interface blocks with an instance name
+  | { kind: "TypeBlock"; block: StructOrInterfaceBlock }; // an anonymous struct, or an interface block with an instance name
 
 export const TypeName = (ident: Ident): TypeSpec => ({ kind: "TypeName", ident });
 export const TypeBlock = (block: StructOrInterfaceBlock): TypeSpec => ({ kind: "TypeBlock", block });

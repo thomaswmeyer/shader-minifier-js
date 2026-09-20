@@ -197,7 +197,11 @@ class RenamerVisitor {
         case "Field":
           if (context.block.blockType.kind === "InterfaceBlock") {
             if (context.hasInstanceName) {
-              return env.newName("VarFunStruct", env, decl.name); // we have no tests of this and it doesn't work
+              // `uniform Light0 { vec4 d; } light0;` (Babylon.js emits one per light). The name
+              // the application looks up is `Light0.d`, so the member is external whether or not
+              // it is reached through the instance. Renaming it also renamed the declaration
+              // without renaming `light0.d`, which does not compile.
+              return env.dontRename(decl.name);
             } else {
               return processExternal();
             }
@@ -240,7 +244,10 @@ class RenamerVisitor {
       // This isn't actually recursive with renDecl, because "Embedded struct definitions are not allowed".
       return renList(env, (e, m) => this.renStructMember(stru, true, e, m), stru.members);
     }
-    throw new Error("Unsupported: interface block declaration not at top level");
+    // `uniform Light0 { ... } light0;`. The block's own name is part of its opaque prefix and is
+    // never touched; its members are what the application looks up as `Light0.member`, so they are
+    // renamed as the fields of a block that has an instance name.
+    return renList(env, (e, m) => this.renStructMember(stru, true, e, m), stru.members);
   }
 
   private renStmt(env: Env, stmt: Stmt): Env {

@@ -59,6 +59,7 @@
     "pixels": "vitest run test/pixels.test.ts test/corpus.test.ts",
     "corpus:gl-transitions": "tsx scripts/fetch-gl-transitions.ts",
     "corpus:three": "tsx scripts/dump-three-shaders.ts",
+    "corpus:babylon": "tsx scripts/dump-babylon-shaders.ts",
     "metrics": "tsx scripts/corpus-metrics.ts"
   },
   "devDependencies": {

@@ -106,6 +106,23 @@
     };
 
     const setUniforms = (program) => {
+      // Uniform blocks (Babylon.js puts every light in one) need a buffer bound or the draw is an
+      // INVALID_OPERATION. The contents are hashed from the block's name like everything else, so
+      // the original and the minified shader see the same bytes.
+      if (cfg.version === 2) {
+        const blocks = gl.getProgramParameter(program, gl.ACTIVE_UNIFORM_BLOCKS);
+        for (let i = 0; i < blocks; i++) {
+          const name = gl.getActiveUniformBlockName(program, i);
+          const bytes = gl.getActiveUniformBlockParameter(program, i, gl.UNIFORM_BLOCK_DATA_SIZE);
+          const data = new Float32Array(Math.max(1, bytes >> 2));
+          for (let j = 0; j < data.length; j++) data[j] = floatFor(name, j);
+          const buf = gl.createBuffer();
+          gl.bindBuffer(gl.UNIFORM_BUFFER, buf);
+          gl.bufferData(gl.UNIFORM_BUFFER, data, gl.STATIC_DRAW);
+          gl.uniformBlockBinding(program, i, i);
+          gl.bindBufferBase(gl.UNIFORM_BUFFER, i, buf);
+        }
+      }
       const n = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
       const floatTypes = { [gl.FLOAT]: 1, [gl.FLOAT_VEC2]: 2, [gl.FLOAT_VEC3]: 3, [gl.FLOAT_VEC4]: 4 };
       const intTypes = { [gl.INT]: 1, [gl.INT_VEC2]: 2, [gl.INT_VEC3]: 3, [gl.INT_VEC4]: 4, [gl.BOOL]: 1, [gl.BOOL_VEC2]: 2, [gl.BOOL_VEC3]: 3, [gl.BOOL_VEC4]: 4 };

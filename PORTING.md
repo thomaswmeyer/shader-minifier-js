@@ -439,7 +439,28 @@ says so. Every site is ported deliberately:
     varyings it needs. `test/corpus.test.ts` renders every pair with the flag
     on and compares it against the unminified pair.
 
-27. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+27. *Interface blocks with an instance name.* `uniform Light0 { vec4 d; }
+    light0;` was a parse error: the port only knew the form without an
+    instance name, which declares its members as globals. Babylon.js emits
+    one block per light, so its whole corpus was refused. Such a block is
+    now a declaration whose type is written out, the renamer renames the
+    instance like any other global, and the members keep their names because
+    the application looks them up as `Light0.d`. Renaming them was also
+    broken: the declaration changed but `light0.d` did not, which does not
+    compile.
+
+28. *Variable reuse renamed a chain out from under its uses.* An `Ident` is
+    shared by every location that names it, which is how the renamer works.
+    Reusing a dead local for a later one built the replacement assignment
+    around the *declaration's own* `Ident`, so a use position and a
+    declaration shared one object; a second reuse of the same variable then
+    renamed the declaration while the statements reading it kept the old
+    name. Babylon's `hemisphereImportanceSampleDggxAnisotropic` came out
+    naming `alpha2`, which it never declares. The assignment now gets a copy
+    of the name, and `Analyzer.checkScopes` gained a rule for finished code:
+    every use must have a declaration in scope.
+
+29. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -475,7 +496,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 27, `test/port-flags.test.ts`).
+  (item 29, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

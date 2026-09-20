@@ -38,6 +38,7 @@ describe("Analyzer.checkScopes", () => {
     const code = parse("uniform float a;void main(){gl_FragColor=vec4(a);}");
     expect(() => new Analyzer(options).checkScopes(code)).not.toThrow();
     const reordered = [code[1], code[0]];
-    expect(() => new Analyzer(options).checkScopes(reordered)).toThrow(/moved 'a' at 1:47 above the global declared at 1:15/);
+    expect(() => new Analyzer(options).checkScopes(reordered)).not.toThrow(); // only checked on finished code
+    expect(() => new Analyzer(options).checkScopes(reordered, true)).toThrow(/moved 'a' at 1:47 with no declaration in scope/);
   });
 });

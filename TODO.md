@@ -82,6 +82,16 @@ now decides.
   analysed alone, so a struct declared in one file is unknown in the next.
   Sharing declarations across files in `Minifier` would fix `--webgl` and the
   swizzle-like field handling for that case.
+- **A declaration lost under three flags at once.** Five shaders of the
+  upstream corpus (`many_variables`, `ed-209`, `slisesix`, `endeavour`,
+  `audio-flight-v2`) emit a use with no declaration when
+  `--no-remove-unused`, `--aggressive-inlining` and `--move-declarations` are
+  combined. The bug predates the port: it reproduces at the first commit, and
+  was invisible until the scope check learned to look for a missing
+  declaration on finished code. The minifier now fails instead of emitting
+  the broken shader, and `test/port-flags.test.ts` asserts that failure so
+  the list shrinks when it is fixed. Minimal reproduction has not been found;
+  it seems to need the scale of `many_variables.frag`.
 - **A callee pulled ahead of an `#ifdef` region** now follows every global
   declaration (`reorderFunctions`), which is safe unless the global's own
   initializer depends on a macro defined inside the region.
@@ -123,10 +133,14 @@ fragment-only comparison already is the real pair.
 
 ## 5. Test cases to add
 
-- Babylon.js and PlayCanvas (below) are the remaining corpus gap; the
-  three.js pairs are now linked *and* rendered (section 3).
-- Babylon.js (Apache-2.0) and PlayCanvas (MIT) programs, dumped the way the
-  three.js ones are; they add uniform blocks and different macro styles.
+- Babylon.js is vendored (`npm run corpus:babylon`); PlayCanvas is the
+  remaining corpus gap. The three.js and Babylon pairs are linked *and*
+  rendered (section 3).
+- PlayCanvas (MIT) programs, dumped the way the three.js and Babylon ones
+  are. Babylon paid for itself immediately: it refused to parse at all
+  (interface blocks with an instance name, `PORTING.md` item 27) and then
+  exposed a variable-reuse bug that emitted a shader naming a variable it
+  never declares (item 28).
 - A shader whose defines are injected at runtime, once section 1 lands.
 - A multi-file run in the pixel test (`tests/real/mouton` is one).
 - More seeds where a shader's branches depend on textures rather than

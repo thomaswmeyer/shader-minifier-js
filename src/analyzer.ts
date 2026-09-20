@@ -369,7 +369,12 @@ export class Analyzer {
   // resolve() would silently rebind it by name, so only the pass that made the copy can tell.
   // Called by the rewriter after every pass. Uses of a name no declaration in scope binds
   // (builtins, verbatim code) are not checked.
-  checkScopes(topLevel: readonly TopLevel[]): void {
+  /**
+   * `final` adds the rule that every use must have a declaration in scope. That is only true of
+   * finished code: between passes the rewriter can leave an assignment to a variable whose
+   * declaration has already gone, and the next pass removes the statement.
+   */
+  checkScopes(topLevel: readonly TopLevel[], final = false): void {
     const check = (env: Ast.MapEnv, e: Expr): Expr => {
       const r = resolvedVariableUse(e);
       if (r === null) return e;
@@ -383,8 +388,12 @@ export class Analyzer {
       // a declaration to precede every use, and `found === undefined` here means nothing of that
       // name is in scope yet, so the capture check above cannot see it. This is the class of bug
       // PORTING.md item 18 had to be found by hand, since only the capture check existed.
-      if (found === undefined && vd.scope === "Global") {
-        throw new Error(`Internal error: a rewrite moved '${ident.name}' at ${at(ident.loc)} above the global declared at ${at(vd.decl.name.loc)}`);
+      if (found === undefined && final) {
+        // Nothing of that name is in scope. Either the use was moved above its declaration, or the
+        // declaration is gone and the use was left behind; variable reuse can do the second by
+        // renaming a chain of uses onto a name that a later reuse then renamed away.
+        const what = vd.scope === "Global" ? "moved" : "left";
+        throw new Error(`Internal error: a rewrite ${what} '${ident.name}' at ${at(ident.loc)} with no declaration in scope (it named the ${vd.scope.toLowerCase()} declared at ${at(vd.decl.name.loc)})`);
       }
       return e;
     };

@@ -6,6 +6,10 @@
 //   three.js (MIT): the programs three.js assembles for its materials, dumped from a real renderer
 //     by scripts/dump-three-shaders.ts. They put `#if` blocks inside argument lists, which the
 //     parser cannot represent, so they need --preprocess.
+//   Babylon.js (Apache-2.0): the same idea for a second engine, dumped by
+//     scripts/dump-babylon-shaders.ts. Babylon resolves its own conditionals before handing the
+//     shader to WebGL, so these need no --preprocess; they bring uniform blocks and a different
+//     macro style instead.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Options } from "../src/options.js";
@@ -55,19 +59,21 @@ export function glTransitions(): CorpusShader[] {
   }));
 }
 
-const threeDir = path.join(corpusDir, "three");
-
-export function threeShaders(): CorpusShader[] {
-  return list(threeDir, /\.(vert|frag)$/).map((file) => ({
+const engineShaders = (dir: string, options?: Partial<Options>): CorpusShader[] =>
+  list(path.join(corpusDir, dir), /\.(vert|frag)$/).map((file) => ({
     name: file,
-    source: fs.readFileSync(path.join(threeDir, file), "utf8"),
-    options: { preprocess: true },
+    source: fs.readFileSync(path.join(corpusDir, dir, file), "utf8"),
+    options,
   }));
-}
 
-/** The three.js programs, as vertex and fragment pairs. */
-export function threePrograms(): { name: string; vert: CorpusShader; frag: CorpusShader }[] {
-  const byName = new Map(threeShaders().map((s) => [s.name, s]));
+export const threeShaders = (): CorpusShader[] => engineShaders("three", { preprocess: true });
+export const babylonShaders = (): CorpusShader[] => engineShaders("babylon");
+
+export interface Program { name: string; vert: CorpusShader; frag: CorpusShader }
+
+/** An engine's shaders paired by name, which is how they are compiled and linked. */
+export function programs(shaders: CorpusShader[]): Program[] {
+  const byName = new Map(shaders.map((s) => [s.name, s]));
   const names = [...new Set([...byName.keys()].map((f) => f.replace(/\.(vert|frag)$/, "")))].sort();
   return names.flatMap((name) => {
     const vert = byName.get(name + ".vert"), frag = byName.get(name + ".frag");

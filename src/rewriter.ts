@@ -1096,7 +1096,16 @@ class RewriterImpl {
         for (const v of new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2]))) { // Rename all uses of var2 to use var1 instead.
           if (v.name === declElt2.name.name) { v.rename(declElt1.name.name); v.declaration = declElt1.name.declaration; }
         }
-        if (declElt2.init !== null) return [ExprStmt(OpCall("=", [Var(declElt1.name), declElt2.init]))];
+        if (declElt2.init !== null) {
+          // A *copy* of the name, not the declaration's own Ident. An Ident is shared by every
+          // location that refers to it, so putting the declaration's object in a use position
+          // makes a later rename of that use rename the declaration too: a chain of reuses then
+          // renames a variable out from under the statements that still read it, and the output
+          // names something it never declares.
+          const use = new Ident(declElt1.name.name, declElt2.name.loc);
+          use.declaration = declElt1.name.declaration;
+          return [ExprStmt(OpCall("=", [Var(use), declElt2.init]))];
+        }
         return [];
       };
       // For a decl sandwiched between others, we could consider moving the assignment into a comma-expr of the init of the next decl, but this adds parentheses.
@@ -1838,6 +1847,9 @@ export function simplify(options: Options, li: TopLevel[], fileStage: Stage | nu
   let out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
   if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out, fileStage);
   if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
+  // The finished shader: every use must now name a declaration that is in scope. A rewrite that
+  // leaves one behind emits a shader that does not compile, so failing here is the better outcome.
+  new Analyzer(options).checkScopes(out, true);
   return out;
 }
 
