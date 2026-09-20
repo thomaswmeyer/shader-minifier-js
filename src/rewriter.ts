@@ -223,7 +223,8 @@ class RewriterImpl {
       // we need to distinguish between " #define f (x)" and "#define f(x)"; the whitespace may be
       // a tab (three.js: `#define RE_Direct\t\t\tRE_Direct_Lambert`), which upstream glued to the name
       const spacePrefix = /^[ \t]/.test(value) ? " " : "";
-      return ["#define", name, spacePrefix + this.stripSpaces(value)];
+      const body = this.stripSpaces(value);
+      return ["#define", name, body === "" ? "" : spacePrefix + body];
     }
     return li.map((s) => this.stripSpaces(s));
   }

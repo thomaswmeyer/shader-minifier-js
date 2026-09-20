@@ -8,7 +8,7 @@
 
 #define SUN_COLOUR vec3(1.,.95,.85)
 
-#define TRIANGLE_NOISE 
+#define TRIANGLE_NOISE
 
 float height(vec2 p)
 {
