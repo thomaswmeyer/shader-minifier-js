@@ -257,9 +257,14 @@ export class VariableInlining {
     }
     if (candidates.size === 0) return;
 
+    // A use inside a function that something else calls may run many times, so a value that costs
+    // work does not move there. An entry point is not such a function: nothing in the file calls
+    // it, so its body runs once per invocation. That is a property of the call graph, not of
+    // --no-renaming-list, which names what the application calls and may also name a helper.
+    const called = new Set(new Analyzer(this.options).findFuncInfos(li).flatMap((n) => n.callSites.map((c) => c.prototype)));
     const usedInHelper = new Set<VarDecl>(); // the use is in a function that may itself run in a loop
     for (const tl of li) {
-      if (tl.kind !== "Function" || this.options.noRenamingList.includes(tl.funcType.fName.name)) continue;
+      if (tl.kind !== "Function" || !called.has(Ast.funPrototype(tl.funcType))) continue;
       const visitUse = (_env: Ast.MapEnv, e: Expr): Expr => {
         const r = resolvedVariableUse(e);
         if (r !== null && candidates.has(r[1])) usedInHelper.add(r[1]);
@@ -487,21 +492,21 @@ export class ArgumentInlining {
   // parameter of the same name as a global it reads would capture it (not in upstream, which
   // declares `float t=uT;` in a body whose other parameter is `uT`). The parameter being inlined
   // may carry the name: it is removed.
-  private namesAnotherParameter(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt): boolean {
-    const params = Ast.funParameters(funcInfo.funcType).map(([, d]) => d.name.name).filter((n) => n !== argDecl.name.name);
-    return new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr)).some((i) => params.includes(i.name));
-  }
-
-  // The argument moves into the function's body, so every global it reads must be declared
-  // before the function (not in upstream: three.js passes `uniform sampler2D envMap`, declared
-  // after `bilinearCubeUV(sampler2D envMap, ...)`, and the sampler parameter can only be replaced
-  // by the global itself).
-  private globalsDeclaredBefore(argExpr: Expr, func: TopLevel, code: readonly TopLevel[]): boolean {
-    const position = new Map<VarDecl, number>();
-    code.forEach((tl, i) => { if (tl.kind === "TLDecl") for (const e of tl.decl[1]) { const vd = e.name.varDecl; if (vd !== null) position.set(vd, i); } });
-    const at = code.indexOf(func);
-    return new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr))
-      .every((i) => i.varDecl === null || i.varDecl.scope !== "Global" || (position.get(i.varDecl) ?? -1) < at);
+  // Whether the argument expression can be substituted into the function's body, which it is
+  // about to become part of. Two things stop it, both about the names it reads once it is there:
+  //
+  //   another parameter of the same function would capture one of them;
+  //   a global it reads is declared after the function (not in upstream: three.js passes
+  //     `uniform sampler2D envMap`, declared after `bilinearCubeUV(sampler2D envMap, ...)`, and a
+  //     sampler parameter can only be replaced by the global itself).
+  //
+  // Both read the same list of identifiers, so it is gathered once. `globalPosition` is indexed
+  // once per findInlinings call rather than once per candidate.
+  private argumentCanMoveIntoBody(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt, funcIndex: number, globalPosition: Map<VarDecl, number>): boolean {
+    const params = new Set(Ast.funParameters(funcInfo.funcType).map(([, d]) => d.name.name).filter((n) => n !== argDecl.name.name));
+    const idents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr));
+    return idents.every((i) => !params.has(i.name)
+      && (i.varDecl === null || i.varDecl.scope !== "Global" || (globalPosition.get(i.varDecl) ?? -1) < funcIndex));
   }
 
   // Find when functions are always called with the same trivial expr, that can be inlined into the function body.
@@ -510,6 +515,8 @@ export class ArgumentInlining {
     new Analyzer(this.options).resolve(code);
     new Analyzer(this.options).markWrites(code);
     const funcInfos = new Analyzer(this.options).findFuncInfos(code);
+    const globalPosition = new Map<VarDecl, number>();
+    code.forEach((tl, i) => { if (tl.kind === "TLDecl") for (const e of tl.decl[1]) { const vd = e.name.varDecl; if (vd !== null) globalPosition.set(vd, i); } });
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
       // If the function is overloaded, removing a parameter could conflict with another overload.
@@ -520,7 +527,7 @@ export class ArgumentInlining {
           const varDecl = argDecl.name.varDecl;
           if (varDecl !== null && !Ast.typeIsOutOrInout(varDecl.ty)) { // Only inline 'in' parameters.
             const argExprs = distinctExprs(callSites.map((c) => c.argExprs[argIndex]));
-            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && !this.namesAnotherParameter(argExprs[0], funcInfo, argDecl) && this.globalsDeclaredBefore(argExprs[0], funcInfo.func, code)) { // The argExpr must always be the same at all call sites.
+            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && this.argumentCanMoveIntoBody(argExprs[0], funcInfo, argDecl, code.indexOf(funcInfo.func), globalPosition)) { // The argExpr must always be the same at all call sites.
               const argExpr = argExprs[0];
               trace(this.options, `${locToS(varDecl.decl.name.loc)}: inlining expression '${Printer.exprToS(argExpr)}' into argument '${Printer.debugDecl(varDecl.decl)}' of '${Printer.debugFunc(funcInfo.funcType)}'`);
               argInlinings.unshift({ func: funcInfo.func, argIndex, varDecl, argExpr });

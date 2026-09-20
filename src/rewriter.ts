@@ -763,7 +763,11 @@ class RewriterImpl {
     const declarations: [Type, DeclElt[]][] = [];
     const findDecl = (ty: Type): [Type, DeclElt[]] | undefined => declarations.find(([t]) => typeEquals(t, ty));
     const skippedDeclarations: Stmt[] = [];
+    // The names used by the statements before the one being looked at, accumulated as we go
+    // rather than rescanned from the top of the block for every declaration that could move.
+    const usedBefore = new Set<string>();
     for (const [index, stmt] of stmts.entries()) {
+      if (index > 0) for (const i of new Analyzer(this.options).identUsesInStmt(IdentKind.Var, stmts[index - 1])) usedBefore.add(i.name);
       if (stmt.kind === "Decl" && !stmt.decl[0].typeQ.includes("const")) {
         const [ty, li] = stmt.decl;
         const existing = findDecl(ty);
@@ -774,10 +778,9 @@ class RewriterImpl {
           // Moving a declaration that shadows a variable used in its initialization can be incorrect. See #458.
           // Nor can it move above an earlier use of its name in the block, which refers to an outer variable
           // (not in upstream: `vec2 t` global, `... t.xy ...; float t=0.;` in a block).
-          const usedBefore = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block(stmts.slice(0, index)));
           const shadowingPreventsTheMove = li.some((d) =>
             (d.init !== null && new Analyzer(this.options).identUsesInStmt(IdentKind.Var, ExprStmt(d.init)).some((i) => i.name === d.name.name)) ||
-            usedBefore.some((i) => i.name === d.name.name));
+            usedBefore.has(d.name.name));
           if (shadowingPreventsTheMove) {
             skippedDeclarations.push(stmt);
           } else {
