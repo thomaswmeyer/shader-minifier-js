@@ -115,6 +115,22 @@ describe("--inline-single-use", () => {
     expect(minify(src, { inlineSingleUse: true })).toContain("float t=uSomeLongName;");
   });
 
+  describe("does not move a call into a helper a loop may call", () => {
+    const heavy = "uniform float u;const mat2 M=mat2(cos(u),sin(u),-sin(u),cos(u));";
+    it("keeps a global whose value calls a function when its use is in a helper", () => {
+      const src = heavy + "vec2 rot(vec2 p){return M*p;}void main(){vec2 p=gl_FragCoord.xy;for(int i=0;i<8;i++)p=rot(p);gl_FragColor=vec4(p,0,0);}";
+      expect(minify(src, { inlineSingleUse: true })).toContain("const mat2 M=mat2(cos(u),sin(u),-sin(u),cos(u));");
+    });
+    it("inlines it when the use is in main", () => {
+      const src = heavy + "void main(){vec2 p=M*gl_FragCoord.xy;gl_FragColor=vec4(p,0,0);}";
+      expect(minify(src, { inlineSingleUse: true })).toBe("uniform float u;void main(){vec2 p=mat2(cos(u),sin(u),-sin(u),cos(u))*gl_FragCoord.xy;gl_FragColor=vec4(p,0,0);}");
+    });
+    it("inlines a value without calls into a helper", () => {
+      const src = "uniform float u;const float K=u*u+1.;float f(float x){return x*K;}void main(){gl_FragColor=vec4(f(gl_FragCoord.x));}";
+      expect(minify(src, { inlineSingleUse: true })).toBe("uniform float u;void main(){gl_FragColor=vec4(gl_FragCoord.x*(u*u+1.));}");
+    });
+  });
+
   describe("does not let a local or parameter capture a name it inlines", () => {
     it("keeps a global whose value reads a name a local shadows at the use", () => {
       // Inlining K would make (a+b) read the local a.

@@ -47,6 +47,24 @@ describe("--webgl", () => {
     const src = "float g;float f(float x){g=x;return x;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
     expect(minify(src, { webgl: true })).toContain("f(a),a+=1.;");
   });
+  describe("overloaded user functions, which the analyzer cannot resolve", () => {
+    it("are typed when every overload returns the same type", () => {
+      const src = "float f(float x){return x*2.;}float f(int x){return float(x);}float pick(float c){for(int i=0;i<1;i++){if(c<0.)return f(1.);return f(2);}return 0.;}void main(){gl_FragColor=vec4(pick(gl_FragCoord.x));}";
+      expect(minify(src, { webgl: true })).toContain("return c<0.?f(1.):f(2);");
+      const seq = "float g;float f(float x){g=x;return x;}float f(int x){g=float(x);return 0.;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
+      expect(minify(seq, { webgl: true })).toContain("f(a),a+=1.;");
+    });
+    it("stay unknown when the overloads disagree, so the rewrites are skipped", () => {
+      const src = "struct S{float d;};S f(float x){S s;s.d=x;return s;}float f(int x){return float(x);}void main(){S a;for(int i=0;i<1;i++){if(gl_FragCoord.x<0.)a=f(1.);else a=f(2.);}gl_FragColor=vec4(a.d);}";
+      expect(minify(src, { webgl: true })).toContain("if(gl_FragCoord.x<0.)a=f(1.);else a=f(2.);");
+      const seq = "float g;void f(float x){g=x;}float f(int x){g=float(x);return 0.;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
+      expect(minify(seq, { webgl: true })).toContain("{f(a);a+=1.;}");
+    });
+    it("let the output check see a struct ternary in the input", () => {
+      const src = "struct S{float d;};S mk(float d){S s;s.d=d;return s;}S mk(int d){S s;s.d=float(d);return s;}void main(){gl_FragColor=vec4((gl_FragCoord.x<0.?mk(1.):mk(2)).d);}";
+      expect(() => minify(src, { webgl: true })).toThrow(/ternary operator on struct/);
+    });
+  });
 });
 
 describe("float constant folding", () => {

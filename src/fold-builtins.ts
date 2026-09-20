@@ -8,9 +8,10 @@ import * as Printer from "./printer.js";
 interface Lit { comps: number[]; isInt: boolean; isVector: boolean }
 
 type Impl = (a: number[]) => number;
-interface Spec { arity: number[]; fn: Impl; intOk?: boolean }
+// `undefined` names the inputs GLSL leaves undefined or implementation-defined, which are not folded.
+interface Spec { arity: number[]; fn: Impl; intOk?: boolean; undefined?: (a: number[]) => boolean }
 
-const cw = (arity: number[], fn: Impl, intOk = false): Spec => ({ arity, fn, intOk });
+const cw = (arity: number[], fn: Impl, intOk = false, undef?: (a: number[]) => boolean): Spec => ({ arity, fn, intOk, undefined: undef });
 const clamp = (x: number, lo: number, hi: number): number => Math.min(Math.max(x, lo), hi);
 
 // Component-wise functions (scalars broadcast to the widest argument, as GLSL allows).
@@ -19,16 +20,17 @@ const componentwise: Record<string, Spec> = {
   degrees: cw([1], ([x]) => (x * 180) / Math.PI),
   sin: cw([1], ([x]) => Math.sin(x)), cos: cw([1], ([x]) => Math.cos(x)), tan: cw([1], ([x]) => Math.tan(x)),
   asin: cw([1], ([x]) => Math.asin(x)), acos: cw([1], ([x]) => Math.acos(x)),
-  atan: cw([1, 2], (a) => (a.length === 1 ? Math.atan(a[0]) : Math.atan2(a[0], a[1]))),
+  atan: cw([1, 2], (a) => (a.length === 1 ? Math.atan(a[0]) : Math.atan2(a[0], a[1])), false, (a) => a.length === 2 && a[0] === 0 && a[1] === 0),
   sinh: cw([1], ([x]) => Math.sinh(x)), cosh: cw([1], ([x]) => Math.cosh(x)), tanh: cw([1], ([x]) => Math.tanh(x)),
   asinh: cw([1], ([x]) => Math.asinh(x)), acosh: cw([1], ([x]) => Math.acosh(x)), atanh: cw([1], ([x]) => Math.atanh(x)),
-  pow: cw([2], ([x, y]) => Math.pow(x, y)),
+  pow: cw([2], ([x, y]) => Math.pow(x, y), false, ([x, y]) => x < 0 || (x === 0 && y <= 0)),
   exp: cw([1], ([x]) => Math.exp(x)), log: cw([1], ([x]) => Math.log(x)),
   exp2: cw([1], ([x]) => Math.pow(2, x)), log2: cw([1], ([x]) => Math.log2(x)),
   sqrt: cw([1], ([x]) => Math.sqrt(x)), inversesqrt: cw([1], ([x]) => 1 / Math.sqrt(x)),
   abs: cw([1], ([x]) => Math.abs(x), true), sign: cw([1], ([x]) => Math.sign(x), true),
   floor: cw([1], ([x]) => Math.floor(x)), ceil: cw([1], ([x]) => Math.ceil(x)), trunc: cw([1], ([x]) => Math.trunc(x)),
-  round: cw([1], ([x]) => Math.round(x)), fract: cw([1], ([x]) => x - Math.floor(x)),
+  round: cw([1], ([x]) => Math.round(x), false, ([x]) => Math.abs(x % 1) === 0.5), // the half case is implementation-defined
+  fract: cw([1], ([x]) => x - Math.floor(x)),
   mod: cw([2], ([x, y]) => x - y * Math.floor(x / y)),
   min: cw([2], ([x, y]) => Math.min(x, y), true), max: cw([2], ([x, y]) => Math.max(x, y), true),
   clamp: cw([3], ([x, lo, hi]) => clamp(x, lo, hi), true),
@@ -98,7 +100,9 @@ export function foldBuiltinCall(e: Expr): Expr | null {
     const vecName = lits.find((l) => l.isVector)?.comps.length === width ? `vec${width}` : null;
     const comps: number[] = [];
     for (let i = 0; i < width; i++) {
-      const v = spec.fn(lits.map((l) => Math.fround(l.comps.length === 1 ? l.comps[0] : l.comps[i])));
+      const args = lits.map((l) => Math.fround(l.comps.length === 1 ? l.comps[0] : l.comps[i]));
+      if (spec.undefined !== undefined && spec.undefined(args)) return null;
+      const v = spec.fn(args);
       if (Number.isNaN(v)) return null;
       comps.push(v);
     }

@@ -177,8 +177,12 @@ says so. Every site is ported deliberately:
    when the type is a struct (`ed-209`), and folding a void call into a comma
    sequence (`endeavour`, ES 3.00 rule). `--webgl` skips both, using the
    declarations of the file to tell struct-typed and void-returning
-   expressions apart (unknown counts as unsafe), and fails if the output
-   would still contain either. The sequence rule is applied regardless of
+   expressions apart (unknown counts as unsafe; a call to an overloaded user
+   function, which the analyzer leaves unresolved, is typed when every
+   overload returns the same type, and void when any does), and fails if the
+   output would still contain either. The check is best effort: an operand
+   of unknown type passes, since the guards never produce the constructs and
+   a miss only moves the error to the browser's compiler. The sequence rule is applied regardless of
    `#version`, because the header is usually prepended at runtime. Default
    off so the goldens stay byte-identical.
 6. *`--expand-macros`.* Upstream keeps `#define` verbatim (they are demoscene
@@ -188,7 +192,9 @@ says so. Every site is ported deliberately:
    them expanded. The flag expands object- and function-like macros in file
    order, leaving alone macros defined inside `#if` blocks, macros named in
    conditions, `#`/`##` bodies, and macros whose expansion would grow the
-   output; kept macros transitively keep what they reference. Default off.
+   output; kept macros transitively keep what they reference. Runs of code
+   lines between directives are expanded as one text, so a call's arguments
+   may span lines (the newlines come back after the expansion). Default off.
 7. *`--fold-builtins`.* Upstream folds operators on literals but not builtin
    calls (`radians(45.)`, `sqrt(2.)`, `normalize(vec2(3.,4.))`); ANGLE's
    `FoldExpressions` does, at float32. The flag evaluates pure builtins whose
@@ -196,11 +202,20 @@ says so. Every site is ported deliberately:
    plus `length`/`dot`/`distance`/`normalize`/`cross`) at float32 precision,
    printing the shortest float32 round-trip digits, and only when the result
    is shorter (upstream's rule for constant division, so `exp(1.)` stays).
-   Under the flag operator folds are rounded to float32 too, so
-   `1./tan(.5*radians(45.))` collapses to one literal. Known interaction: a
-   folded literal can make upstream's inliner copy a long literal into
-   several uses (`moutard.frag` grows 7 bytes); net over the corpus is
-   -250 bytes. Default off.
+   Inputs GLSL leaves undefined or implementation-defined (`round` at a
+   half, `pow` of zero or a negative base, `atan(0.,0.)`) are not folded.
+   Under the flag, operators on two literals fold the way the GPU's compiler
+   would: float32 operands and one float32 rounding per operation (a double
+   holds the exact result of one operation on two float32s), printed with
+   the shortest float32 digits and only when the literal is not longer than
+   the expression, so `1./tan(.5*radians(45.))` collapses to one literal
+   and `.1*.05` stays (its faithful value `.0050000004` is longer). Folding
+   in double and rounding once, as upstream does, lands one ulp off the
+   GPU's fold for a third of short literal pairs, which is enough to flip
+   pixels at a raymarcher's hit threshold (`test/pixels.test.ts`). Known
+   interaction: a folded literal can make upstream's inliner copy a long
+   literal into several uses (`moutard.frag` grows 7 bytes); net over the
+   corpus is -250 bytes. Default off.
 8. *`--drop-default-precision`.* GLSL ES stage defaults (ES 3.00 §4.5.4):
    vertex `highp float`/`highp int`, fragment `mediump int` and no float
    default, samplers `lowp` in both. A statement restating the default is a
@@ -226,7 +241,10 @@ says so. Every site is ported deliberately:
    of something its init reads, and a global is not substituted into a body
    that binds its name to another parameter or a local at a use of the
    parameter (the parameter itself may carry the name: dropping it uncovers
-   the global). Default off.
+   the global). A global is computed once per invocation; inlined into a
+   helper that a loop calls it would be computed on every call, so a value
+   that calls a function (constructors aside) is only inlined into an entry
+   point (`main`, or anything in `--no-renaming-list`). Default off.
 10. *Scope check.* Uses are resolved to declarations by name on every pass,
     so a rewrite that copies an expression into a scope where one of its
     names is shadowed (a capture) is rebound and hidden by the next

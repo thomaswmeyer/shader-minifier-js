@@ -83,22 +83,22 @@ class RewriterImpl {
   // tracks, so the declarations of the file are indexed once per pass.
   private readonly structs = new Map<string, StructOrInterfaceBlock>();
   private readonly voidFunctions = new Set<string>();
+  private readonly returnTypes = new Map<string, Type[]>(); // every overload's return type, by function name
   private readonly voidSequenceForbidden: boolean;
 
   constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass, code: readonly TopLevel[] = []) {
     for (const tl of code) {
       if (tl.kind === "TypeDecl" && tl.block.name !== null) this.structs.set(tl.block.name.name, tl.block);
-      else if (tl.kind === "Function" && tl.funcType.retType.name.kind === "TypeName" && tl.funcType.retType.name.ident.name === "void") this.voidFunctions.add(tl.funcType.fName.name);
+      else if (tl.kind === "Function") {
+        const name = tl.funcType.fName.name;
+        const ret = tl.funcType.retType;
+        this.returnTypes.set(name, [...(this.returnTypes.get(name) ?? []), ret]);
+        if (ret.name.kind === "TypeName" && ret.name.ident.name === "void") this.voidFunctions.add(name);
+      }
     }
     // Only ES 3.00 rejects void operands in a sequence, but the `#version 300 es` line is usually
     // prepended at runtime (shadertoy, three.js), so the source can't tell us which rules apply.
     this.voidSequenceForbidden = options.webgl;
-  }
-
-  // With --fold-builtins every folded constant is a float32, so a folded builtin feeding an
-  // operator keeps folding instead of stalling on a long double.
-  private foldFloat(x: number): number {
-    return this.options.foldBuiltins ? (float32Literal(x) ?? x) : x;
   }
 
   private isStructType(ty: Type): boolean {
@@ -135,6 +135,9 @@ class RewriterImpl {
         const d = e.fn.ident.declaration;
         if (d.kind === "UserFunction") return d.decl.funcType.retType;
         if (d.kind === "BuiltinFunction" || Builtin.builtinTypes.has(e.fn.ident.name)) return nonStructType;
+        // An overloaded call the analyzer cannot resolve still has a known type when every overload agrees.
+        const overloads = this.returnTypes.get(e.fn.ident.name);
+        if (overloads !== undefined && overloads.every((t) => typeEquals(t, overloads[0]))) return overloads[0];
         const s = this.structs.get(e.fn.ident.name);
         return s === undefined ? null : makeType(Ast.TypeName(s.name!), [], []);
       }
@@ -179,8 +182,9 @@ class RewriterImpl {
     const name = e.fn.ident.name;
     if (d.kind === "UserFunction") return d.decl.funcType.retType.name.kind === "TypeName" && d.decl.funcType.retType.name.ident.name === "void";
     if (d.kind === "BuiltinFunction") return false;
-    // overloads, or a macro that looks like a call: assume void unless it names something known
-    return this.voidFunctions.has(name) || !(Builtin.builtinFunctions.has(name) || Builtin.builtinTypes.has(name) || this.structs.has(name));
+    // overloads: void if any overload is; a macro that looks like a call: assume void unless it names something known
+    if (this.returnTypes.has(name)) return this.voidFunctions.has(name);
+    return !(Builtin.builtinFunctions.has(name) || Builtin.builtinTypes.has(name) || this.structs.has(name));
   }
 
   // Remove useless spaces in macros
@@ -418,20 +422,35 @@ class RewriterImpl {
       return Float(-a0.value, a0.suffix);
     }
     if (n === 2 && a0.kind === "Float" && a1.kind === "Float") {
-      const i1 = a0.value;
-      const i2 = a1.value;
       const su = a0.suffix;
-      switch (op) {
-        case "-": return Float(this.foldFloat(decimalSub(i1, i2)), su);
-        case "+": return Float(this.foldFloat(decimalAdd(i1, i2)), su);
-        case "*": return Float(this.foldFloat(decimalMul(i1, i2)), su);
-        case "/":
-          if (i2 !== 0) {
-            const div = Float(this.foldFloat(i1 / i2), su);
-            if (Printer.exprToS(e).length <= Printer.exprToS(div).length) return e;
-            return div;
-          }
-          break;
+      if (this.options.foldBuiltins) {
+        // What the GPU's compiler computes: float32 operands, one float32 rounding per operation
+        // (a double holds the exact sum, difference, product or quotient of two float32s). Kept
+        // only when the literal is not longer than the expression, as upstream does for division.
+        const i1 = Math.fround(a0.value);
+        const i2 = Math.fround(a1.value);
+        const r = op === "-" ? i1 - i2 : op === "+" ? i1 + i2 : op === "*" ? i1 * i2 : op === "/" && i2 !== 0 ? i1 / i2 : null;
+        const lit = r === null ? null : float32Literal(r);
+        if (lit !== null) {
+          const folded = Float(lit, su);
+          if (Printer.exprToS(folded).length <= Printer.exprToS(e).length) return folded;
+          return e;
+        }
+      } else {
+        const i1 = a0.value;
+        const i2 = a1.value;
+        switch (op) {
+          case "-": return Float(decimalSub(i1, i2), su);
+          case "+": return Float(decimalAdd(i1, i2), su);
+          case "*": return Float(decimalMul(i1, i2), su);
+          case "/":
+            if (i2 !== 0) {
+              const div = Float(i1 / i2, su);
+              if (Printer.exprToS(e).length <= Printer.exprToS(div).length) return e;
+              return div;
+            }
+            break;
+        }
       }
     }
 

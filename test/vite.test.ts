@@ -7,8 +7,8 @@ import { shaderMinifier, toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
 
 const root = path.join(repoRoot, "tests/out/vite-sample");
-const frag = "uniform float uTime;\nfloat wave(float x) { return sin(x + uTime); }\nvoid main() {\n  float a = 1.1 + 2.2;\n  gl_FragColor = vec4(wave(a));\n}\n";
-const expected = "uniform float uTime;void main(){gl_FragColor=vec4(sin(3.3+uTime));}";
+const frag = "uniform float uTime;\nfloat wave(float x) { return sin(x + uTime); }\nvoid main() {\n  float a = 1.5 + 2.25;\n  gl_FragColor = vec4(wave(a));\n}\n";
+const expected = "uniform float uTime;void main(){gl_FragColor=vec4(sin(3.75+uTime));}";
 
 function writeSample(): void {
   fs.mkdirSync(root, { recursive: true });

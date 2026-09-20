@@ -60,13 +60,20 @@ file pattern, and `options` passes any raw minifier option.
 
 - `--webgl`: skip two upstream rewrites whose output Chrome rejects (`?:` on
   struct values; a void call folded into a comma sequence, an ES 3.00 rule),
-  and fail with an error if the output would still contain either.
+  and fail with an error if the output would still contain either. An
+  expression of unknown type counts as unsafe; a call to an overloaded user
+  function is known when every overload returns the same type.
 - `--expand-macros`: expand `#define`s so neither the definitions nor the
   long macro names reach the output (upstream keeps them as feature switches).
   Macros used in `#if` conditions or defined inside `#if` blocks are left alone.
 - `--fold-builtins`: evaluate builtin calls on literals (`radians(45.)` →
   `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) at float32 precision,
-  only when the result is shorter.
+  only when the result is shorter. Under the flag, operators on literals fold
+  the way the GPU's compiler folds them too, float32 operands and one
+  rounding per operation, printed with the shortest float32 digits
+  (`2.*3.141592653589793` → `6.2831855`) and only when not longer. Inputs
+  GLSL leaves undefined or implementation-defined (`round(.5)`,
+  `pow(0.,0.)`, `atan(0.,0.)`) are not folded.
 - `--no-pi-substitution`: keep literals like `3.14159265` instead of
   `acos(-1.)`, which can cost precision under `mediump`.
 - `--drop-default-precision`: drop precision statements that restate the
@@ -82,7 +89,9 @@ file pattern, and `options` passes any raw minifier option.
   declaring a local for it, when that is not longer. Upstream does both only
   under `--aggressive-inlining`, which also copies every constant to every use.
   Neither happens where a local or parameter at the use would capture a name
-  of the inlined value.
+  of the inlined value, and a value that calls a function is only inlined
+  into `main` (or another entry point from `--no-renaming-list`), since a
+  helper may run in a loop.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader.
@@ -104,15 +113,18 @@ plugin's defaults, externals preserved in all three:
 | stroke.vert | 1,666 | 564 | 576 | 564 |
 | stroke.frag | 897 | 375 | 389 | 375 |
 | comp.vert | 166 | 136 | 136 | 136 |
-| comp.frag | 478 | 255 | 275 | 240 |
-| **total** | **5,381** | **2,438** | **2,484** | **2,375** |
+| comp.frag | 478 | 255 | 275 | 243 |
+| **total** | **5,381** | **2,438** | **2,484** | **2,378** |
 
-The port is 2.6% under upstream and 4.4% under spglsl. Where no port addition
+The port is 2.5% under upstream and 4.3% under spglsl. Where no port addition
 applies (the stroke shaders) it matches upstream byte for byte. Upstream beats
 spglsl by inlining single-use locals into expressions; spglsl's two wins over
 upstream, a vertex shader's default precision statement and a `const` used
-once, are `--drop-default-precision` and `--inline-single-use` here. Every
-output compiles under ANGLE (`test/angle-compile.test.ts`).
+once, are `--drop-default-precision` and `--inline-single-use` here. The three
+bytes comp.frag gives back are `1.-.34` kept as written: upstream's `.66` is
+one float32 ulp off what the GPU computes from the source. Every output
+compiles under ANGLE (`test/angle-compile.test.ts`) and renders the same
+pixels as its source (`test/pixels.test.ts`).
 
 ## Development
 

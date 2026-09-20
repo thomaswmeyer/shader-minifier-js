@@ -27,6 +27,21 @@ function isShadowedAt(env: Ast.MapEnv, name: string, except: VarDecl | null = nu
   return vd !== null && vd !== except && vd.scope !== "Global";
 }
 
+// Whether the expression calls a function (a builtin or a user function; constructors don't count).
+function hasCall(e: Expr): boolean {
+  switch (e.kind) {
+    case "FunCall": {
+      if (e.fn.kind === "Var" && !Builtin.builtinTypes.has(e.fn.ident.name) && !/^[iub]?vec[234]$|^mat[234](x[234])?$/.test(e.fn.ident.name)) return true;
+      return hasCall(e.fn) || e.args.some(hasCall);
+    }
+    case "Subscript": return hasCall(e.arr) || (e.index !== null && hasCall(e.index));
+    case "Dot": return hasCall(e.expr);
+    case "Cast": return hasCall(e.expr);
+    case "VectorExp": return e.exprs.some(hasCall);
+    default: return false;
+  }
+}
+
 // Return the list of variables used in the statements, with the number of references.
 function countReferences(options: Options, stmtList: readonly Stmt[]): Map<VarDecl, number> {
   const counts = new Map<VarDecl, number>();
@@ -245,17 +260,29 @@ export class VariableInlining {
     if (candidates.size === 0) return;
 
     const captured = new Set<VarDecl>();
-    const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
-      const r = resolvedVariableUse(e);
-      const candidate = r === null ? undefined : candidates.get(r[1]);
-      if (candidate !== undefined && candidate.initIdents.some((i) => isShadowedAt(env, i.name))) captured.add(r![1]);
-      return e;
+    const usedInHelper = new Set<VarDecl>(); // the use is in a function that may itself run in a loop
+    const visitUses = (fn: TopLevel | null, items: readonly TopLevel[]): void => {
+      const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
+        const r = resolvedVariableUse(e);
+        const candidate = r === null ? undefined : candidates.get(r[1]);
+        if (candidate === undefined) return e;
+        if (candidate.initIdents.some((i) => isShadowedAt(env, i.name))) captured.add(r![1]);
+        if (fn !== null && fn.kind === "Function" && !this.options.noRenamingList.includes(fn.funcType.fName.name)) usedInHelper.add(r![1]);
+        return e;
+      };
+      Ast.visitor(this.options, visitUse).iterTopLevel(items);
     };
-    Ast.visitor(this.options, visitUse).iterTopLevel(li);
+    for (const tl of li) visitUses(tl.kind === "Function" ? tl : null, [tl]);
 
     for (const [varDecl, { def }] of candidates) {
       if (captured.has(varDecl)) {
         trace(this.options, `${locToS(def.name.loc)}: not inlining global variable '${Printer.debugDecl(def)}': a name in its value is shadowed at its use`);
+        continue;
+      }
+      // The global is computed once per invocation; inlined into a helper that a loop calls it
+      // would be computed on every call. Only a value without calls is cheap enough for that.
+      if (usedInHelper.has(varDecl) && hasCall(def.init!)) {
+        trace(this.options, `${locToS(def.name.loc)}: not inlining global variable '${Printer.debugDecl(def)}': its value calls a function and the use is not in an entry point`);
         continue;
       }
       trace(this.options, `${locToS(def.name.loc)}: inlining global variable '${Printer.debugDecl(def)}' because it's const and used only once`);

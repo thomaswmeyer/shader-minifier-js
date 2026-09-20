@@ -47,6 +47,31 @@ describe("expandMacros", () => {
   it("does not recurse into a self-referential macro", () => {
     expect(expandMacros("#define x x+1\nint a=x;")).toBe("\nint a=x+1;");
   });
+  it("expands a call whose arguments span lines, keeping the line count", () => {
+    // Once left unexpanded with its #define removed, so the shader no longer compiled.
+    const src = "#define F(a,b) ((a)+(b))\nfloat x=F(1.,\n  2.);\nfloat y=F(\n  3.,\n  4.\n);";
+    const out = expandMacros(src);
+    expect(out).toBe("\nfloat x=((1.)+(2.))\n;\nfloat y=((3.)+(4.))\n\n\n;");
+    expect(out.split("\n").length).toBe(src.split("\n").length);
+  });
+  it("keeps expanding after a line comment inside a run of code lines", () => {
+    expect(expandMacros("#define N 2\nint a=N; // N\nint b=N;")).toBe("\nint a=2; // N\nint b=2;");
+  });
+  it("expands a macro defined later in the file only after its definition", () => {
+    expect(expandMacros("#define A B\nint a=A;\n#define B 1\nint b=A;")).toBe("\nint a=B;\n\nint b=1;");
+  });
+  it("lets a parameter shadow a macro of the same name", () => {
+    expect(expandMacros("#define N 4\n#define F(N) N*2\nint a=F(3)+N;")).toBe("\n\nint a=3*2+4;");
+  });
+  it("stops mutual recursion like a real preprocessor", () => {
+    expect(expandMacros("#define A B\n#define B A\nint a=A;")).toBe("\n\nint a=A;");
+  });
+  it("keeps commas inside parentheses within one argument", () => {
+    expect(expandMacros("#define F(a,b) a+b\nvec2 x=F(vec2(1.,2.),vec2(3.,4.));")).toBe("\nvec2 x=vec2(1.,2.)+vec2(3.,4.);");
+  });
+  it("expands inside the body of a kept conditional block", () => {
+    expect(expandMacros("#define K 3\n#ifdef FOO\nint a=K;\n#endif\nint b=K;")).toBe("\n#ifdef FOO\nint a=3;\n#endif\nint b=3;");
+  });
 });
 
 describe("--expand-macros on the spglsl corpus", () => {

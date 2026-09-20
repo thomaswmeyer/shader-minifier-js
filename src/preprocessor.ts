@@ -146,7 +146,11 @@ class MacroExpander {
         if (end < 0) return out + text.slice(i);
         out += text.slice(i, end + 2); i = end + 2; this.inBlockComment = false; continue;
       }
-      if (trackComments && text.startsWith("//", i)) return out + text.slice(i);
+      if (trackComments && text.startsWith("//", i)) {
+        const nl = text.indexOf("\n", i);
+        if (nl < 0) return out + text.slice(i);
+        out += text.slice(i, nl); i = nl; continue;
+      }
       if (trackComments && text.startsWith("/*", i)) { this.inBlockComment = true; out += "/*"; i += 2; continue; }
       if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(text[i + 1] ?? ""))) {
         const m = /^[0-9A-Za-z_.]+/.exec(text.slice(i))!;
@@ -164,7 +168,10 @@ class MacroExpander {
       if (call === null) { out += name; i = j; continue; }
       const args = call.args.map((a) => this.expand(a.trim(), active, false));
       const body = MacroExpander.substitute(macro.body, macro.params, args);
-      out += this.expand(body, inner, false);
+      const expansion = this.expand(body, inner, false);
+      // Newlines of a call spanning lines that trimming dropped come back after it, so line numbers hold.
+      const count = (s: string): number => (s.match(/\n/g) ?? []).length;
+      out += expansion + "\n".repeat(Math.max(0, count(text.slice(j, call.end)) - count(expansion)));
       i = call.end;
     }
     return out;
@@ -259,17 +266,23 @@ export function expandMacros(content: string): string {
     }
   }
 
-  // Pass 2: expand in file order with the definitions active at each point.
+  // Pass 2: expand in file order with the definitions active at each point. A run of code lines
+  // between directives is expanded as one text, so a call's arguments may span lines; the
+  // newlines survive inside the expansion and line numbers stay put.
   const macros = new Map<string, Macro>();
   const expander = new MacroExpander(macros);
   const out: string[] = [];
+  let run: string[] = [];
+  const flush = (): void => { if (run.length > 0) out.push(expander.expandLine(run.join("\n"))); run = []; };
   for (const line of lines) {
-    if (!/^\s*#/.test(line)) { out.push(expander.expandLine(line)); continue; }
+    if (!/^\s*#/.test(line)) { run.push(line); continue; }
+    flush();
     const p = parseDefine(line);
     if (p === null || keep.has(p.def.name)) { out.push(line); continue; }
     if (p.kw === "undef") macros.delete(p.def.name);
     else macros.set(p.def.name, { params: p.def.params, body: p.def.body });
     out.push(""); // removed directives leave an empty line so parse errors keep their line numbers
   }
+  flush();
   return out.join("\n");
 }
