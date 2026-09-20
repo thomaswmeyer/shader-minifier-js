@@ -740,7 +740,7 @@ const char *fxaa_frag =
    "vec4 o=vec4(i,i-v*.5);"
    "vec3 x=vec3(.299,.587,.114);"
    "float y=dot(textureLod(k,o.zw,0.).xyz,x),m=dot(textureLod(k,o.zw+vec2(1,0)*v.xy,0.).xyz,x),c=dot(textureLod(k,o.zw+vec2(0,1)*v.xy,0.).xyz,x),s=dot(textureLod(k,o.zw+vec2(1)*v.xy,0.).xyz,x),l=dot(textureLod(k,o.xy,0.).xyz,x);"
-   "i=vec2(-y-m+c+s,y+c-m-s);"
+   "i=vec2(-y-m+(c+s),y+c-(m+s));"
    "float f=1./(min(abs(i.x),abs(i.y))+1./128.);"
    "i=min(vec2(8),max(vec2(-8),i*f))*v.xy;"
    "vec3 z=.5*(textureLod(k,o.xy+i*(1./3.-.5),0.).xyz+textureLod(k,o.xy+i*(2./3.-.5),0.).xyz),a=z*.5+.25*(textureLod(k,o.xy+i*-.5,0.).xyz+textureLod(k,o.xy+i*.5,0.).xyz);"

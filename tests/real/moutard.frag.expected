@@ -159,7 +159,7 @@ float tree(vec3 localP,vec2 id)
   localP.xz+=(vec2(h1,h2)-.5)*1.5;
   d=min(d,Ellipsoid(localP,.5*vec3(treeWidth,treeHeight,treeWidth)));
   id+=vec2(2.*atan(localP.z,localP.x),localP.y);
-  return d+.2*noise(2.*id.xyy)+.5;
+  return.2*noise(2.*id.xyy)+.5+d;
 }
 vec2 treesShape(vec3 p)
 {
@@ -664,7 +664,7 @@ void selectShot()
   else if(get_shot(time,5.))
     {
       sceneID=1;
-      vec2 p=vec2(.95+mix(-1.,1.,valueNoise2(.5*iTime).y)+mix(-.01,.01,valueNoise2(6e2*iTime).y),.55+.05*verticalBump);
+      vec2 p=vec2(mix(-1.,1.,valueNoise2(.5*iTime).y)+mix(-.01,.01,valueNoise2(6e2*iTime).y)+.95,.55+.05*verticalBump);
       camPos=vec3(p,-2);
       camTa=vec3(p,0);
       camProjectionRatio=1.5;
@@ -775,7 +775,7 @@ void selectShot()
   if(sceneID==3)
     headRot.y+=abs(sin(iTime*4.)*.1),animationSpeed=vec3(0);
   time=iTime-time;
-  time=mod(time,14.)+iTime-time;
+  time=iTime-time+mod(time,14.);
   if(sceneID==0||sceneID==2)
     time=0.;
   motoPos=vec3(0,.3+.43*wheelie,3e2-50.*time);

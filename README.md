@@ -227,11 +227,15 @@ Three tests guard real output rather than upstream parity:
 - `test/corpus.test.ts` runs the same comparison over shaders from open
   source projects that ship on the web, vendored under `test/corpus/` with
   their licenses: the 125 gl-transitions (MIT, two BSD), wrapped for WebGL1
-  with each transition's default parameters, and the programs three.js (MIT)
-  assembles for its materials, dumped from a real renderer in the harness's
-  browser so the chunk expansion and the runtime `#define`s are the ones a
-  game ships. `npm run corpus:gl-transitions` and `npm run corpus:three`
+  with each transition's default parameters, and the programs four engines
+  assemble for their materials — three.js (MIT), Babylon.js (Apache-2.0),
+  PlayCanvas (MIT) and CesiumJS (Apache-2.0) — dumped from a real renderer in
+  the harness's browser so the chunk expansion and the runtime `#define`s are
+  the ones a site ships. `npm run corpus:gl-transitions`,
+  `corpus:three`, `corpus:babylon`, `corpus:playcanvas` and `corpus:cesium`
   refresh them from the npm packages; the version is recorded next to each.
+  The engine shaders are also compiled and drawn in vertex/fragment pairs, so
+  a rename that only breaks across the two stages is caught.
 
 - `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
   plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`
@@ -253,11 +257,12 @@ externals kept in all of them; three.js runs with `--preprocess`:
 | corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
-| gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
-| three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
+| gl-transitions | 125 | 169,066 | 69,608 | 67,955 | 2.4% | 79,689 | 14.7% |
+| three.js | 56 | 1,337,454 | 218,875 | 131,622 | 39.9% | 143,890 | 8.5% |
 | Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 59,928 | 3.6% |
 | PlayCanvas | 20 | 191,012 | 36,026 (5 refused) | 48,662 | | 60,037 | 18.9% |
-| upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
+| CesiumJS | 32 | 174,106 | 74,426 | 70,770 | 4.9% | 43,750 | -61.8% |
+| upstream shadertoy | 8 | 99,447 | 44,904 | 44,221 | 1.5% | 33,164 (2 refused) | |
 
 Shaders ship compressed, so the same corpora again after compression. Two
 things have to be said before the numbers, because both change them.
@@ -278,55 +283,67 @@ table; read the blob as an optimistic bound.
 | corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
 |---|--:|--:|--:|--:|
 | tom.to | 2,378 | 1,591 | 1,093 | 31% |
-| gl-transitions | 67,931 | 35,875 | 14,104 | 61% |
-| three.js | 131,598 | 43,331 | 12,764 | 71% |
+| gl-transitions | 67,955 | 35,880 | 14,128 | 61% |
+| three.js | 131,622 | 43,355 | 12,758 | 71% |
 | Babylon.js | 57,789 | 16,070 | 6,717 | 58% |
 | PlayCanvas | 48,662 | 17,957 | 5,278 | 71% |
+| CesiumJS | 70,770 | 23,142 | 11,870 | 49% |
 
 **brotli -q 11, each shader on its own**
 
 | corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,621 | 1.9% |
-| gl-transitions | 67,081 | 36,734 | 35,875 | 2.3% | 39,307 | 8.7% |
-| three.js | 269,870 | 68,840 | 43,331 | 37.1% | 46,531 | 6.9% |
+| gl-transitions | 67,081 | 36,732 | 35,880 | 2.3% | 39,307 | 8.7% |
+| three.js | 269,870 | 68,963 | 43,355 | 37.1% | 46,531 | 6.8% |
 | Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 17,418 | 7.7% |
 | PlayCanvas | 47,336 | 11,511 (5 refused) | 17,957 | | 20,615 | 12.9% |
-| upstream shadertoy | 30,115 | 17,372 | 17,008 | 2.1% | 12,564 | |
+| CesiumJS | 38,439 | 24,372 | 23,142 | 5.0% | 16,507 | -40.2% |
+| upstream shadertoy | 30,115 | 17,410 | 17,043 | 2.1% | 12,564 | |
 
 **brotli -q 11, whole corpus as one blob**
 
 | corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,132 | 3.4% |
-| gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
-| three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
+| gl-transitions | 29,088 | 14,369 | 14,128 | 1.7% | 15,188 | 7.0% |
+| three.js | 22,926 | 15,230 | 12,758 | 16.2% | 13,713 | 7.0% |
 | Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
 | PlayCanvas | 8,444 | 1,886 (5 refused) | 5,278 | | 5,254 | -0.5% |
-| upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
+| CesiumJS | 17,592 | 12,073 | 11,870 | 1.7% | 7,484 | -58.6% |
+| upstream shadertoy | 25,952 | 14,321 | 14,029 | 2.0% | 10,628 | |
 
 **gzip -9**
 
 | corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,213 | 4.7% |
-| gl-transitions | 35,330 | 16,518 | 16,109 | 2.5% | 17,470 | 7.8% |
-| three.js | 196,245 | 21,310 | 17,050 | 20.0% | 19,536 | 12.7% |
+| gl-transitions | 35,330 | 16,505 | 16,106 | 2.4% | 17,470 | 7.8% |
+| three.js | 196,245 | 21,456 | 17,026 | 20.6% | 19,536 | 12.8% |
 | Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 8,901 | 11.3% |
 | PlayCanvas | 24,421 | 2,298 (5 refused) | 7,072 | | 7,276 | 2.8% |
-| upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 11,962 | |
+| CesiumJS | 25,813 | 14,613 | 14,244 | 2.5% | 8,747 | -62.8% |
+| upstream shadertoy | 29,728 | 16,194 | 15,857 | 2.1% | 11,962 | |
 
 The order of the three minifiers never changes, under either codec or either
 unit, so none of the choices here are ones a compressor would have made for
 free. Beyond that the unit decides the story. On the blob the plugin's win
-over upstream's rewrites on three.js is 16.0%; per shader it is 37.1%,
+over upstream's rewrites on three.js is 16.2%; per shader it is 37.1%,
 because the blob was already getting the repetition for free. The codec
 matters less, and in the same direction: gzip gives the plugin a larger
 margin than brotli, so brotli is the conservative choice.
 
-The engine corpora compress 17 to 58 fold as blobs, and most of that is one
+The engine corpora compress 10 to 58 fold as blobs, and most of that is one
 program against another rather than anything inside a program. That is what
 makes them excellent for finding bugs and poor for judging size.
+
+CesiumJS is the one corpus where ANGLE's minifier is far ahead (spglsl is
+40% smaller per shader). That is not a rewrite this port is missing: Cesium's
+shaders carry their `#define`s inside, so spglsl evaluates the conditionals
+and drops every branch that is not taken, while the plugin keeps them all
+because the same source is compiled with different defines. `--preprocess`
+would close most of the gap for a shader whose defines are fixed at build
+time.
 
 ### Reproducing the comparison
 

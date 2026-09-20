@@ -96,7 +96,7 @@ vec4 calcPlanet(vec3 ro,vec3 rd)
   float t=dot(pN,planetPos-ro)/dot(pN,rd);
   if(t>0.&&t<dist)
     {
-      float d=length(planetPos-ro-rd*t);
+      float d=length(planetPos-(ro+rd*t));
       if(d>52.&&d<80.)
         color.xyz=mix(color.xyz,vec3(.8,.64,.4),t/2e2*norm(sin((d-50.)/30.*smoothrnd(vec2(d,3)))));
       color.w=color.w<1.?
@@ -156,7 +156,7 @@ void calcBurn(vec2 x,vec3 normal,inout vec3 color)
   if(maxV>0.&&gd<maxV)
     {
       float minV=maxV*.9;
-      if(gd<maxV-maxV+minV)
+      if(gd<maxV-(maxV-minV))
         {
           float strength=saturate((gd-minV)/(maxV-(maxV-minV)*2.-minV));
           color=color*(1.-strength*1.5)+(1.-strength*.8)*pow(norm(normal.x)+norm(normal.y),2.*norm(smoothrnd(.4*Y.z+x*20.))*norm(smoothrnd(10.+x*5.))+1.)*vec3(1.5,.75,.5);

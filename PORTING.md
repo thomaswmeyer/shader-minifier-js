@@ -184,7 +184,10 @@ says so. Every site is ported deliberately:
    overload returns the same type, and void when any does), and fails if the
    output would still contain either. The check is best effort: an operand
    of unknown type passes, since the guards never produce the constructs and
-   a miss only moves the error to the browser's compiler. The sequence rule is applied regardless of
+   a miss only moves the error to the browser's compiler. "Struct" means a
+   struct the file declares, not merely a type name that is not a builtin:
+   Cesium's FXAA pass writes `directionN ? goodSpanN : goodSpanP` over
+   `#define FxaaBool bool`, which the looser reading refused. The sequence rule is applied regardless of
    `#version`, because the header is usually prepended at runtime. Default
    off so the goldens stay byte-identical.
 6. *`--expand-macros`.* Upstream keeps `#define` verbatim (they are demoscene
@@ -478,6 +481,32 @@ says so. Every site is ported deliberately:
     counts calls in global initializers and array sizes for both. No golden
     has such a global.
 
+31. *Preprocessor branches are alternatives.* Upstream reads an
+    `#if`/`#else` region as a plain sequence: the branches share one scope,
+    are renamed one after the other, and a declaration in one may be inlined
+    into code outside the region. Cesium's shaders break all three ways, so
+    the port restarts each branch from the scope the region began in, gives
+    every branch's copy of a name the same new name, and never inlines a
+    declaration out of its branch. `reorderFunctions` also kept only the
+    regions that held a function, which silently dropped the
+    `#ifdef GL_FRAGMENT_PRECISION_HIGH` block that picks a default precision.
+    Three goldens move; `controllable-machinery`'s is a fix, since upstream
+    inlines a `const float naa` whose value differs per branch.
+
+32. *No reassociation of arithmetic.* Upstream drops the parentheses in
+    `x+(y+z)`, `x+(y-z)`, `x-(y+z)` and `x-(y-z)` by reassociating. IEEE
+    addition is not associative and GLSL evaluates in the order written, so
+    `high+(low-c)` and `high+low-c` are different numbers. Cesium builds a
+    double out of two floats: `czm_translateRelativeToEye` returns
+    `high+(low-c)`, and the reassociated form rounds the low word away, which
+    moved four of the polyline shader's vertex outputs by 4e-5 relative. The
+    port keeps the *commutation* — `x+(y+z)` becomes `y+z+x`, as upstream
+    already does for `x*(y*z)`, and that is exact — and declines the rest,
+    which is what `x-(...)` loses. Over the whole corpus it costs about 0.1%
+    of the raw bytes and nothing the compressed measurement can see. Fifteen
+    goldens move; three of them, where an operand has a side effect, are
+    fixes.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -508,7 +537,13 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 30, `test/port-flags.test.ts`).
+  (item 30, `test/port-flags.test.ts`);
+- reading an `#if`/`#else` region as a sequence: alternatives renamed apart,
+  a declaration inlined out of its branch, a region without a function
+  dropped by `reorderFunctions` (item 31, Cesium's `globe`, `globe-2` and
+  `post-processing-2`);
+- reassociating floating-point addition to drop parentheses (item 32,
+  Cesium's `polyline.vert`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

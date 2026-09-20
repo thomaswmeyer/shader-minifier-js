@@ -2,7 +2,7 @@ float glob;
 float f(float g)
 {
   g=0.;
-  return g+g+++ ++g;
+  return g+(g+++ ++g);
 }
 float g(float f)
 {
