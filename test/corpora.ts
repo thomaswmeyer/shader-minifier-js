@@ -7,6 +7,9 @@
 //     by scripts/dump-three-shaders.ts. They put `#if` blocks inside argument lists, which the
 //     parser cannot represent, so they need --preprocess.
 //   PlayCanvas (MIT): a third engine, dumped by scripts/dump-playcanvas-shaders.ts the same way.
+//   CesiumJS (Apache-2.0): a globe renderer rather than a game engine, dumped by
+//     scripts/dump-cesium-shaders.ts. A Cesium shader as written is not a whole shader; the
+//     renderer adds the `czm_` builtins it references, so these come from a running scene.
 //   Babylon.js (Apache-2.0): the same idea for a second engine, dumped by
 //     scripts/dump-babylon-shaders.ts. Babylon resolves its own conditionals before handing the
 //     shader to WebGL, so these need no --preprocess; they bring uniform blocks and a different
@@ -70,6 +73,7 @@ const engineShaders = (dir: string, options?: Partial<Options>): CorpusShader[] 
 export const threeShaders = (): CorpusShader[] => engineShaders("three", { preprocess: true });
 export const babylonShaders = (): CorpusShader[] => engineShaders("babylon");
 export const playcanvasShaders = (): CorpusShader[] => engineShaders("playcanvas");
+export const cesiumShaders = (): CorpusShader[] => engineShaders("cesium");
 
 export interface Program { name: string; vert: CorpusShader; frag: CorpusShader }
 

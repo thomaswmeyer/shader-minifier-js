@@ -61,6 +61,7 @@
     "corpus:three": "tsx scripts/dump-three-shaders.ts",
     "corpus:babylon": "tsx scripts/dump-babylon-shaders.ts",
     "corpus:playcanvas": "tsx scripts/dump-playcanvas-shaders.ts",
+    "corpus:cesium": "tsx scripts/dump-cesium-shaders.ts",
     "metrics": "tsx scripts/corpus-metrics.ts"
   },
   "devDependencies": {
