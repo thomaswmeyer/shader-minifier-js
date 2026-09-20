@@ -5,6 +5,7 @@
 // `npm run corpus:gl-transitions` and `npm run corpus:three`. Skips without a browser.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
+import * as Printer from "../src/printer.js";
 import { ParseError, type Options } from "../src/options.js";
 import { glTransitions, pluginOptions, threePrograms, threeShaders, variants, type CorpusShader } from "./corpora.js";
 import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, type RenderConfig } from "./pixels.js";
@@ -68,20 +69,52 @@ describe("open source shader corpus renders the same", () => {
   }
 });
 
-// A vertex and fragment shader of one program, minified separately as the plugin minifies them,
-// must still link: GL matches uniforms, varyings and the *type names* of struct-typed uniforms
-// across the two stages, and each half is renamed on its own. The pixel test never sees a real
-// pair (it gives each shader a generated partner), so nothing else catches this.
-describe("three.js programs still link after minification", () => {
-  for (const { name, vert, frag } of threePrograms()) {
-    it(name, async (ctx) => {
+// A vertex and fragment shader of one program, minified separately as the plugin minifies them.
+// Two things are checked that no single-shader test can see, because the pixel test gives each
+// shader a generated partner rather than its real one:
+//
+//   the program still links. GL matches uniforms, varyings and the *type names* of struct-typed
+//     uniforms across the two stages, and each half is renamed on its own.
+//   it still draws the same picture. A varying the two halves disagree about, in name, type or
+//     interpolation, shows up here and nowhere else.
+//
+// A pair whose original draws nothing (one flat colour, usually because the generated uniforms put
+// the geometry off screen) is skipped: comparing two blank images proves nothing.
+//
+// Each pair runs twice: under the plugin's defaults, and with --remove-unused-varyings, which is
+// the flag that needs both halves and whose mistakes are exactly what this test can see.
+describe("three.js programs link and draw the same after minification", () => {
+  const flat = (px: number[]): boolean => px.every((v, i) => v === px[i % 4]);
+  const pairVariants: [string, Partial<Options>][] = [["plugin", {}], ["plugin +remove-unused-varyings", { removeUnusedVaryings: true }]];
+  for (const { name, vert, frag } of threePrograms()) for (const [label, extra] of pairVariants) {
+    it(`${name} [${label}]`, async (ctx) => {
       if (unavailable !== null) { ctx.skip(); return; }
-      const cfg = (v: string, f: string): RenderConfig => ({ mode: "link", version: 2, source: v, fragmentSource: f, inputs: [], size: 8, vertices: 1, instances: 1 });
-      const original = await runner.run(cfg(vert.source, frag.source));
-      if (!original.ok) { ctx.skip(`the original program does not link: ${original.error.split("\n")[0]}`); return; }
-      const options = { ...pluginOptions(), ...vert.options };
-      const result = await runner.run(cfg(minify(options, vert.name, vert.source), minify(options, frag.name, frag.source)));
-      expect(result.ok, result.ok ? "" : result.error.split("\n")[0]).toBe(true);
-    }, 60000);
+      const options = { ...pluginOptions(), ...vert.options, ...extra };
+      const cfg = (mode: "link" | "program", v: string, f: string, seed = 0): RenderConfig =>
+        ({ mode, version: 2, source: v, fragmentSource: f, inputs: [], size: 48, vertices: 24, instances: 1, seed });
+      const linked = await runner.run(cfg("link", vert.source, frag.source));
+      if (!linked.ok) { ctx.skip(`the original program does not link: ${linked.error.split("\n")[0]}`); return; }
+      // Both halves in one run, so the cross-file passes see the pair.
+      const both = new Minifier(options, [[vert.name, vert.source], [frag.name, frag.source]]);
+      const [minVert, minFrag] = both.shaders.map((s) => Printer.print(s.code));
+      const relinked = await runner.run(cfg("link", minVert, minFrag));
+      expect(relinked.ok, relinked.ok ? "" : relinked.error.split("\n")[0]).toBe(true);
+      if (!relinked.ok) return;
+
+      for (const seed of seeds) {
+        const original = await runner.run(cfg("program", vert.source, frag.source, seed));
+        if (!original.ok) { ctx.skip(`WebGL rejects the original program: ${original.error.split("\n")[0]}`); return; }
+        if (flat(original.data)) continue; // nothing was drawn with this seed's uniforms
+        const result = await runner.run(cfg("program", minVert, minFrag, seed));
+        expect(result.ok, result.ok ? "" : result.error.split("\n")[0]).toBe(true);
+        if (!result.ok) return;
+        // The same one-ulp allowance the single-shader test uses, measured on this pair.
+        const noisy = await runner.run(cfg("program", perturbFloatLiterals(vert.source), perturbFloatLiterals(frag.source), seed));
+        const noise = noisy.ok ? countDifferingPixels(original.data, noisy.data, 1) : 0;
+        const cmp = judgePixels(original.data, result.data, noise);
+        if (cmp.chaotic) { ctx.skip(`chaotic program (seed ${seed}): ${cmp.summary}`); return; }
+        expect(cmp.same, `seed ${seed}: ${cmp.summary}`).toBe(true);
+      }
+    }, 120000);
   }
 });

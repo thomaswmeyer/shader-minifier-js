@@ -426,7 +426,20 @@ says so. Every site is ported deliberately:
     remaining tests all pass unchanged, which is the evidence that nothing
     removed was reachable from GLSL.
 
-26. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+26. *Varyings across the two stages.* Upstream minifies one file at a time
+    and never compares the stages. Under `--remove-unused-varyings` the port
+    removes a vertex output no fragment shader of the same run declares, with
+    the assignments that fed it, and a fragment input the fragment never
+    reads. It acts only when both stages are present, which also excludes a
+    transform-feedback vertex shader. Two things keep a varying: a value with
+    an effect, and a read by the vertex shader itself, which three.js does
+    (it writes `vDisplacementMapUv` and then samples the displacement map
+    with it). Worth 124 bytes over the 28 three.js programs and 3 of their
+    interpolator slots, small because the engine already emits close to the
+    varyings it needs. `test/corpus.test.ts` renders every pair with the flag
+    on and compares it against the unminified pair.
+
+27. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -462,7 +475,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 26, `test/port-flags.test.ts`).
+  (item 27, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

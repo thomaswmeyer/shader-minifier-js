@@ -1,0 +1,34 @@
+# Typecheck, build, and the whole test suite including the ones that need a browser.
+#
+# The semantic tests (test/pixels.test.ts, test/corpus.test.ts, test/angle-compile.test.ts) skip
+# themselves when no browser can be launched, which keeps them optional for a contributor who has
+# not installed Chromium. That would make CI green while testing nothing, so REQUIRE_BROWSER turns
+# a missing browser into a failure here.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # ANGLE compiled to wasm: a second front end for the output, and the competitor in
+      # `npm run metrics`. Optional, and its tests skip without it, so a registry hiccup is not a
+      # build failure.
+      - run: npm install --no-save spglsl
+        continue-on-error: true
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+        env:
+          REQUIRE_BROWSER: "1"

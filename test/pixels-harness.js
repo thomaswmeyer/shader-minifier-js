@@ -147,6 +147,44 @@
       }
     };
 
+    // Every active attribute gets deterministic data in [-1, 1], so a vertex shader has something
+    // to transform. A matrix attribute (three.js instanceMatrix) is near-identity per vertex.
+    const feedAttributes = (program, vertices) => {
+      const n = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
+      const floatTypes = { [gl.FLOAT]: 1, [gl.FLOAT_VEC2]: 2, [gl.FLOAT_VEC3]: 3, [gl.FLOAT_VEC4]: 4 };
+      const intTypes = { [gl.INT]: 1, [gl.INT_VEC2]: 2, [gl.INT_VEC3]: 3, [gl.INT_VEC4]: 4 };
+      const uintTypes = cfg.version === 2 ? { [gl.UNSIGNED_INT]: 1, [gl.UNSIGNED_INT_VEC2]: 2, [gl.UNSIGNED_INT_VEC3]: 3, [gl.UNSIGNED_INT_VEC4]: 4 } : {};
+      const matTypes = { [gl.FLOAT_MAT2]: 2, [gl.FLOAT_MAT3]: 3, [gl.FLOAT_MAT4]: 4 };
+      for (let i = 0; i < n; i++) {
+        const info = gl.getActiveAttrib(program, i);
+        const loc = gl.getAttribLocation(program, info.name);
+        if (loc < 0) continue; // a builtin like gl_VertexID
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.enableVertexAttribArray(loc);
+        if (info.type in floatTypes) {
+          const c = floatTypes[info.type];
+          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * c }, (_, j) => 2 * unit(`${info.name}@${j}`) - 1), gl.STATIC_DRAW);
+          gl.vertexAttribPointer(loc, c, gl.FLOAT, false, 0, 0);
+        } else if (info.type in matTypes) {
+          const d = matTypes[info.type];
+          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * d * d }, (_, j) => ((j % (d * d)) % (d + 1) === 0 ? 1 : 0) + 0.2 * (unit(`${info.name}@${j}`) - 0.5)), gl.STATIC_DRAW);
+          for (let col = 0; col < d; col++) {
+            gl.enableVertexAttribArray(loc + col);
+            gl.vertexAttribPointer(loc + col, d, gl.FLOAT, false, d * d * 4, col * d * 4);
+          }
+        } else if (info.type in intTypes || info.type in uintTypes) {
+          const c = intTypes[info.type] || uintTypes[info.type];
+          const signed = info.type in intTypes;
+          const data = (signed ? Int32Array : Uint32Array).from({ length: vertices * c }, (_, j) => Math.floor(unit(`${info.name}@${j}`) * 8) - (signed ? 4 : 0));
+          gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+          gl.vertexAttribIPointer(loc, c, signed ? gl.INT : gl.UNSIGNED_INT, 0, 0);
+        } else {
+          throw new Error(`attribute ${info.name}: unsupported type 0x${info.type.toString(16)}`);
+        }
+      }
+    };
+
     const checkError = () => {
       const e = gl.getError();
       if (e !== gl.NO_ERROR) throw new Error(`GL error 0x${e.toString(16)}`);
@@ -154,10 +192,30 @@
 
     try {
       if (cfg.mode === "link") { link(cfg.source, cfg.fragmentSource); return { ok: true, data: [] }; }
+      if (cfg.mode === "program") return { ok: true, data: renderProgram() };
       if (cfg.mode === "pixels") return { ok: true, data: renderPixels() };
       return { ok: true, data: captureVaryings() };
     } catch (e) {
       return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+
+    // A real pair: the vertex shader the file ships with, feeding the fragment shader the file
+    // ships with. Nothing here is generated, so a varying that the two halves disagree about is
+    // visible, which neither of the single-shader modes can see. The uniform matrices are
+    // near-identity and the attributes are in [-1, 1], so the triangles land on screen.
+    function renderProgram() {
+      const program = link(cfg.source, cfg.fragmentSource);
+      gl.useProgram(program);
+      setUniforms(program);
+      feedAttributes(program, cfg.vertices);
+      gl.viewport(0, 0, size, size);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, cfg.vertices - (cfg.vertices % 3));
+      const px = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      checkError();
+      return Array.from(px);
     }
 
     // A vertex shader that draws one triangle over the canvas and feeds every fragment input
@@ -213,40 +271,7 @@
       gl.useProgram(program);
       setUniforms(program);
 
-      const n = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
-      const floatTypes = { [gl.FLOAT]: 1, [gl.FLOAT_VEC2]: 2, [gl.FLOAT_VEC3]: 3, [gl.FLOAT_VEC4]: 4 };
-      const intTypes = { [gl.INT]: 1, [gl.INT_VEC2]: 2, [gl.INT_VEC3]: 3, [gl.INT_VEC4]: 4 };
-      const uintTypes = { [gl.UNSIGNED_INT]: 1, [gl.UNSIGNED_INT_VEC2]: 2, [gl.UNSIGNED_INT_VEC3]: 3, [gl.UNSIGNED_INT_VEC4]: 4 };
-      for (let i = 0; i < n; i++) {
-        const info = gl.getActiveAttrib(program, i);
-        const loc = gl.getAttribLocation(program, info.name);
-        if (loc < 0) continue; // a builtin like gl_VertexID
-        const buf = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-        gl.enableVertexAttribArray(loc);
-        const matTypes = { [gl.FLOAT_MAT2]: 2, [gl.FLOAT_MAT3]: 3, [gl.FLOAT_MAT4]: 4 };
-        if (info.type in floatTypes) {
-          const c = floatTypes[info.type];
-          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * c }, (_, j) => 2 * unit(`${info.name}@${j}`) - 1), gl.STATIC_DRAW);
-          gl.vertexAttribPointer(loc, c, gl.FLOAT, false, 0, 0);
-        } else if (info.type in matTypes) {
-          // A matrix attribute (three.js instanceMatrix) takes one location per column: near-identity per vertex.
-          const d = matTypes[info.type];
-          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: vertices * d * d }, (_, j) => ((j % (d * d)) % (d + 1) === 0 ? 1 : 0) + 0.2 * (unit(`${info.name}@${j}`) - 0.5)), gl.STATIC_DRAW);
-          for (let col = 0; col < d; col++) {
-            gl.enableVertexAttribArray(loc + col);
-            gl.vertexAttribPointer(loc + col, d, gl.FLOAT, false, d * d * 4, col * d * 4);
-          }
-        } else if (info.type in intTypes || info.type in uintTypes) {
-          const c = intTypes[info.type] || uintTypes[info.type];
-          const signed = info.type in intTypes;
-          const data = (signed ? Int32Array : Uint32Array).from({ length: vertices * c }, (_, j) => Math.floor(unit(`${info.name}@${j}`) * 8) - (signed ? 4 : 0));
-          gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-          gl.vertexAttribIPointer(loc, c, signed ? gl.INT : gl.UNSIGNED_INT, 0, 0);
-        } else {
-          throw new Error(`attribute ${info.name}: unsupported type 0x${info.type.toString(16)}`);
-        }
-      }
+      feedAttributes(program, vertices);
 
       const comps = outs.reduce((a, o) => a + (scalarTypes[o.type] || 0) * o.size, 0);
       if (outs.some((o) => scalarTypes[o.type] === undefined)) throw new Error("varying of unsupported type: " + outs.filter((o) => scalarTypes[o.type] === undefined).map((o) => `${o.type} ${o.name}`).join(", "));

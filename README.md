@@ -103,6 +103,16 @@ file pattern, and `options` passes any raw minifier option.
   effect. Upstream removes unused functions but keeps these; engine shaders
   assembled from chunks carry many (three.js's depth pass keeps seventeen
   sampler precision statements and two light structs for nothing).
+- `--remove-unused-varyings`: remove a varying no fragment shader of the run
+  reads, together with the assignments that fed it, and a fragment input
+  nothing reads. This is the one removal that needs both halves of a program
+  at once, so it only acts when the run holds a vertex and a fragment shader
+  together (`shader-minifier a.vert a.frag`). That also keeps it away from a
+  transform-feedback vertex shader, whose outputs the application looks up by
+  name and which has no fragment partner. A varying the vertex shader reads
+  back, or whose value has an effect, stays. Unlike the other removals this
+  one should change what the GPU does, since a varying costs an interpolator
+  slot and the vertex work behind it whatever the driver can prove.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader. Upstream rules that could
@@ -162,7 +172,11 @@ npm test                          # runs them too when the browser is there
 ```
 
 On a machine with a Chromium of its own, `CHROMIUM_EXECUTABLE=/path/to/chrome
-npm run pixels` uses that binary instead. Every case renders with three sets
+npm run pixels` uses that binary instead. Skipping is what keeps these tests
+optional for a contributor without Chromium, and it would also make a CI run
+green while testing nothing, so `REQUIRE_BROWSER=1` turns a missing browser
+into a failure. `.github/workflows/ci.yml` sets it, installs Chromium through
+Playwright and runs the whole suite on every push and pull request. Every case renders with three sets
 of inputs; a failure message carries the seed, the pixel counts, the
 shader's own one-ulp noise and the minified source. A skip carries its
 reason: the source WebGL rejects, a shader the minifier refuses, or one so

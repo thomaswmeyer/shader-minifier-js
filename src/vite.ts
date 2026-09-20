@@ -24,6 +24,8 @@ export interface ShaderMinifierPluginOptions {
   inlineSingleUse?: boolean;
   /** Remove unused globals, struct types and sampler precision statements (`--remove-unused-declarations`); externals stay. Default true, and a no-op under `noRemoveUnused`. */
   removeUnusedDeclarations?: boolean;
+  /** Remove varyings no fragment shader reads (`--remove-unused-varyings`); needs both stages in one run, so the plugin cannot use it and it defaults false. */
+  removeUnusedVaryings?: boolean;
   /** Disable renaming entirely (`--no-renaming`). Default false. */
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
@@ -62,6 +64,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     dropDefaultPrecision: o.dropDefaultPrecision ?? true,
     inlineSingleUse: o.inlineSingleUse ?? true,
     removeUnusedDeclarations: o.removeUnusedDeclarations ?? true,
+    removeUnusedVaryings: o.removeUnusedVaryings ?? false,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

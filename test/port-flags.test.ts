@@ -268,6 +268,49 @@ describe("a global whose initializer calls a function", () => {
   });
 });
 
+describe("--remove-unused-varyings", () => {
+  const vert = "in vec3 position;out vec2 vUv;out vec3 vNormal;out float vUnused;uniform mat4 mvp;void main(){vUv=position.xy;vNormal=normalize(position);vUnused=position.z*2.;gl_Position=mvp*vec4(position,1);}";
+  const frag = "in vec2 vUv;in vec3 vNormal;in float vAlsoUnread;out vec4 o;void main(){o=vec4(vUv,vNormal.x,1);}";
+  const run = (files: [string, string][], extra: Partial<Options> = {}): string[] => {
+    const o = { ...defaultOptions(), noRenaming: true, noInlining: true, ...extra };
+    return new Minifier(o, files).shaders.map((s) => Printer.print(s.code));
+  };
+  it("is off by default", () => {
+    const [v, f] = run([["a.vert", vert], ["a.frag", frag]]);
+    expect(v).toContain("out float vUnused;");
+    expect(f).toContain("in float vAlsoUnread;");
+  });
+  it("drops a varying no fragment shader reads, with the writes that fed it, and an unread fragment input", () => {
+    const [v, f] = run([["a.vert", vert], ["a.frag", frag]], { removeUnusedVaryings: true });
+    expect(v).toBe("in vec3 position;out vec2 vUv;out vec3 vNormal;uniform mat4 mvp;void main(){vUv=position.xy;vNormal=normalize(position);gl_Position=mvp*vec4(position,1);}");
+    expect(f).toBe("in vec2 vUv;in vec3 vNormal;out vec4 o;void main(){o=vec4(vUv,vNormal.x,1);}");
+  });
+  it("keeps a varying the vertex shader reads back", () => {
+    // three.js writes vDisplacementMapUv and then samples the displacement map with it, in the
+    // same shader; the fragment shader never sees it.
+    const v2 = "in vec3 position;out vec2 vDisp;uniform sampler2D dmap;void main(){vDisp=position.xy;gl_Position=vec4(position+texture(dmap,vDisp).x,1);}";
+    const [v] = run([["a.vert", v2], ["a.frag", frag]], { removeUnusedVaryings: true });
+    expect(v).toContain("out vec2 vDisp;");
+  });
+  it("keeps a varying whose value has an effect", () => {
+    const v3 = "in vec3 position;out float vC;int c=0;float bump(){return float(c++);}void main(){vC=bump();gl_Position=vec4(position,1);}";
+    const [v] = run([["a.vert", v3], ["a.frag", frag]], { removeUnusedVaryings: true });
+    expect(v).toContain("out float vC;");
+  });
+  it("does nothing without both stages in the run, so transform feedback is safe", () => {
+    const [v] = run([["a.vert", vert]], { removeUnusedVaryings: true });
+    expect(v).toContain("out float vUnused;");
+    const [f] = run([["a.frag", frag]], { removeUnusedVaryings: true });
+    expect(f).toContain("in float vAlsoUnread;");
+  });
+  it("handles ES 1.00 varyings, which both stages spell the same", () => {
+    const v1 = "attribute vec3 position;varying vec2 vUv;varying float vGone;void main(){vUv=position.xy;vGone=position.z;gl_Position=vec4(position,1);}";
+    const f1 = "varying vec2 vUv;void main(){gl_FragColor=vec4(vUv,0,1);}";
+    const [v] = run([["a.vert", v1], ["a.frag", f1]], { removeUnusedVaryings: true });
+    expect(v).toBe("attribute vec3 position;varying vec2 vUv;void main(){vUv=position.xy;gl_Position=vec4(position,1);}");
+  });
+});
+
 describe("--webgl across files", () => {
   it("treats a struct declared in another file as unknown, so the rewrites stay conservative", () => {
     const a = "struct S{float d;};";

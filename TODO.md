@@ -64,20 +64,22 @@ now decides.
   declaration (`reorderFunctions`), which is safe unless the global's own
   initializer depends on a macro defined inside the region.
 
-## 3. Vertex and fragment pairs in the pixel test
+## 3. Vertex and fragment pairs in the pixel test: done
 
-Vertex shaders run alone under transform feedback and fragment shaders get
-generated inputs, so a bug that shows only when both halves share real
-geometry is not caught. The plan for three.js, which is the corpus that has
-real pairs:
+The harness has a `program` mode that links a real vertex and fragment shader
+and draws them, and `test/corpus.test.ts` runs every three.js pair through it,
+twice: under the plugin's defaults and with `--remove-unused-varyings`. It
+found its first bug on the day it landed, a varying removed although the
+vertex shader read it back.
 
-- Reuse `scripts/dump-three-shaders.page.js`'s scenes in the harness page.
-- Render each scene twice: once as is, once with `material.onBeforeCompile`
-  replacing `shader.vertexShader` and `shader.fragmentShader` by the minified
-  sources. The uniform names and the struct field names survive minification
-  under `--preserve-externals`, so three.js's own uniform upload keeps
-  working.
-- Compare the two canvases with the same noise allowance as the pixel test.
+Its limits, for whoever extends it. The uniforms are generated, near-identity
+for matrices, so the geometry is not a real scene; 27 of the 28 pairs draw
+between 173 and 524 distinct colours, which is plenty of signal, but
+MeshDistanceMaterial draws 2 and can only catch a gross difference. A pair
+whose original draws one flat colour is skipped, since comparing two blank
+images proves nothing. Rendering three.js's own scenes through
+`material.onBeforeCompile`, which was the original plan, would replace the
+generated uniforms with real ones and is still the better oracle.
 
 gl-transitions have a fixed pair (the wrapper's vertex shader), so their
 fragment-only comparison already is the real pair.
@@ -99,16 +101,14 @@ fragment-only comparison already is the real pair.
 
 ## 5. Test cases to add
 
-- Vertex and fragment pairs (section 3). Each three.js pair is now *linked*
-  after minification (`test/corpus.test.ts`), which is the cheap half; what
-  is still missing is rendering the pair and comparing the result.
+- Babylon.js and PlayCanvas (below) are the remaining corpus gap; the
+  three.js pairs are now linked *and* rendered (section 3).
 - Babylon.js (Apache-2.0) and PlayCanvas (MIT) programs, dumped the way the
   three.js ones are; they add uniform blocks and different macro styles.
 - A shader whose defines are injected at runtime, once section 1 lands.
 - A multi-file run in the pixel test (`tests/real/mouton` is one).
 - More seeds where a shader's branches depend on textures rather than
   uniforms, and a larger canvas for shaders with fine detail.
-- A CI job with Chromium so the browser tests gate instead of skipping.
 - The upstream candidates of `PORTING.md`, filed upstream with their
   reproducing shaders.
 
@@ -175,8 +175,19 @@ uniforms (section 7) over macro extraction or rerolling.
 
 ## 7. Optimizations not done yet
 
-- **Unused varyings.** The one removal below with a plausible runtime effect.
-  A varying an engine's vertex shader writes but the
+- **Unused varyings: done, and small on three.js.**
+  `--remove-unused-varyings` (`PORTING.md` item 26) removes a vertex output no
+  fragment shader of the run declares and a fragment input nothing reads. It
+  is worth 124 bytes over the 28 three.js programs and 3 interpolator slots,
+  far less than the first measurement suggested, because most apparently dead
+  varyings turned out to be read back by the vertex shader itself. The number
+  is small because three.js already emits close to the varyings it needs; an
+  engine with a coarser chunk system would pay more. It stays off by default
+  and the Vite plugin cannot use it, since the plugin sees one file at a time.
+
+  What is left here: the plugin could use it if it paired a `.vert` and
+  `.frag` imported from the same module, which Vite makes awkward but not
+  impossible. A varying an engine's vertex shader writes but the
   fragment shader never reads costs an interpolator slot, the vertex work
   that computes it, and the per-fragment interpolation, none of which a
   driver can remove while the declaration matches across the two stages.

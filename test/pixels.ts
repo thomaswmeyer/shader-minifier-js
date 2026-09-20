@@ -12,11 +12,14 @@ import { repoRoot } from "./golden.js";
 
 export interface ShaderInput { name: string; type: string; size: number; array: boolean; flat: boolean }
 export interface RenderConfig {
-  /** link: compile `source` as the vertex shader and `fragmentSource` as the fragment shader and link them. */
-  mode: "pixels" | "varyings" | "link";
+  /**
+   * link: compile `source` as the vertex shader and `fragmentSource` as the fragment shader and link them.
+   * program: link them and draw, so a real pair is rendered rather than a shader with a generated partner.
+   */
+  mode: "pixels" | "varyings" | "link" | "program";
   version: 1 | 2;
   source: string;
-  /** link mode only: the fragment shader of the pair. */
+  /** link and program modes: the fragment shader of the pair. */
   fragmentSource?: string;
   /** pixels: the fragment shader's inputs to feed; varyings: the vertex shader's outputs to capture. */
   inputs: ShaderInput[];
@@ -110,7 +113,11 @@ export class ShaderRunner {
   private browser: Browser | null = null;
   private page: Page | null = null;
 
-  /** null when no browser could be launched (the tests then skip). */
+  /**
+   * null when the browser is up. A string says why it is not, and the semantic tests skip on it,
+   * which is what makes them optional locally. REQUIRE_BROWSER=1 turns that into a throw instead,
+   * so CI gates on them rather than reporting a green run that tested nothing.
+   */
   async open(): Promise<string | null> {
     try {
       this.browser = await chromium.launch({
@@ -122,7 +129,9 @@ export class ShaderRunner {
       return null;
     } catch (e) {
       await this.close();
-      return String(e instanceof Error ? e.message.split("\n")[0] : e);
+      const why = String(e instanceof Error ? e.message.split("\n")[0] : e);
+      if (process.env.REQUIRE_BROWSER) throw new Error(`REQUIRE_BROWSER is set but no browser launched: ${why}`);
+      return why;
     }
   }
 

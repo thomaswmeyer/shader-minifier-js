@@ -1840,3 +1840,117 @@ export function simplify(options: Options, li: TopLevel[], fileStage: Stage | nu
   if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
   return out;
 }
+
+/** One file of a multi-file run, with the stage it was decided to be. */
+export interface StagedCode { stage: Stage | null; code: TopLevel[] }
+
+// --remove-unused-varyings: the one removal that needs both halves of a program at once.
+//
+// A varying the vertex shader writes and the fragment shader never reads costs an interpolator
+// slot, the vertex work that computes it and the per-fragment interpolation, and a driver cannot
+// remove it while both stages still declare it. Unlike the other removals this one is not visible
+// from a single file: it needs the pair, so it only acts when the run holds at least one shader of
+// each stage. That also keeps it away from a transform-feedback vertex shader, whose outputs the
+// application looks up by name and which has no fragment partner.
+//
+// Two steps: a fragment input nothing in the fragment reads goes, then a vertex output no
+// surviving fragment input names goes, along with the assignments that fed it. Two things keep a
+// vertex output: an assignment whose value has an effect, since dropping the statement would lose
+// it, and any read of the varying by the vertex shader itself. The second is not hypothetical:
+// three.js writes `vDisplacementMapUv` and then samples the displacement map with it in the same
+// shader, so removing it on the strength of the fragment shader alone does not compile.
+export function removeUnusedVaryings(options: Options, files: StagedCode[]): void {
+  const frags = files.filter((f) => f.stage === "fragment");
+  const verts = files.filter((f) => f.stage === "vertex");
+  if (frags.length === 0 || verts.length === 0) return;
+  const analyzer = new Analyzer(options);
+  const namesUsed = (code: readonly TopLevel[]): Set<string> => {
+    const used = new Set<string>();
+    for (const tl of code) {
+      if (tl.kind === "Function") for (const i of analyzer.identUsesInStmt(IdentKind.Var, tl.body)) used.add(i.name);
+      else if (tl.kind === "TLDecl") for (const d of tl.decl[1]) for (const e of [...d.sizes, ...(d.init === null ? [] : [d.init])]) for (const i of analyzer.identUsesInStmt(IdentKind.Var, ExprStmt(e))) used.add(i.name);
+      else if (tl.kind === "TLVerbatim") used.add(tl.text); // opaque: matched loosely below
+    }
+    return used;
+  };
+  const hasQualifier = (tl: TopLevel, qs: string[]): boolean => tl.kind === "TLDecl" && qs.some((q) => tl.decl[0].typeQ.includes(q));
+  const verbatim = (code: readonly TopLevel[]): string[] => code.flatMap((tl) => (tl.kind === "TLVerbatim" ? [tl.text] : tl.kind === "TLDirective" ? [tl.parts.join(" ")] : []));
+  const namedInText = (texts: string[], name: string): boolean => texts.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+
+  // A fragment input the shader never reads.
+  const kept = new Set<string>();
+  for (const f of frags) {
+    const used = namesUsed(f.code);
+    const texts = verbatim(f.code);
+    const out: TopLevel[] = [];
+    for (const tl of f.code) {
+      if (hasQualifier(tl, ["in", "varying"]) && tl.kind === "TLDecl") {
+        const keep = tl.decl[1].filter((d) => d.name.keepName || d.name.hiddenUses || used.has(d.name.name) || namedInText(texts, d.name.name));
+        for (const d of keep) kept.add(d.name.name);
+        if (keep.length !== tl.decl[1].length) {
+          trace(options, "removing unread fragment inputs: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
+          if (keep.length === 0) continue;
+          out.push(TLDecl([tl.decl[0], keep]));
+          continue;
+        }
+      }
+      out.push(tl);
+    }
+    f.code = out;
+  }
+
+  // A vertex output no fragment input names, and the writes that fed it.
+  for (const v of verts) {
+    const texts = verbatim(v.code);
+    const writes = new Map<string, Expr[]>(); // name -> the values assigned to it
+    const assignedRoot = (e: Expr): { name: string; value: Expr } | null => {
+      if (e.kind !== "FunCall" || e.fn.kind !== "Op" || !Builtin.assignOps.has(e.fn.op) || e.args.length === 0) return null;
+      let target = e.args[0];
+      for (;;) {
+        if (target.kind === "Dot") target = target.expr;
+        else if (target.kind === "Subscript") target = target.arr;
+        else break;
+      }
+      return target.kind === "Var" ? { name: target.ident.name, value: e.args.length > 1 ? e.args[1] : e.args[0] } : null;
+    };
+    // Every mention of a name, and the mentions that are only the target of a plain assignment.
+    // A name mentioned more often than it is assigned is read somewhere, so it has to stay.
+    const mentions = new Map<string, number>();
+    const writeTargets = new Map<string, number>();
+    const bump = (m: Map<string, number>, k: string): void => { m.set(k, (m.get(k) ?? 0) + 1); };
+    const collect = (_: MapEnv, e: Expr): Expr => {
+      if (e.kind === "Var") bump(mentions, e.ident.name);
+      const a = assignedRoot(e);
+      if (a !== null) {
+        writes.set(a.name, [...(writes.get(a.name) ?? []), a.value]);
+        if (e.kind === "FunCall" && e.fn.kind === "Op" && e.fn.op === "=") bump(writeTargets, a.name);
+      }
+      return e;
+    };
+    Ast.visitor(options, collect).iterTopLevel(v.code);
+    const isReadHere = (name: string): boolean => (mentions.get(name) ?? 0) > (writeTargets.get(name) ?? 0);
+
+    const remove = new Set<string>();
+    for (const tl of v.code) {
+      if (!hasQualifier(tl, ["out", "varying"]) || tl.kind !== "TLDecl") continue;
+      for (const d of tl.decl[1]) {
+        if (d.name.keepName || d.name.hiddenUses || kept.has(d.name.name) || namedInText(texts, d.name.name)) continue;
+        if (isReadHere(d.name.name)) continue; // the vertex shader reads it back
+        if ((writes.get(d.name.name) ?? []).every(Effects.isPure)) remove.add(d.name.name);
+      }
+    }
+    if (remove.size === 0) continue;
+    trace(options, "removing varyings no fragment shader reads: " + [...remove].join(", "));
+    const dropWrites = (_: MapEnv, s: Stmt): Stmt => {
+      if (s.kind !== "Expr") return s;
+      const a = assignedRoot(s.expr);
+      return a !== null && remove.has(a.name) ? Ast.Block([]) : s;
+    };
+    v.code = Ast.visitor(options, undefined, dropWrites).mapTopLevel(v.code)
+      .flatMap((tl) => {
+        if (!hasQualifier(tl, ["out", "varying"]) || tl.kind !== "TLDecl") return [tl];
+        const keep = tl.decl[1].filter((d) => !remove.has(d.name.name));
+        return keep.length === 0 ? [] : keep.length === tl.decl[1].length ? [tl] : [TLDecl([tl.decl[0], keep])];
+      });
+  }
+}

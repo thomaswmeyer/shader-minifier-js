@@ -7,7 +7,7 @@ import * as Options_ from "./options.js";
 import { runParser } from "./parser.js";
 import * as Printer from "./printer.js";
 import { rename } from "./renamer.js";
-import { reorderFunctions, simplify } from "./rewriter.js";
+import { removeUnusedVaryings, reorderFunctions, simplify, type StagedCode } from "./rewriter.js";
 
 export type InputFile = [name: string, content: string];
 
@@ -23,13 +23,18 @@ export class Minifier {
     Options_.trace(options, `----- minifying ${names}`);
     vprint(`Input file size is: ${files.reduce((acc, [, s]) => acc + s.length, 0)}\n`);
 
-    const parseAndRewrite = ([filename, content]: InputFile): Shader => {
-      const shader = runParser(options, filename, content);
+    // Parsed first, all of them, because --remove-unused-varyings compares the stages against
+    // each other before either is rewritten.
+    const parsed = files.map(([filename, content]) => ({ filename, shader: runParser(options, filename, content) }));
+    if (options.removeUnusedVaryings) {
+      const staged: StagedCode[] = parsed.map(({ filename, shader }) => ({ stage: options.stage ?? Options_.stageOfFilename(filename), code: shader.code }));
+      removeUnusedVaryings(options, staged);
+      parsed.forEach(({ shader }, i) => { shader.code = staged[i].code; });
+    }
+    this.shaders = parsed.map(({ filename, shader }) => {
       const code = shader.reorderFunctions ? reorderFunctions(options, shader.code) : shader.code;
       return { ...shader, code: simplify(options, code, Options_.stageOfFilename(filename)) };
-    };
-
-    this.shaders = files.map(parseAndRewrite);
+    });
     vprint("Rewrite tricks applied. "); printSize(this.shaders);
 
     if (options.noRenaming) {
