@@ -3,6 +3,28 @@
 What is known to be missing or limited, with the plan for each. `PORTING.md`
 section 5.2 records what has been changed and why; this file is what has not.
 
+## 0. Turn the CI workflow on in GitHub
+
+`.github/workflows/ci.yml` is on `master` but nothing has run it yet. Actions
+has to be enabled for the repository before it does: **Settings -> Actions ->
+General**, allow workflows to run, then push anything (or use **Run workflow**
+from the Actions tab) to get the first run.
+
+Worth checking on that first run, because none of it has executed on GitHub's
+runners, only here:
+
+- Chromium installs and the semantic tests actually run. They skip themselves
+  without a browser, so a green run that reports skips means `REQUIRE_BROWSER`
+  did not take effect and the browser step needs looking at.
+- The whole suite takes about eight minutes locally, most of it
+  `test/corpus.test.ts`. If that is too slow for every push, splitting the
+  browser tests into a second job is the obvious change.
+- `npm install --no-save spglsl` is allowed to fail, so the ANGLE compile test
+  may skip. That is deliberate; a registry hiccup should not fail the build.
+
+Consider also requiring the check on `master` once it is green, since the
+goldens are the thing most easily broken by accident.
+
 ## 1. Directives inside expressions (a fuller parser)
 
 Engine shaders put `#if` blocks inside argument lists, parameter lists and
