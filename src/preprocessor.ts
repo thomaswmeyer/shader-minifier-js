@@ -65,8 +65,9 @@ class Impl {
     const v = evalConstantExpression(str, (name) => this.defines.has(name), (name) => {
       const d = this.defines.get(name);
       if (d === undefined) return 0; // not defined in the file: 0, as for #ifdef
-      const n = /^\s*(\d+)[uU]?\s*$/.exec(d);
-      return n === null ? null : parseInt(n[1], 10);
+      // A trailing comment is not part of the value: engine shaders write `#define N 1 // count`.
+      const n = /^\s*(0[xX][0-9a-fA-F]+|\d+)[uU]?\s*(?:\/\/.*|\/\*(?:(?!\*\/)[\s\S])*\*\/\s*)?$/.exec(d);
+      return n === null ? null : Number(n[1]);
     });
     return v === null ? "Unknown" : v !== 0 ? "Active" : "Inactive";
   }
@@ -158,7 +159,7 @@ export function preprocess(_streamName: string, content: string): string {
  * syntax error. Precedence climbing over the C operators; division by zero is null too.
  */
 export function evalConstantExpression(text: string, isDefined: (name: string) => boolean, valueOf: (name: string) => number | null = () => null): number | null {
-  const tokens = text.match(/\d+[uU]?|[A-Za-z_]\w*|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%<>!~()&|^]/g) ?? [];
+  const tokens = text.match(/0[xX][0-9a-fA-F]+[uU]?|\d+[uU]?|[A-Za-z_]\w*|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%<>!~()&|^]/g) ?? [];
   if (tokens.join("") !== text.replace(/\s+/g, "")) return null; // something the tokenizer skipped
   let i = 0;
   const peek = (): string | undefined => tokens[i];
@@ -172,7 +173,7 @@ export function evalConstantExpression(text: string, isDefined: (name: string) =
     if (t === "-") return -primary();
     if (t === "+") return primary();
     if (t === "~") return ~primary();
-    if (/^\d/.test(t)) return parseInt(t, 10);
+    if (/^\d/.test(t)) return Number(t.replace(/[uU]$/, "")); // decimal or 0x hex
     if (t === "defined") {
       const paren = peek() === "(";
       if (paren) take();

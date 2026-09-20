@@ -175,18 +175,6 @@ optimisations most likely to still pay are the ones that remove *unique*
 text rather than repeated text, which is an argument for unused varyings and
 uniforms (section 7) over macro extraction or rerolling.
 
-## 6b. Two `--preprocess` gaps
-
-Both make a condition undecidable that the file actually decides, so the
-chunk machinery stays in the output:
-
-- **A comment after a define's value.** `#define N 1 // count` then `#if N`:
-  the value is read with `/^\s*(\d+)[uU]?\s*$/`, which a trailing `//`
-  comment fails, so `N` has no integer value and the whole conditional is
-  kept. Engine shaders comment their defines. Strip a trailing comment when
-  reading the value.
-- **Hex literals.** `#define N 0x10` is not read as 16, for the same reason.
-
 ## 7. Optimizations not done yet
 
 - **Unused varyings.** The one removal below with a plausible runtime effect.

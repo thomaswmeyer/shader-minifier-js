@@ -385,7 +385,14 @@ says so. Every site is ported deliberately:
     `L`'s fields although the application looks up `l.dir`).
     `test/corpus.test.ts` links every three.js pair.
 
-23. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
+23. *A define's value past a comment, and in hex.* `--preprocess` read a
+    macro's integer value with a pattern that allowed only decimal digits
+    and trailing space, so `#define N 1 // count` (how engine shaders write
+    them) and `#define N 0x10` both left `#if N` undecided and kept the
+    whole conditional. A trailing line or block comment is not part of the
+    value, and hex is read in a define and in the condition itself.
+
+24. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
     unused, and its declaration squeezing moves `g` above `f`. The port
     counts calls in global initializers and array sizes for both. No golden
@@ -421,7 +428,7 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 23, `test/port-flags.test.ts`).
+  (item 24, `test/port-flags.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

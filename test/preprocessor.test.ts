@@ -3,6 +3,7 @@ import { parse } from "@shaderfrog/glsl-parser";
 import { describe, expect, it } from "vitest";
 import { spglslShaders } from "../scripts/webgl-compile-page.js";
 import { minify } from "../src/api.js";
+import { defaultOptions } from "../src/options.js";
 import { evalConstantExpression, expandMacros, preprocess } from "../src/preprocessor.js";
 
 describe("--preprocess decides constant #if expressions (PORTING.md 5.2 item 16)", () => {
@@ -53,6 +54,28 @@ describe("--preprocess decides constant #if expressions (PORTING.md 5.2 item 16)
     expect(preprocess("t", "#define DEF 1\n#if DEF\nint a;\n#endif")).toBe("#define DEF 1\n\nint a;\n");
     expect(preprocess("t", "#define N 0\n#if N > 0\nint a;\n#else\nint b;\n#endif")).toBe("#define N 0\n\n\n\nint b;\n");
     expect(preprocess("t", "#if UNDEFINED\nint a;\n#endif")).toBe("\n\n");
+  });
+});
+
+describe("--preprocess reads a define's value past a comment, and in hex", () => {
+  const options = { ...defaultOptions(), preprocess: true };
+  const active = (src: string): string[] => (preprocess(options, src).match(/int \w;/g) ?? []);
+  it("ignores a trailing line or block comment on the value", () => {
+    // Engine shaders write `#define NUM_DIR_LIGHTS 1 // count`; the comment is not part of the value.
+    expect(active("#define N 1 // one\n#if N\nint a;\n#else\nint b;\n#endif\n")).toEqual(["int a;"]);
+    expect(active("#define N 0 // zero\n#if N\nint a;\n#else\nint b;\n#endif\n")).toEqual(["int b;"]);
+    expect(active("#define N 1 /* one */\n#if N\nint a;\n#endif\n")).toEqual(["int a;"]);
+  });
+  it("reads hex, in a define and in the condition", () => {
+    expect(active("#define N 0x10\n#if N > 15\nint a;\n#endif\n")).toEqual(["int a;"]);
+    expect(active("#if 0x0\nint a;\n#else\nint b;\n#endif\n")).toEqual(["int b;"]);
+    expect(evalConstantExpression("0xFF == 255", () => false)).toBe(1);
+  });
+  it("still leaves a define that is not an integer undecided", () => {
+    const fn = "#define F(x) (x*2)\n#if F\nint a;\n#endif\n";
+    expect(preprocess(options, fn)).toContain("#if F");
+    const str = '#define S "str"\n#if S\nint a;\n#endif\n';
+    expect(preprocess(options, str)).toContain("#if S");
   });
 });
 
