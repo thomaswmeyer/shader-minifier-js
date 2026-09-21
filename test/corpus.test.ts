@@ -35,7 +35,7 @@ const minify = (options: Options, file: string, source: string): string =>
 describe("open source shader corpus renders the same", () => {
   for (const c of cases) {
     it(c.name, async (ctx) => {
-      if (unavailable !== null) { ctx.skip(); return; }
+      if (unavailable !== null) { ctx.skip(`no browser: ${unavailable}`); return; }
       const version = glslVersion(c.source);
       let minified: string;
       try {
@@ -89,7 +89,7 @@ describe("engine programs link and draw the same after minification", () => {
   const allPrograms = [...programs(threeShaders()).map((p) => ({ ...p, corpus: "three" })), ...programs(babylonShaders()).map((p) => ({ ...p, corpus: "babylon" })), ...programs(playcanvasShaders()).map((p) => ({ ...p, corpus: "playcanvas" }))];
   for (const { corpus, name, vert, frag } of allPrograms) for (const [label, extra] of pairVariants) {
     it(`${corpus}/${name} [${label}]`, async (ctx) => {
-      if (unavailable !== null) { ctx.skip(); return; }
+      if (unavailable !== null) { ctx.skip(`no browser: ${unavailable}`); return; }
       const options = { ...pluginOptions(), ...vert.options, ...extra };
       const cfg = (mode: "link" | "program", v: string, f: string, seed = 0): RenderConfig =>
         ({ mode, version: 2, source: v, fragmentSource: f, inputs: [], size: 48, vertices: 24, instances: 1, seed });

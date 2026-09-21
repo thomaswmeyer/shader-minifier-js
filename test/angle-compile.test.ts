@@ -33,6 +33,9 @@ async function angleError(name: string, source: string): Promise<string | null> 
   }
 }
 
+/** The first ERROR line of an ANGLE info log, else its first line (the error count, or "crash"). */
+const firstError = (log: string): string => log.split("\n").map((l) => l.trim()).find((l) => l.startsWith("ERROR")) ?? log.split("\n")[0];
+
 interface Case { name: string; source: string; minified: () => string }
 const withPlugin = (name: string, source: string): string => new Minifier(toMinifierOptions(), [[name, source]]).format();
 
@@ -56,16 +59,17 @@ describe("minified output compiles under ANGLE", () => {
   }
   for (const c of cases) {
     it(c.name, async (ctx) => {
-      if ((await angleError(c.name, c.source)) !== null) { ctx.skip(); return; }
+      const originalError = await angleError(c.name, c.source);
+      if (originalError !== null) { ctx.skip(`ANGLE rejects the original: ${firstError(originalError)}`); return; }
       let out: string;
       try {
         out = c.minified();
       } catch (e) {
         // an input the port refuses (e.g. struct fields named like swizzles) is not a compile question
-        ctx.skip(); return;
+        ctx.skip(`the minifier refuses the source: ${String(e instanceof Error ? e.message : e).split("\n")[0]}`); return;
       }
       const err = await angleError(c.name, out);
-      if (err === "crash") { ctx.skip(); return; }
+      if (err === "crash") { ctx.skip("ANGLE crashes on the minified output"); return; }
       expect(err, out).toBeNull();
     });
   }

@@ -63,7 +63,7 @@ afterAll(async () => { await runner.close(); });
 describe("minified shaders render the same pixels", () => {
   for (const c of cases) {
     it(c.name, async (ctx) => {
-      if (unavailable !== null) { ctx.skip(); return; }
+      if (unavailable !== null) { ctx.skip(`no browser: ${unavailable}`); return; }
       const version = glslVersion(c.source);
       let minified: string;
       try {
