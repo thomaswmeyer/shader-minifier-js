@@ -51,6 +51,12 @@ in `PORTING.md` section 5.2.
    `lunaquatic`, `from-the-seas-to-the-stars` and, under `tests/unit`,
    `arg-inlining`, `operators`, `precedence`, `shadowing`, `simplify`.
 
+6. `tests/unit/decimals.frag.expected` — literals below 5e-17. Upstream's
+   fixed form has 16 fraction digits, all zero down there, and it prints
+   `1.24e-27` as `0.`; the five `x(0.);` lines at the end are that. The port
+   prints the exponent form (`124e-29`, `8e-46`), so an epsilon such as
+   `1e-20` survives minification (`PORTING.md` 5.2 item 39).
+
 Not an edit to the corpus, but a flag the runner adds: `test/golden.ts` passes
 `--decimal-folds` to every command, because the port folds float operators
 at float32 by default (`PORTING.md` 5.2 item 33) and upstream in decimal.

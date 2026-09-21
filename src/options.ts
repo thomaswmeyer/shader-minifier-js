@@ -60,7 +60,7 @@ export interface Options {
   expandMacros: boolean;
   /** Fold builtin calls on literals, and constant divisions, at float32 precision, only when shorter: the folds the spec lets the hardware get a few ulp wrong on. */
   approximateFolds: boolean;
-  /** Fold float operators with upstream's decimal arithmetic instead of at float32 precision. */
+  /** Treat float literals as decimals, as upstream does: fold `+ - *` with decimal arithmetic and keep each literal's digits, instead of float32 arithmetic and the fewest digits that read back to the same float32. */
   decimalFolds: boolean;
   /** Drop precision statements that restate the stage's default (vertex: highp float/int; fragment: mediump int; samplers: lowp). */
   dropDefaultPrecision: boolean;
@@ -114,9 +114,10 @@ export function defaultOptions(): Options {
 // --preserve-externals, --no-overloading, --stage, --preprocess) and upstream's own switches are
 // not part of a level.
 //   -O0  upstream's rewrites only, byte for byte: what the goldens pin.
-//   -O1  the additions that change neither meaning nor interface: float32 folds of + - *, no pi
-//        substitution, default precision statements dropped, single-use globals inlined, unused
-//        declarations removed (externals stay).
+//   -O1  the additions that change neither meaning nor interface: literals as the float32 the GPU
+//        sees (folds of + - * and the fewest digits), no pi substitution, default precision
+//        statements dropped, single-use globals inlined, unused declarations removed (externals
+//        stay).
 //   -O2  what the Vite plugin does: -O1 plus macro expansion and folding of builtin calls and
 //        divisions, which the spec allows the hardware a few ulp on.
 //   -O3  the removals the application must be ready for: -O2 plus unused varyings and uniforms,
@@ -193,7 +194,7 @@ const flags: Flag[] = [
   { flag: "--webgl", help: "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences", pragma: true, set: { webgl: true }, off: { flag: "--no-webgl", set: { webgl: false } } },
   { flag: "--expand-macros", help: "Expand #define macros instead of keeping them", pragma: true, set: { expandMacros: true }, off: { flag: "--no-expand-macros", set: { expandMacros: false } } },
   { flag: "--approximate-folds", help: "Fold builtin calls on literals, and constant divisions, at float32 precision when shorter: the spec allows the hardware a few ulp on these, so the fold may differ from a GPU by as much", pragma: true, set: { approximateFolds: true }, off: { flag: "--no-approximate-folds", set: { approximateFolds: false } } },
-  { flag: "--decimal-folds", help: "Fold + - * on literals with decimal arithmetic as upstream does, instead of at float32 precision", pragma: true, set: { decimalFolds: true }, off: { flag: "--no-decimal-folds", set: { decimalFolds: false } } },
+  { flag: "--decimal-folds", help: "Treat float literals as decimals, as upstream does: fold + - * with decimal arithmetic and keep each literal's digits, instead of float32 arithmetic and the fewest digits that read back to the same float32", pragma: true, set: { decimalFolds: true }, off: { flag: "--no-decimal-folds", set: { decimalFolds: false } } },
   { flag: "--drop-default-precision", help: "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader", pragma: true, set: { dropDefaultPrecision: true }, off: { flag: "--no-drop-default-precision", set: { dropDefaultPrecision: false } } },
   { flag: "--stage", arg: "<stage>", help: "The shader stage for --drop-default-precision: 'vertex' or 'fragment'. Default: from the file extension, else from the code", pragma: true,
     parse: (v, o) => { o.stage = choice("stage", ["vertex", "fragment"] as const, v.toLowerCase()); } },

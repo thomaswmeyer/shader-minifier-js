@@ -22,7 +22,7 @@ export interface ShaderMinifierRewriteOptions {
   expandMacros?: boolean;
   /** Fold builtin calls on literals and constant divisions at float32 precision when shorter (`--approximate-folds`). Default true. */
   approximateFolds?: boolean;
-  /** Fold `+ - *` on literals with upstream's decimal arithmetic instead of at float32 (`--decimal-folds`). Default false. */
+  /** Treat float literals as decimals, as Shader Minifier does: fold `+ - *` in decimal and keep each literal's digits, instead of float32 arithmetic and the fewest digits that read back to the same float32 (`--decimal-folds`). Default false. */
   decimalFolds?: boolean;
   /** Drop precision statements that restate the stage's default (`--drop-default-precision`); the stage comes from the file extension. Default true. */
   dropDefaultPrecision?: boolean;

@@ -792,7 +792,7 @@ index 48de84b..bdc8769 100644
    x(125.663704/180.);
    x(.6981316889);
 diff --git a/tests/unit/decimals.frag.expected b/tests/unit/decimals.frag.expected
-index f0cc95c..fdb6526 100644
+index f0cc95c..bf0edc0 100644
 --- a/tests/unit/decimals.frag.expected
 +++ b/tests/unit/decimals.frag.expected
 @@ -2,6 +2,9 @@ void test()
@@ -805,6 +805,21 @@ index f0cc95c..fdb6526 100644
    x(1e28);
    x(125.663704/180.);
    x(.6981316889);
+@@ -36,9 +39,9 @@ void test()
+   x(124e-6);
+   x(12e-5);
+   x(1e-4);
+-  x(0.);
+-  x(0.);
+-  x(0.);
+-  x(0.);
+-  x(0.);
++  x(124e-29);
++  x(12e-28);
++  x(1e-27);
++  x(6e-29);
++  x(8e-46);
+ }
 diff --git a/tests/unit/operators.expected b/tests/unit/operators.expected
 index 6c782b2..390fbd9 100644
 --- a/tests/unit/operators.expected

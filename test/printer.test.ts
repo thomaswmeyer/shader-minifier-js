@@ -18,6 +18,12 @@ describe("floatToS", () => {
     [123456, "123456."],
     [1e308, "1e308"],
     [-0.75, "-.75"],
+    // Below 5e-17 the fixed form's 16 fraction digits are all zero; upstream prints `0.` there.
+    [1e-16, "1e-16"],
+    [1.5e-17, "15e-18"],
+    [1e-20, "1e-20"],
+    [1.24e-27, "124e-29"],
+    [1.1754944e-38, "11754944e-45"],
   ];
   for (const [f, s] of cases) it(`${f} -> ${s}`, () => expect(Printer.floatToS(f)).toBe(s));
 });

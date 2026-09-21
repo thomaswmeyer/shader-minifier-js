@@ -93,8 +93,10 @@ in a pragma means `-O2` for that file.
 The additions below are off by default on the command line, so the output
 stays byte-identical to Shader Minifier's; `-O0` to `-O3` turn them on in
 coherent groups. `-O0` is Shader Minifier's rewrites only. `-O1` adds what
-changes neither meaning nor interface: no pi substitution, default precision
-statements dropped, single-use globals inlined, unused declarations removed.
+changes neither meaning nor interface: literals read as the float32 the GPU
+sees (folded that way, printed with the fewest digits), no pi substitution,
+default precision statements dropped, single-use globals inlined, unused
+declarations removed.
 `-O2` is what the Vite plugin does, `-O1` plus macro expansion and the
 folding of builtin calls and divisions. `-O3` also removes unused varyings
 and uniforms, which needs both stages in one run and an application that
@@ -120,13 +122,17 @@ contradicting each other.
 - `--expand-macros`: expand `#define`s so neither the definitions nor the
   long macro names reach the output (Shader Minifier keeps them as feature switches).
   Macros used in `#if` conditions or defined inside `#if` blocks are left alone.
-- Operators on literals fold the way the GPU's compiler folds them: float32
-  operands and one rounding per operation, printed with the shortest float32
-  digits (`2.*3.141592653589793` → `6.2831855`) and only when not longer.
-  Upstream folds in decimal, which can land one ulp off (`4.3+3.4` → `7.7`,
-  where the GPU computes `7.7000003`); `--decimal-folds` restores that, and
-  the goldens run with it. Division has 2.5 ulp of latitude in the spec, so
-  its float32 fold waits for `--approximate-folds`.
+- Float literals are read as the float32 the GPU's compiler makes of them.
+  Every literal is printed with the fewest digits that read back to the same
+  float32 (`6.283185307179586` → `6.2831855`, `123456789.` → `123456790.`),
+  which is lossless since GLSL `float` is 32-bit everywhere, and operators
+  on literals fold the same way: float32 operands and one rounding per
+  operation, only when not longer. Shader Minifier keeps the digits as
+  written and folds in decimal, which can land one ulp off (`4.3+3.4` →
+  `7.7`, where the GPU computes `7.7000003`); `--decimal-folds` restores
+  both, and the goldens run with it. Division has 2.5 ulp of latitude in the
+  spec, so its float32 fold waits for `--approximate-folds`. A `lf` literal
+  is a double and is left alone.
 - `--approximate-folds`: evaluate builtin calls on literals (`radians(45.)` →
   `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) and constant
   divisions at float32 precision, only when the result is shorter. Inputs
@@ -258,13 +264,13 @@ Output bytes, externals kept in all of them; three.js runs with
 
 | corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,378 | 2,484 | 4.3% |
-| gl-transitions | 125 | 169,066 | 69,608 | 67,955 | 2.4% | 67,889 | 79,689 | 14.8% |
-| three.js | 56 | 1,337,454 | 218,875 | 131,622 | 39.9% | 131,622 | 143,890 | 8.5% |
-| Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 57,789 | 59,928 | 3.6% |
+| tom.to | 6 | 5,381 | 2,438 | 2,377 | 2.5% | 2,377 | 2,484 | 4.3% |
+| gl-transitions | 125 | 169,066 | 69,608 | 67,711 | 2.7% | 67,645 | 79,689 | 15.1% |
+| three.js | 56 | 1,337,454 | 218,875 | 131,100 | 40.1% | 131,100 | 143,890 | 8.9% |
+| Babylon.js | 18 | 276,701 | 106,932 | 57,715 | 46.0% | 57,715 | 59,928 | 3.7% |
 | PlayCanvas | 20 | 191,012 | 5 refused | 48,662 |  | 48,662 | 60,037 | 18.9% |
-| CesiumJS | 32 | 174,106 | 74,317 | 70,630 | 5.0% | 41,991 | 43,750 | 4.0% |
-| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,904 | 44,221 | 1.5% | 42,666 | 2 refused |  |
+| CesiumJS | 32 | 174,106 | 74,326 | 70,571 | 5.1% | 41,979 | 43,750 | 4.0% |
+| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,904 | 44,203 | 1.6% | 42,648 | 2 refused |  |
 
 Shaders ship compressed, so the same corpora after compression. Two
 variables: the codec (brotli -q 11 is what a CDN serves, gzip -9 what an
@@ -277,52 +283,52 @@ bound.
 
 | corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
 |---|--:|--:|--:|--:|
-| tom.to | 2,378 | 1,591 | 1,093 | 31% |
-| gl-transitions | 67,955 | 35,880 | 14,128 | 61% |
-| three.js | 131,622 | 43,355 | 12,758 | 71% |
-| Babylon.js | 57,789 | 16,070 | 6,717 | 58% |
+| tom.to | 2,377 | 1,590 | 1,092 | 31% |
+| gl-transitions | 67,711 | 35,790 | 14,054 | 61% |
+| three.js | 131,100 | 43,228 | 12,758 | 70% |
+| Babylon.js | 57,715 | 16,049 | 6,714 | 58% |
 | PlayCanvas | 48,662 | 17,957 | 5,278 | 71% |
-| CesiumJS | 70,630 | 22,978 | 11,771 | 49% |
+| CesiumJS | 70,571 | 22,965 | 11,690 | 49% |
 
 **brotli -q 11, each shader on its own**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,591 | 1,621 | 1.9% |
-| gl-transitions | 67,081 | 36,732 | 35,880 | 2.3% | 35,766 | 39,307 | 9.0% |
-| three.js | 269,870 | 68,963 | 43,355 | 37.1% | 43,355 | 46,531 | 6.8% |
-| Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 16,070 | 17,418 | 7.7% |
+| tom.to | 2,755 | 1,623 | 1,590 | 2.0% | 1,590 | 1,621 | 1.9% |
+| gl-transitions | 67,081 | 36,732 | 35,790 | 2.6% | 35,677 | 39,307 | 9.2% |
+| three.js | 269,870 | 68,963 | 43,228 | 37.3% | 43,228 | 46,531 | 7.1% |
+| Babylon.js | 67,148 | 30,703 | 16,049 | 47.7% | 16,049 | 17,418 | 7.9% |
 | PlayCanvas | 47,336 | 5 refused | 17,957 |  | 17,957 | 20,615 | 12.9% |
-| CesiumJS | 38,439 | 24,195 | 22,978 | 5.0% | 15,329 | 16,507 | 7.1% |
-| Shadertoy (Shader Minifier tests) | 30,115 | 17,416 | 17,050 | 2.1% | 16,503 | 2 refused |  |
+| CesiumJS | 38,439 | 24,187 | 22,965 | 5.1% | 15,327 | 16,507 | 7.1% |
+| Shadertoy (Shader Minifier tests) | 30,115 | 17,416 | 17,045 | 2.1% | 16,496 | 2 refused |  |
 
 **brotli -q 11, whole corpus as one blob**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,093 | 1,132 | 3.4% |
-| gl-transitions | 29,088 | 14,369 | 14,128 | 1.7% | 14,077 | 15,188 | 7.3% |
+| tom.to | 2,167 | 1,114 | 1,092 | 2.0% | 1,092 | 1,132 | 3.5% |
+| gl-transitions | 29,088 | 14,369 | 14,054 | 2.2% | 14,028 | 15,188 | 7.6% |
 | three.js | 22,926 | 15,230 | 12,758 | 16.2% | 12,758 | 13,713 | 7.0% |
-| Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 6,717 | 7,192 | 6.6% |
+| Babylon.js | 15,744 | 10,166 | 6,714 | 34.0% | 6,714 | 7,192 | 6.6% |
 | PlayCanvas | 8,444 | 5 refused | 5,278 |  | 5,278 | 5,254 | -0.5% |
-| CesiumJS | 17,592 | 11,880 | 11,771 | 0.9% | 7,118 | 7,484 | 4.9% |
-| Shadertoy (Shader Minifier tests) | 25,952 | 14,333 | 14,084 | 1.7% | 13,529 | 2 refused |  |
+| CesiumJS | 17,592 | 11,909 | 11,690 | 1.8% | 7,144 | 7,484 | 4.5% |
+| Shadertoy (Shader Minifier tests) | 25,952 | 14,333 | 14,022 | 2.2% | 13,520 | 2 refused |  |
 
 **gzip -9**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,156 | 1,213 | 4.7% |
-| gl-transitions | 35,330 | 16,505 | 16,106 | 2.4% | 16,071 | 17,470 | 8.0% |
-| three.js | 196,245 | 21,456 | 17,026 | 20.6% | 17,026 | 19,536 | 12.8% |
-| Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 7,896 | 8,901 | 11.3% |
+| gl-transitions | 35,330 | 16,505 | 16,031 | 2.9% | 16,000 | 17,470 | 8.4% |
+| three.js | 196,245 | 21,456 | 16,988 | 20.8% | 16,988 | 19,536 | 13.0% |
+| Babylon.js | 40,713 | 12,431 | 7,870 | 36.7% | 7,870 | 8,901 | 11.6% |
 | PlayCanvas | 24,421 | 5 refused | 7,072 |  | 7,072 | 7,276 | 2.8% |
-| CesiumJS | 25,813 | 14,423 | 14,091 | 2.3% | 8,284 | 8,747 | 5.3% |
-| Shadertoy (Shader Minifier tests) | 29,728 | 16,196 | 15,859 | 2.1% | 15,315 | 2 refused |  |
+| CesiumJS | 25,813 | 14,426 | 14,067 | 2.5% | 8,282 | 8,747 | 5.3% |
+| Shadertoy (Shader Minifier tests) | 29,728 | 16,196 | 15,848 | 2.1% | 15,305 | 2 refused |  |
 
 The order of the three minifiers is the same under every codec and unit.
 The unit changes the margin: shader-minifier-js's win over Shader Minifier
-on three.js is 37.1% per shader and 16.2% as a blob, since the blob already
+on three.js is 37.3% per shader and 16.2% as a blob, since the blob already
 compresses the repeated chunk text. gzip gives slightly larger margins than
 brotli. As blobs the engine corpora compress 10 to 58 fold, mostly one
 program against another, which makes them useful for finding bugs and a poor
@@ -331,8 +337,8 @@ measure of size.
 Compared like with like, through the preprocessed column, shader-minifier-js
 is smaller than spglsl on every corpus, at every codec and unit, except
 PlayCanvas as one blob by 0.5%. On CesiumJS the difference between the two
-shader-minifier-js columns is the point: with every `#if` kept it is 70,630
-bytes, with the file's own defines decided 41,991, and the whole of that is
+shader-minifier-js columns is the point: with every `#if` kept it is 70,571
+bytes, with the file's own defines decided 41,979, and the whole of that is
 dead preprocessor branches, not rewriting. One caveat about the spglsl
 column, which counts against this table rather than against spglsl: the
 pixel harness checks shader-minifier-js's output, never spglsl's, so its

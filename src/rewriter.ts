@@ -750,12 +750,23 @@ class RewriterImpl {
       return e;
     }
 
-    // pi is acos(-1), pi/2 is acos(0)
-    if (e.kind === "Float" && !this.options.noPiSubstitution) {
-      const r = decimalRound8(e.value);
-      if (r === 3.14159265) return FunCall(Var(new Ident("acos")), [Float(-1, "")]);
-      if (r === 6.28318531) return OpCall("*", [Float(2, ""), FunCall(Var(new Ident("acos")), [Float(-1, "")])]);
-      if (r === 1.57079633) return FunCall(Var(new Ident("acos")), [Float(0, "")]);
+    if (e.kind === "Float") {
+      // pi is acos(-1), pi/2 is acos(0)
+      if (!this.options.noPiSubstitution) {
+        const r = decimalRound8(e.value);
+        if (r === 3.14159265) return FunCall(Var(new Ident("acos")), [Float(-1, "")]);
+        if (r === 6.28318531) return OpCall("*", [Float(2, ""), FunCall(Var(new Ident("acos")), [Float(-1, "")])]);
+        if (r === 1.57079633) return FunCall(Var(new Ident("acos")), [Float(0, "")]);
+      }
+      // A float literal is a float32 to the GPU's compiler, whatever its digits, so the fewest
+      // digits that read back to the same float32 say the same thing (`6.283185307179586` is
+      // `6.2831855`). --decimal-folds treats literals as the decimals upstream folds, and keeps
+      // their digits. A double literal (`lf`) is not a float32; out of float32's range, the
+      // digits stay as written and the compiler says what it does with them.
+      if (!this.options.decimalFolds && (e.suffix === "" || e.suffix === "f" || e.suffix === "F")) {
+        const v = float32Literal(e.value);
+        if (v !== null && v !== e.value) return Float(v, e.suffix);
+      }
     }
 
     return e;

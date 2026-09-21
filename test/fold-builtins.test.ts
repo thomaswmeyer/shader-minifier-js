@@ -77,6 +77,42 @@ describe("--approximate-folds", () => {
       expect(body("4.3+3.4", { decimalFolds: true, approximateFolds: false })).toBe("7.7"); // upstream's arithmetic
     });
   });
+  // Every float literal is a float32 to the compiler, so the fewest digits that read back to the
+  // same float32 say the same thing. Off under --decimal-folds, which treats literals as decimals.
+  describe("float32 literals", () => {
+    const plain = (e: string, extra: object = {}): string => body(e, { approximateFolds: false, ...extra });
+    it("prints every literal with the fewest digits that read back to the same float32", () => {
+      expect(plain("a*6.283185307179586")).toBe("a*6.2831855");
+      expect(plain("a*2.399963229728653")).toBe("a*2.3999631");
+      expect(plain("a*123456789.")).toBe("a*123456790.");
+      expect(plain("a*1.50000001f")).toBe("a*1.5f");
+      expect(plain("a*.1")).toBe("a*.1"); // already the shortest
+    });
+    it("keeps the digits under --decimal-folds, as upstream does", () => {
+      expect(plain("a*6.283185307179586", { decimalFolds: true })).toBe("a*6.283185307179586");
+      expect(plain("a*123456789.", { decimalFolds: true })).toBe("a*123456789.");
+    });
+    it("leaves alone what is not a float32: a double literal, or a value out of float32's range", () => {
+      expect(plain("a*1.000000001lf")).toBe("a*1.000000001lf");
+      expect(plain("a*1e39")).toBe("a*1e39");
+      expect(plain("a*8e-46")).toBe("a*1e-45"); // rounds up to the smallest float32 denormal, as the compiler reads it
+      expect(plain("a*1e-20")).toBe("a*1e-20"); // a denormal-range epsilon keeps its value (printer.test.ts)
+      expect(plain("a*1.1754943508e-38")).toBe("a*11754944e-45");
+    });
+    it("shortens before it substitutes pi, so the substitution still fires", () => {
+      expect(plain("a*3.14159265", { noPiSubstitution: false })).toBe("a*acos(-1.)");
+    });
+    it("does not touch a literal inside a kept #define", () => {
+      const out = minify("#define TAU 6.283185307179586\nuniform float a;void main(){gl_FragColor=vec4(a*TAU);}", { noRenaming: true }).code;
+      expect(out).toContain("#define TAU 6.283185307179586");
+    });
+    it("is idempotent", () => {
+      const src = "uniform float a;void main(){gl_FragColor=vec4(a*6.283185307179586,a*2.399963229728653,1e-20,1.);}";
+      const once = minify(src, { noRenaming: true }).code;
+      expect(minify(once, { noRenaming: true }).code).toBe(once);
+    });
+  });
+
   it("leaves domain errors, non-literals, and ints where GLSL needs floats", () => {
     expect(body("sqrt(-1.)")).toBe("sqrt(-1.)");
     expect(body("sin(a)")).toBe("sin(a)");

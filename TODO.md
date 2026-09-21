@@ -509,16 +509,31 @@ under every unit and codec.
   fields and array elements are read unrounded, and a loop variable stays
   fp32 because ES 1.00 wants constant loop bounds.
 
-- **Shortest float32 digits for every literal.** ANGLE prints each float
-  literal with the fewest digits that round-trip at float32, so
-  `6.283185307179586` becomes `6.2831855` and `2.399963229728653` becomes
-  `2.3999631`. The port keeps the digits as written unless `--approximate-folds`
-  produces the literal, and that path already has the shortest-float32
-  printer. GLSL `float` is 32-bit on every implementation, so applying the
-  same printing to every literal is lossless. Visible in three.js's
-  ShadowMaterial.frag, where spglsl's output is 19.4% smaller raw (4,787
-  against 3,859 bytes); the literals are part of that gap. Measure over the
-  corpora, raw and per shader compressed.
+- **Shortest float32 digits for every literal: done, and small.** From
+  `-O1` every float literal is printed with the fewest digits that read back
+  to the same float32, as ANGLE does (`PORTING.md` item 39); `-O0` and
+  `--decimal-folds` keep the digits as written. Lossless, since GLSL `float`
+  is 32-bit everywhere. Measured with `npm run metrics`, the plugin's output
+  before and after:
+
+  | corpus | raw before | raw after | per shader brotli before | after |
+  |---|--:|--:|--:|--:|
+  | tom.to | 2,378 | 2,377 | 1,591 | 1,590 |
+  | gl-transitions | 67,955 | 67,711 | 35,880 | 35,790 |
+  | three.js | 131,622 | 131,100 | 43,355 | 43,228 |
+  | Babylon.js | 57,789 | 57,715 | 16,070 | 16,049 |
+  | PlayCanvas | 48,662 | 48,662 | 17,957 | 17,957 |
+  | CesiumJS | 70,639 | 70,571 | 23,005 | 22,965 |
+  | Shadertoy (Shader Minifier tests) | 44,221 | 44,203 | 17,050 | 17,045 |
+
+  0.1% to 0.4% raw, 0.03% to 0.3% compressed, every corpus smaller or equal.
+  It is unique text this removes, so unlike the repeated-text items below
+  the compressor had not already taken it, but a long literal is rare:
+  `InvertedPageCurl` gains 1.9%, most shaders a few bytes. The
+  ShadowMaterial gap to spglsl named here before is elsewhere (the next
+  item). Found on the way: a literal below 5e-17 printed as `0.`, in
+  upstream too, which turns an epsilon guard into a real zero; fixed, and
+  recorded as `tests/DEVIATIONS.md` item 6.
 - **Name reuse against externals: re-measure per shader.** The renamer
   gives locals and parameters names that already occur in the file, external
   names included, so a shadow helper in three.js's ShadowMaterial.frag has

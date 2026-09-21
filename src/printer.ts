@@ -79,6 +79,9 @@ function shortestDigits(a: number): { digits: string; exp: number } {
 }
 
 // Mirrors .NET a.ToString("#.################"): shortest digits, at most 16 fraction digits, no leading zero.
+// Below 5e-17 the 16 fraction digits are all zero and upstream prints `0.`, which turns an epsilon
+// such as `1e-20` into a real zero (division by it, or a `max(x, 1e-20)` guard, no longer works);
+// such a literal takes the exponent form instead (DEVIATIONS.md item 6).
 function fixedForm(a: number): string {
   const { digits, exp } = shortestDigits(a);
   const pointPos = exp + 1;
@@ -92,6 +95,7 @@ function fixedForm(a: number): string {
     const mm = /^(\d+)\.(\d+)$/.exec(r)!;
     intPart = mm[1];
     frac = mm[2].replace(/0+$/, "");
+    if (intPart === "0" && frac === "") return exponentForm(a);
   }
   intPart = intPart.replace(/^0+/, "");
   if (intPart === "" && frac === "") return "0.";

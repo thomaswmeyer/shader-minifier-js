@@ -151,9 +151,10 @@ says so. Every site is ported deliberately:
 - `Int`: JS number with `Number.isSafeInteger` guard on folds (skip the fold
   when unsafe). `/` truncates toward zero, `%` follows the dividend.
   `useInts` int32 range check -> keep float.
-- Nonzero floats below ~5e-17 print as `0.` because the fixed form wins the
-  length contest, as upstream. The five `x(0.);` lines in
-  `decimals.frag.expected` stay.
+- Nonzero floats below ~5e-17: the fixed form's 16 fraction digits are all
+  zero there, and upstream lets `0.` win the length contest (the five
+  `x(0.);` lines of `decimals.frag.expected`). The port takes the exponent
+  form instead (item 39).
 - Number lexing: regex `(\d+\.?\d*|\.\d+)([eE][-+]?[0-9]+)?`, then int parse
   first, else float; octal `0[0-7]+`, hex `0[xX]`; suffixes f F LF lf u U l
   L h H.
@@ -645,6 +646,27 @@ says so. Every site is ported deliberately:
     goldens move; three of them, where an operand has a side effect, are
     fixes.
 
+39. *Float literals are float32.* GLSL `float` is 32-bit on every
+    implementation, so the compiler reads `6.283185307179586` and
+    `6.2831855` as the same number. From `-O1` the port prints every float
+    literal with the fewest digits that read back to the same float32
+    (`2.399963229728653` to `2.3999631`, `123456789.` to `123456790.`), as
+    ANGLE's minifier does; `-O0` and `--decimal-folds` keep the digits as
+    written, as upstream does, so the goldens stay. A `lf` literal is a
+    double and is left alone, as is a value outside float32's range. Worth
+    0.1% to 0.4% of the raw bytes on every corpus and 0.03% to 0.3% per
+    shader after brotli (`TODO.md` section 7 has the table): small, since a
+    long literal is rare, but every byte of it is free.
+
+    Next to it, a fix upstream needs too. The printer's fixed form keeps 16
+    fraction digits, which below 5e-17 are all zero, and upstream lets that
+    `0.` win the length contest: `1e-20` prints as `0.`, and a guard such as
+    `max(x,1e-20)` or a division by it is a real zero after minification.
+    Such a literal now takes the exponent form (`124e-29`, `8e-46`). The
+    five `x(0.);` lines of `decimals.frag.expected` change
+    (`tests/DEVIATIONS.md` item 6); the corpora never printed one, Babylon's
+    `SMALLEST_ABOVE_ZERO` (`1.1754943508e-38`) being an unused macro.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -687,7 +709,9 @@ shader in this repository:
   dropped by `reorderFunctions` (item 37, Cesium's `globe`, `globe-2` and
   `post-processing-2`);
 - reassociating floating-point addition to drop parentheses (item 38,
-  Cesium's `polyline.vert`).
+  Cesium's `polyline.vert`);
+- printing a literal below 5e-17 as `0.`, so an epsilon guard such as
+  `max(x,1e-20)` becomes a real zero (item 39, `decimals.frag`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.
