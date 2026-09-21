@@ -3,6 +3,37 @@
 // all, as one variable (Analyzer.unifyAlternativeDeclarations, PORTING.md 5.2 item 32). Found by
 // rendering the three.js corpus without --preprocess: 30 of its 56 shaders failed to compile.
 import { describe, expect, it } from "vitest";
+import { defaultOptions } from "../src/options.js";
+import { runParser } from "../src/parser.js";
+
+// A conditional directive inside a declarator list, at top level and in a block: the declaration
+// is split at the directives into one declaration per run of names, which says the same thing.
+describe("a directive inside a declarator list", () => {
+  const o = { removeUnused: "none" as const, noRenaming: true };
+  const src = "uniform float a,\n#ifdef X\nb,\n#endif\nc;\nvoid main(){float d=a,\n#ifdef X\ne=b,\n#endif\nf=c;\n#ifdef X\nf+=e;\n#endif\ngl_FragColor=vec4(d+f);}";
+  it("splits the declaration at the directives, at top level and in a block, and reads back the same", () => {
+    const out = minify(src, { ...o, inlining: "none", inlineSingleUse: false }).code;
+    expect(out).toBe("uniform float a;\n#ifdef X\nuniform float b;\n#endif\nuniform float c;void main(){float d=a;\n#ifdef X\nfloat e=b;\n#endif\nfloat f=c;\n#ifdef X\nf+=e;\n#endif\ngl_FragColor=vec4(d+f);}");
+    expect(minify(out, { ...o, inlining: "none", inlineSingleUse: false }).code).toBe(out);
+  });
+  it("lets a declaration in one region be inlined into a use in another region of the same condition", () => {
+    // `e` is inlined into its one use, which sits in the other `#ifdef X` region: right under both
+    // settings, since `b` exists exactly when `e` did. The emptied region stays, as upstream leaves
+    // an empty region too (`tests/unit/symbols.frag`); dropping it would leave a `#define` kept for
+    // a condition that is gone, and the output would minify further on a second pass.
+    const out = minify(src, o).code;
+    expect(out).toBe("uniform float a;\n#ifdef X\nuniform float b;\n#endif\nuniform float c;void main(){\n#ifdef X\n\n#endif\nfloat f=c;\n#ifdef X\nf+=b;\n#endif\ngl_FragColor=vec4(a+f);}");
+  });
+  it("never generates a name the shader tests as a macro", () => {
+    // Under renaming, `X` would be a fine short name for a uniform; then an application that
+    // defines X to switch the branch on would erase the uniform's name.
+    const shader = runParser(defaultOptions(), "t.frag", "uniform float a;\n#if defined(X) && Y > 0\nuniform float b;\n#elif !Z\nuniform float c;\n#endif\nvoid main(){gl_FragColor=vec4(a);}");
+    for (const n of ["X", "Y", "Z"]) expect(shader.forbiddenNames).toContain(n);
+    expect(shader.forbiddenNames).not.toContain("defined");
+    const renamed = minify("uniform float a;\n#ifdef X\nuniform float b;\n#endif\nvoid main(){\n#ifdef X\ngl_FragColor=vec4(a+b);\n#else\ngl_FragColor=vec4(a);\n#endif\n}", { removeUnused: "none" }).code;
+    expect(renamed.match(/\bX\b/g)!.length).toBe(2); // the two #ifdef lines only
+  });
+});
 import { minify } from "../src/api.js";
 import { pluginOptions } from "./corpora.js";
 

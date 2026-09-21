@@ -207,10 +207,15 @@ steps of different quality:
    source. All 56 pass.
 
 **Left.** A directive inside a declarator list (`float a,\n#ifdef X\n
-b,\n#endif\n c;`) is still a parse error; splitting the declaration at the
-directive is the fix. A chain that spans several arguments (`f(a,\n#ifdef
-X\n b, c\n#else\n d\n#endif\n)`) is one too. Neither occurs in the corpora.
-The corpus still runs with `--preprocess` in `npm run metrics`, since the
+b,\n#endif\n c;`) is parsed now, split into one declaration per run of
+names with the directives between them (`PORTING.md` item 46). A chain that
+spans several arguments (`f(a,\n#ifdef X\n b, c\n#else\n d\n#endif\n)`) is
+still a parse error: a branch would have to hold an argument list, and the
+call's arity would differ per branch. It occurs in no corpus. A region a
+rewrite empties (`#ifdef X\n#endif` after its one declaration was inlined
+away) is kept, as upstream keeps one: dropping it would leave a `#define`
+that was kept for that condition, and the output would minify further on a
+second pass. The corpus still runs with `--preprocess` in `npm run metrics`, since the
 other minifiers see preprocessed input and the sizes should compare; item 16
 of `PORTING.md` lists what the flag decides, including the macros the
 compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.

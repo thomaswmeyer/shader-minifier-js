@@ -757,6 +757,26 @@ says so. Every site is ported deliberately:
     resolved per file, as upstream does, so a shader split over several
     files still runs with `--no-remove-unused`.
 
+46. *A directive inside a declarator list.* `float a,\n#ifdef X\n b,\n#endif\n
+    c;` is a parse error upstream. The port splits the declaration at the
+    directives into one declaration per run of names, the type repeated,
+    with the directives between them (`float a; #ifdef X float b; #endif
+    float c;`), which declares the same things in the same scope; the
+    alternatives machinery (items 32 and 37) then treats the pieces as it
+    treats any region. An anonymous struct type or an array type is not
+    split, since its type could not be repeated without sharing its nodes.
+    Only a declarator list with a directive in it takes this path, so
+    nothing else changes.
+
+47. *A tested macro name is never generated.* The renamer's forbidden list
+    held the macros the file defines; a macro the file only tests (`#ifdef
+    X`, `defined(X)`, `#if Y > 0`) is one the application injects, and a
+    generated identifier of the same spelling (`uniform float X;` under
+    `#ifdef X`, which upstream produces) is erased by the application's
+    `#define X`. Every tested name is forbidden now, from kept directives,
+    conditional expressions and the regions kept as text. Only one- and
+    two-letter macro names could ever collide, so no golden changes.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -808,7 +828,9 @@ shader in this repository:
 - `--move-declarations` leaving the declaration's own identifier in the
   assignment that replaces it, so a later variable reuse renames the
   declaration and loses its uses (item 42, `many_variables` with
-  `--no-remove-unused --aggressive-inlining --move-declarations`).
+  `--no-remove-unused --aggressive-inlining --move-declarations`);
+- a macro name the shader tests but never defines given out as a generated
+  identifier (item 47, `test/directive-alternatives.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

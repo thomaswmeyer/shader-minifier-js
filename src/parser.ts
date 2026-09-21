@@ -637,6 +637,62 @@ class ParserImpl {
     return [ty, list];
   }
 
+  /**
+   * A declaration whose declarator list holds a conditional directive (`float a,\n#ifdef X\n b,\n#endif\n c;`),
+   * split at the directives into one declaration per run of declarators, the type repeated, with
+   * the directives between them: `float a; #ifdef X float b; #endif float c;`, which says the same.
+   * Fails (so an `attempt` backs out and the ordinary path takes it) when the list holds no
+   * directive, and for a type this cannot repeat (an anonymous struct, an array type whose sizes
+   * would be shared).
+   */
+  private splitDeclaration(): { ty: Ast.Type; parts: ({ decl: Ast.Decl } | { directive: string[] })[] } {
+    const ty = this.specifiedType();
+    if (ty.name.kind !== "TypeName" || ty.arraySizes.length > 0) this.fail("a plain type");
+    if (ty.name.kind !== "TypeName") throw new Error("unreachable");
+    const name = ty.name.ident;
+    const copyType = (): Ast.Type => Ast.makeType(Ast.TypeName(new Ident(name.name, name.loc)), [...ty.typeQ], []);
+    const parts: ({ decl: Ast.Decl } | { directive: string[] })[] = [];
+    let cur: Ast.DeclElt[] = [];
+    let directives = 0;
+    const flush = (): void => { if (cur.length > 0) parts.push({ decl: [copyType(), cur] }); cur = []; };
+    for (;;) {
+      if (this.peek() === "#") {
+        const directive = this.macro();
+        if (Ast.directiveKind(directive[0]) === null) this.fail("a conditional directive");
+        directives++;
+        flush();
+        parts.push({ directive });
+        if (this.peek() === ";") break;
+        continue;
+      }
+      const id = this.ident();
+      const sizes = this.brackets();
+      const init = this.opt(() => { this.ch("="); return this.exprNoComma(); });
+      cur.push(Ast.makeDecl(id, sizes, init));
+      if (this.peek() === ",") { this.ch(","); continue; }
+      break;
+    }
+    this.ch(";");
+    flush();
+    if (directives === 0) this.fail("a directive in the declarator list");
+    return { ty, parts };
+  }
+
+  private splitDeclarationStmts(): Ast.Stmt[] {
+    return this.splitDeclaration().parts.map((p) => ("decl" in p ? Ast.DeclStmt(p.decl) : Ast.Directive(p.directive)));
+  }
+
+  private splitDeclarationTopLevels(): Ast.TopLevel[] {
+    const loc = this.location();
+    return this.splitDeclaration().parts.map((p) => ("decl" in p ? Ast.TLDecl(p.decl) : Ast.TLDirective(p.directive, loc)));
+  }
+
+  /** A statement, or the statements a declaration split at its directives becomes. */
+  private statements(): Ast.Stmt[] {
+    const split = this.attempt(() => this.splitDeclarationStmts());
+    return split !== null ? split : [this.statement()];
+  }
+
   // e.g. int foo[]   used for function arguments
   private singleDeclaration(): Ast.Decl {
     const ty = this.specifiedType();
@@ -705,7 +761,7 @@ class ParserImpl {
 
   private block(): Ast.Stmt {
     this.ch("{");
-    const list = this.many(() => this.statement());
+    const list = this.many(() => this.statements()).flat();
     this.ch("}");
     return Ast.Block(list);
   }
@@ -725,7 +781,7 @@ class ParserImpl {
     this.ch("{");
     const cases = this.many((): Ast.SwitchCase => {
       const label = this.caseLabel();
-      const stmts = this.many(() => this.statement());
+      const stmts = this.many(() => this.statements()).flat();
       return { label, stmts };
     });
     this.ch("}");
@@ -873,6 +929,8 @@ class ParserImpl {
     const skipFwd = () => { while (this.attempt(() => this.forwardDecl()) !== null) { /* skip */ } };
     for (;;) {
       skipFwd();
+      const split = this.attempt(() => this.splitDeclarationTopLevels());
+      if (split !== null) { res.push(...split); continue; }
       const item = this.attempt(() => this.topLevelItem());
       if (item === null) break;
       res.push(item);
@@ -904,6 +962,7 @@ export function runParser(options: Options, streamName: string, content: string)
   if (options.expandMacros) src = expandMacros(src);
   const shader = new ParserImpl(options, src, streamName).run();
   pinMacroNames(shader);
+  forbidTestedMacroNames(shader);
   if (options.preserveExternals || options.preserveAllGlobals) pinExternalStructFields(shader);
   return shader;
 }
@@ -979,6 +1038,40 @@ export function macroBodyIdents(rest: string): { names: string[]; fields: string
     else if (!params.includes(m[2]) && !Builtin.keywords.has(m[2])) names.push(m[2]);
   }
   return { names, fields };
+}
+
+/** The macro names a directive line tests: `#ifdef X`, `#ifndef X`, and every identifier of a `#if` or `#elif` condition. */
+export function testedMacroNames(line: string): string[] {
+  const m = /^\s*#\s*(ifdef|ifndef|if|elif)\b(.*)$/.exec(line);
+  if (m === null) return [];
+  if (m[1] === "ifdef" || m[1] === "ifndef") { const n = /^\s*(\w+)/.exec(m[2]); return n === null ? [] : [n[1]]; }
+  return [...m[2].matchAll(/[A-Za-z_]\w*/g)].map((x) => x[0]).filter((id) => id !== "defined");
+}
+
+// A macro the shader tests but never defines is one the application injects (three.js's `USE_MAP`).
+// The renamer must not hand out such a name: `uniform float X;` under `#ifdef X` is `uniform float ;`
+// once the application defines X. Every tested name goes on the forbidden list, from the kept
+// directives, the conditional expressions and the regions kept as text alike.
+function forbidTestedMacroNames(shader: Ast.Shader): void {
+  const tested = new Set<string>();
+  const scanText = (text: string): void => { for (const line of text.split("\n")) for (const n of testedMacroNames(line)) tested.add(n); };
+  const scanExpr = (_env: Ast.MapEnv, e: Ast.Expr): Ast.Expr => {
+    if (e.kind === "Conditional") for (const b of e.branches) scanText(b.directive);
+    return e;
+  };
+  const scanStmt = (_env: Ast.MapEnv, s: Ast.Stmt): Ast.Stmt => {
+    if (s.kind === "Directive") scanText(s.parts.join(" "));
+    else if (s.kind === "Verbatim") scanText(s.text);
+    return s;
+  };
+  for (const tl of shader.code) {
+    if (tl.kind === "TLDirective") scanText(tl.parts.join(" "));
+    else if (tl.kind === "TLVerbatim") scanText(tl.text);
+    else if (tl.kind === "TypeDecl") for (const m of tl.block.members) if (m.kind === "MemberVerbatim") scanText(m.text);
+  }
+  Ast.visitor(scanExpr, scanStmt).iterTopLevel(shader.code);
+  const fresh = [...tested].filter((n) => !shader.forbiddenNames.includes(n));
+  if (fresh.length > 0) shader.forbiddenNames = [...fresh, ...shader.forbiddenNames];
 }
 
 // A #define the minifier keeps is text it cannot see into: a variable, function, struct or field
