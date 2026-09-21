@@ -104,6 +104,42 @@ export function defaultOptions(): Options {
   };
 }
 
+// Optimisation levels: one flag for a coherent group of the port's additions, applied where it
+// stands among the other flags, so a flag after it wins (`-O2 --no-fold-builtins`) and a level
+// after a flag resets the group (`--fold-builtins -O0`). The target flags (--webgl,
+// --preserve-externals, --no-overloading, --stage, --preprocess) and upstream's own switches are
+// not part of a level.
+//   -O0  upstream's rewrites only, byte for byte: what the goldens pin.
+//   -O1  the additions that change neither meaning nor interface: float32 folds of + - *, no pi
+//        substitution, default precision statements dropped, single-use globals inlined, unused
+//        declarations removed (externals stay).
+//   -O2  what the Vite plugin does: -O1 plus macro expansion and folding of builtin calls and
+//        divisions, which the spec allows the hardware a few ulp on.
+//   -O3  the removals the application must be ready for: -O2 plus unused varyings and uniforms,
+//        which need both stages in the run and a null uniform location to be tolerated.
+export type OptimizationLevel = 0 | 1 | 2 | 3;
+const level0: Partial<Options> = {
+  decimalFolds: true, noPiSubstitution: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false,
+  expandMacros: false, foldBuiltins: false, removeUnusedVaryings: false, removeUnusedUniforms: false,
+};
+const level1: Partial<Options> = { ...level0, decimalFolds: false, noPiSubstitution: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true };
+const level2: Partial<Options> = { ...level1, expandMacros: true, foldBuiltins: true };
+const level3: Partial<Options> = { ...level2, removeUnusedVaryings: true, removeUnusedUniforms: true };
+export const optimizationLevels: Record<OptimizationLevel, Partial<Options>> = { 0: level0, 1: level1, 2: level2, 3: level3 };
+
+/** `--no-<flag>` for each flag a level turns on, so a level can be taken minus one thing. */
+const negations: Record<string, [keyof Options, boolean]> = {
+  "--pi-substitution": ["noPiSubstitution", false],
+  "--no-decimal-folds": ["decimalFolds", false],
+  "--no-expand-macros": ["expandMacros", false],
+  "--no-fold-builtins": ["foldBuiltins", false],
+  "--no-drop-default-precision": ["dropDefaultPrecision", false],
+  "--no-inline-single-use": ["inlineSingleUse", false],
+  "--no-remove-unused-declarations": ["removeUnusedDeclarations", false],
+  "--no-remove-unused-varyings": ["removeUnusedVaryings", false],
+  "--no-remove-unused-uniforms": ["removeUnusedUniforms", false],
+};
+
 export function renameField(options: Options, field: string): string {
   if (isFieldSwizzle(field)) {
     return [...field].map((c) => options.canonicalFieldNames[swizzleIndex(c)]).join("");
@@ -133,6 +169,8 @@ const usage: [string, string][] = [
   ["--move-declarations", "Move declarations to group them"],
   ["--preprocess", "Evaluate some of the file preprocessor directives"],
   ["--export-kkp-symbol-maps", "Export kkpView symbol maps"],
+  ["-O0 | -O1 | -O2 | -O3", "Optimisation level: -O0 upstream's rewrites only; -O1 the port's additions that change neither meaning nor interface; -O2 the Vite plugin's rewrites; -O3 also remove unused varyings and uniforms. Flags after the level override it (port addition)"],
+  ["--no-<flag>", "Turn off a flag a level turned on: --no-expand-macros, --no-fold-builtins, --no-drop-default-precision, --no-inline-single-use, --no-remove-unused-declarations, --no-remove-unused-varyings, --no-remove-unused-uniforms, --no-decimal-folds, --pi-substitution (port addition)"],
   ["--no-pi-substitution", "Do not replace pi-like literals with acos(-1.) (port addition)"],
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
@@ -216,7 +254,9 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--remove-unused-varyings": options.removeUnusedVaryings = true; break;
       case "--remove-unused-uniforms": options.removeUnusedUniforms = true; break;
       case "--help": case "-h": throw new ArgumentError(flagsHelp());
+      case "-O0": case "-O1": case "-O2": case "-O3": Object.assign(options, optimizationLevels[Number(arg[2]) as OptimizationLevel]); break;
       default:
+        if (arg in negations) { const [field, value] = negations[arg]; (options as unknown as Record<string, boolean>)[field] = value; break; }
         if (arg.startsWith("-") && arg !== "-") throw new ArgumentError(`Unrecognized argument: '${arg}'\n${flagsHelp()}`);
         filenames.push(arg);
     }

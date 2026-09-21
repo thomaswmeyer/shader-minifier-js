@@ -471,17 +471,42 @@ under every unit and codec.
   not worth much after brotli. Kept because it is correct, tested and does
   help a single shader packed on its own, which is the demoscene case.
 
-- **Lossy precision reduction (`highp` to `mediump`) is blocked on the
-  harness, not on the rewrite.** It is the only proposal here with a real
-  runtime payoff, since `mediump` is fp16 on mobile hardware. The pixel test
-  cannot validate it: SwiftShader, and desktop ANGLE generally, implement
-  `mediump` as fp32, so a reduced shader renders identically there and the
-  test would pass while the shader broke on a phone. The unblock is to
-  emulate fp16 in the comparison, which WebGL2 makes possible:
-  `unpackHalf2x16(packHalf2x16(vec2(x))).x` rounds a float to half
-  precision, so a transform that wraps every `mediump`-typed intermediate in
-  it gives a shader that computes what a mobile GPU would. Build that first,
-  then the rewrite is a small one.
+- **Lossy precision reduction (`highp` to `mediump`): the harness can now
+  judge it, and the corpus says most shaders would not survive it.** It is
+  the only proposal here with a real runtime payoff, since `mediump` is fp16
+  on mobile hardware, and the pixel test could not see it: SwiftShader runs
+  `mediump` as fp32. `test/half.ts` now rewrites a shader so every float
+  intermediate is rounded to half precision (arithmetic results, builtin
+  calls, constructors, literals, reads of float uniforms and varyings;
+  `packHalf2x16` in ES 3.00, arithmetic in ES 1.00, the two checked against
+  a binary16 reference), and `npm run half` renders every fragment shader as
+  written and under the emulation:
+
+  | corpus | fragment shaders | within rounding | visibly different | skipped |
+  |---|--:|--:|--:|--:|
+  | tom.to | 3 | 3 | 0 | 0 |
+  | gl-transitions | 125 | 71 | 54 | 0 |
+  | three.js | 28 | 13 | 15 | 0 |
+  | Babylon.js | 9 | 7 | 2 | 0 |
+  | PlayCanvas | 10 | 5 | 0 | 5 |
+
+  99 of the 170 that ran come out within the pixel test's rounding
+  allowance. Of the 71 that do not, 28 are badly off (a tenth to all of
+  their pixels moved by more than 8 levels: noise and hash functions,
+  `fract` of large products, mosaics) and 43 move a handful of pixels. The
+  five skipped are PlayCanvas's parameter-macro shaders, which the parser
+  takes only with `--expand-macros`.
+
+  What follows for the rewrite: a blanket `highp` to `mediump` is wrong for
+  four shaders in ten, so it cannot be a level; it could only be a per-shader
+  opt-in that this harness validates, and the harness is the deliverable.
+  Two caveats on the oracle. It rounds what the source types as float, while
+  hardware keeps `gl_FragCoord` and texture coordinates in fp32 and may keep
+  intermediates wider inside an expression, so a failure here is real and a
+  pass is strong evidence rather than proof; and it says nothing about
+  speed, which needs a device with native fp16 and a frame timer. Struct
+  fields and array elements are read unrounded, and a loop variable stays
+  fp32 because ES 1.00 wants constant loop bounds.
 
 - **Shortest float32 digits for every literal.** ANGLE prints each float
   literal with the fewest digits that round-trip at float32, so
@@ -548,11 +573,14 @@ The port's flags grew one per discovery and are all off in the CLI so the
 goldens stay byte-identical, which is why reproducing the plugin's output
 from the command line takes nine of them. What that should become:
 
-- **`-O0` to `-O3`, or a `--webgl-preset`.** One flag that sets a coherent
-  group: `-O0` upstream's rewrites only (what the goldens pin), `-O1` the
-  safe port additions, `-O2` the plugin's current defaults, `-O3` the
-  lossy ones a shader must be checked for. Individual flags stay, applied
-  after the level, so `-O2 --no-fold-builtins` works.
+- **`-O0` to `-O3`: done** (`PORTING.md` item 34). `-O0` upstream's
+  rewrites only, `-O1` the additions that change neither meaning nor
+  interface, `-O2` the plugin's rewrites, `-O3` also the removals an
+  application must be ready for. Flags after a level override it, a level
+  after a flag resets its group, and `--no-<flag>` exists for what a level
+  turns on. The target flags stay outside: the plugin is `-O2 --webgl
+  --preserve-externals --no-overloading`. `-O3` is where a `mediump`
+  reduction would go once it exists (section 7).
 - **Split `--fold-builtins`: done.** It carried two unrelated things:
   evaluating builtin calls on literals (a size optimization) and doing the
   operator folds at float32 precision instead of upstream's decimal

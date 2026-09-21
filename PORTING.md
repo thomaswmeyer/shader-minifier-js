@@ -548,6 +548,19 @@ says so. Every site is ported deliberately:
     byte-identical to upstream; `test/fold-builtins.test.ts` pins the
     default.
 
+34. *Optimisation levels.* `-O0` to `-O3` set the port's additions in
+    coherent groups (`optimizationLevels` in `src/options.ts`): `-O0`
+    upstream's rewrites only, `-O1` the additions that change neither
+    meaning nor interface, `-O2` the Vite plugin's rewrites, `-O3` also the
+    removals an application must be ready for (unused varyings and
+    uniforms). A level applies where it stands among the flags, so a flag
+    after it wins and a level after a flag resets its group; `--no-<flag>`
+    exists for each flag a level turns on. The plugin's defaults are built
+    from level 2 plus the target flags, and the corpus tests' "upstream
+    rewrites" variant from level 0, so the two stay what they claim to be
+    by construction. Upstream has no levels; its own switches (inlining,
+    renaming, sequences, `--move-declarations`) are outside them.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

@@ -60,6 +60,20 @@ file pattern, and `options` passes any raw minifier option.
 
 ## Port additions
 
+The additions below are off by default on the command line, so the output
+stays byte-identical to Shader Minifier's; `-O0` to `-O3` turn them on in
+coherent groups. `-O0` is Shader Minifier's rewrites only. `-O1` adds what
+changes neither meaning nor interface: no pi substitution, default precision
+statements dropped, single-use globals inlined, unused declarations removed.
+`-O2` is what the Vite plugin does, `-O1` plus macro expansion and the
+folding of builtin calls and divisions. `-O3` also removes unused varyings
+and uniforms, which needs both stages in one run and an application that
+tolerates a null uniform location. Flags after a level override it
+(`-O2 --no-fold-builtins`), and a level after a flag resets its group. The
+target flags, `--webgl`, `--preserve-externals`, `--no-overloading`,
+`--stage` and `--preprocess`, are not part of a level: the plugin is
+`-O2 --webgl --preserve-externals --no-overloading`.
+
 - `--webgl`: skip two Shader Minifier rewrites whose output Chrome rejects (`?:` on
   struct values; a void call folded into a comma sequence, an ES 3.00 rule),
   and fail with an error if the output would still contain either. An
@@ -340,9 +354,7 @@ shader-minifier-js, with the Vite plugin's defaults spelled out as flags
 
 ```sh
 npm run build
-node bin/shader-minifier.js --format text --preserve-externals --no-overloading \
-  --no-pi-substitution --webgl --expand-macros --fold-builtins \
-  --drop-default-precision --inline-single-use --remove-unused-declarations \
+node bin/shader-minifier.js --format text -O2 --webgl --preserve-externals --no-overloading \
   test/tomto/sim.vert -o /dev/stdout | wc -c
 ```
 

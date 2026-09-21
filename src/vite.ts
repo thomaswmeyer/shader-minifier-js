@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import type { Plugin } from "vite";
 import { minify } from "./api.js";
-import { defaultOptions, type Options } from "./options.js";
+import { defaultOptions, optimizationLevels, type Options } from "./options.js";
 
 export interface ShaderMinifierPluginOptions {
   /** Which imports to minify. Default: `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` (with or without `?raw`). */
@@ -53,21 +53,22 @@ export interface ShaderMinifierPluginOptions {
 const defaultInclude = /\.(glsl|frag|vert|vs|fs)$/;
 
 export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options {
-  const d = defaultOptions();
+  // The plugin is -O2 for a WebGL target: the level's rewrites, with the names an application
+  // looks up kept and no new overloads, which ANGLE's linker is strict about.
+  const d: Options = { ...defaultOptions(), ...optimizationLevels[2], outputFormat: "text", webgl: true, preserveExternals: true, noOverloading: true };
   return {
     ...d,
-    outputFormat: "text",
-    webgl: o.webgl ?? true,
-    preserveExternals: o.preserveExternals ?? true,
-    noOverloading: o.noOverloading ?? true,
-    noPiSubstitution: o.noPiSubstitution ?? true,
-    expandMacros: o.expandMacros ?? true,
-    foldBuiltins: o.foldBuiltins ?? true,
-    dropDefaultPrecision: o.dropDefaultPrecision ?? true,
-    inlineSingleUse: o.inlineSingleUse ?? true,
-    removeUnusedDeclarations: o.removeUnusedDeclarations ?? true,
-    removeUnusedVaryings: o.removeUnusedVaryings ?? false,
-    removeUnusedUniforms: o.removeUnusedUniforms ?? false,
+    webgl: o.webgl ?? d.webgl,
+    preserveExternals: o.preserveExternals ?? d.preserveExternals,
+    noOverloading: o.noOverloading ?? d.noOverloading,
+    noPiSubstitution: o.noPiSubstitution ?? d.noPiSubstitution,
+    expandMacros: o.expandMacros ?? d.expandMacros,
+    foldBuiltins: o.foldBuiltins ?? d.foldBuiltins,
+    dropDefaultPrecision: o.dropDefaultPrecision ?? d.dropDefaultPrecision,
+    inlineSingleUse: o.inlineSingleUse ?? d.inlineSingleUse,
+    removeUnusedDeclarations: o.removeUnusedDeclarations ?? d.removeUnusedDeclarations,
+    removeUnusedVaryings: o.removeUnusedVaryings ?? d.removeUnusedVaryings,
+    removeUnusedUniforms: o.removeUnusedUniforms ?? d.removeUnusedUniforms,
     noRenaming: o.noRenaming ?? false,
     noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
     noInlining: o.noInlining ?? false,

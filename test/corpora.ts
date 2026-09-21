@@ -15,7 +15,7 @@
 //     macro style instead.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Options } from "../src/options.js";
+import { optimizationLevels, type Options } from "../src/options.js";
 import { toMinifierOptions } from "../src/vite.js";
 import { repoRoot } from "./golden.js";
 
@@ -31,11 +31,8 @@ export interface CorpusShader {
 
 /** The Vite plugin's defaults: what a site gets. */
 export const pluginOptions = (): Options => toMinifierOptions();
-/** Upstream's rewrites alone, externals kept: what the goldens pin. */
-export const upstreamOptions = (): Options => toMinifierOptions({
-  noPiSubstitution: false, expandMacros: false, foldBuiltins: false, options: { decimalFolds: true },
-  dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false,
-});
+/** Upstream's rewrites alone (-O0), externals kept: what the goldens pin. */
+export const upstreamOptions = (): Options => toMinifierOptions({ options: optimizationLevels[0] });
 export const variants = (): [string, Options][] => [["plugin", pluginOptions()], ["upstream", upstreamOptions()]];
 
 const corpusDir = path.join(repoRoot, "test/corpus");
