@@ -4,11 +4,15 @@
 # themselves when no browser can be launched, which keeps them optional for a contributor who has
 # not installed Chromium. That would make CI green while testing nothing, so REQUIRE_BROWSER turns
 # a missing browser into a failure here.
+#
+# Every branch runs, not only master: a repository ruleset requires this `test` check on any commit
+# reaching master, and the check belongs to the commit, so a branch commit that passed here can be
+# fast-forwarded onto master without a pull request. The same commit runs once more when it lands
+# on master, which costs runner minutes and nothing else.
 name: CI
 
 on:
   push:
-    branches: [master]
   pull_request:
 
 jobs:
