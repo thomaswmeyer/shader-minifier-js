@@ -25,7 +25,7 @@ describe("--drop-default-precision", () => {
     expect(minify(vert)).toContain("precision highp float;precision highp int;");
   });
   it("drops a qualifier on a declaration that restates the precision in force", () => {
-    const opts = { dropDefaultPrecision: true, noInlining: true };
+    const opts = { dropDefaultPrecision: true, inlining: "none" };
     const f = "precision mediump float;uniform highp float a;uniform mediump float b;uniform mediump vec3 c;void main(){gl_FragColor=vec4(a+b+c.x);}";
     // `mediump` says nothing after `precision mediump float;`; `highp` differs, so it stays.
     expect(minifyApi([{ name: "t.frag", content: f }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
@@ -226,10 +226,10 @@ describe("--inline-single-use", () => {
 });
 
 describe("--remove-unused-declarations", () => {
-  const flag = { removeUnusedDeclarations: true, noInlining: true }; // upstream's inlining already removes some unused pure globals; keep it out of the way
+  const flag = { removeUnused: "declarations", inlining: "none" }; // upstream's inlining already removes some unused pure globals; keep it out of the way
   it("removes unused globals, struct types and sampler precision statements, and keeps the used and the external", () => {
     const src = "precision highp float;precision highp sampler2D;precision highp samplerCube;const float A=1.,B=2.;uniform float uUnused;struct L{vec3 c;};struct M{vec3 d;};uniform sampler2D t;void main(){gl_FragColor=vec4(A)+texture2D(t,vec2(0));M m;}";
-    expect(minify(src, { noInlining: true })).toBe(src);
+    expect(minify(src, { inlining: "none" })).toBe(src);
     expect(minify(src, flag)).toBe("precision highp float;precision highp sampler2D;const float A=1.;uniform float uUnused;struct M{vec3 d;};uniform sampler2D t;void main(){gl_FragColor=vec4(A)+texture2D(t,vec2(0));M m;}");
   });
   it("keeps a struct named by another struct, a function signature or a constructor", () => {
@@ -251,11 +251,11 @@ describe("--remove-unused-declarations", () => {
     expect(minify("#define K (g*2.)\nfloat g=1.;void main(){gl_FragColor=vec4(K);}", flag)).toContain("float g=1.;");
     expect(minify("float f(){return 1.;}float g=f();void main(){gl_FragColor=vec4(0);}", flag)).toBe("void main(){gl_FragColor=vec4(0);}"); // f is pure
     expect(minify("int c;int f(){return c++;}int g=f();void main(){gl_FragColor=vec4(c);}", flag)).toContain("int g=f();");
-    expect(minify("precision highp sampler2D;vec4 tex(sampler2D s){return texture2D(s,vec2(0));}void main(){gl_FragColor=vec4(0);}", { ...flag, noRemoveUnused: true })).toContain("precision highp sampler2D;");
+    expect(minify("precision highp sampler2D;vec4 tex(sampler2D s){return texture2D(s,vec2(0));}void main(){gl_FragColor=vec4(0);}", { ...flag, removeUnused: "none" })).toContain("precision highp sampler2D;");
   });
   it("does nothing under --no-remove-unused", () => {
     const src = "precision highp samplerCube;const float A=1.;struct L{vec3 c;};void main(){gl_FragColor=vec4(0);}";
-    expect(minify(src, { ...flag, noRemoveUnused: true })).toBe(src);
+    expect(minify(src, { ...flag, removeUnused: "none" })).toBe(src);
   });
 });
 
@@ -263,7 +263,7 @@ describe("a global whose initializer calls a function", () => {
   it("keeps the callee and stays after it; upstream removes the callee and moves the global above it", () => {
     const src = "float f(){return 1.;}float g=f();void main(){gl_FragColor=vec4(g);}";
     expect(minify(src)).toBe(src);
-    expect(minify(src, { removeUnusedDeclarations: true })).toBe(src);
+    expect(minify(src, { removeUnused: "declarations" })).toBe(src);
     expect(minify("float h(){return 2.;}float f(){return 1.;}float g=f();float k=h();void main(){gl_FragColor=vec4(g+k);}")).toBe("float h(){return 2.;}float f(){return 1.;}float g=f(),k=h();void main(){gl_FragColor=vec4(g+k);}");
   });
 });
@@ -272,7 +272,7 @@ describe("--remove-unused-varyings", () => {
   const vert = "in vec3 position;out vec2 vUv;out vec3 vNormal;out float vUnused;uniform mat4 mvp;void main(){vUv=position.xy;vNormal=normalize(position);vUnused=position.z*2.;gl_Position=mvp*vec4(position,1);}";
   const frag = "in vec2 vUv;in vec3 vNormal;in float vAlsoUnread;out vec4 o;void main(){o=vec4(vUv,vNormal.x,1);}";
   const run = (files: [string, string][], extra: Partial<Options> = {}): string[] => {
-    const o = { ...defaultOptions(), noRenaming: true, noInlining: true, ...extra };
+    const o = { ...defaultOptions(), noRenaming: true, inlining: "none", ...extra };
     return new Minifier(o, files).shaders.map((s) => Printer.print(s.code));
   };
   it("is off by default", () => {
@@ -315,7 +315,7 @@ describe("--remove-unused-uniforms", () => {
   const vert = "uniform mat4 mvp;uniform float vertOnly;uniform float both;uniform float deadEverywhere;in vec3 p;out float v;void main(){v=vertOnly*both;gl_Position=mvp*vec4(p,1);}";
   const frag = "uniform float fragOnly;uniform float both;uniform float deadEverywhere;in float v;out vec4 o;void main(){o=vec4(v*fragOnly*both);}";
   const run = (files: [string, string][], extra: Partial<Options> = {}): string[] => {
-    const o = { ...defaultOptions(), noRenaming: true, noInlining: true, ...extra };
+    const o = { ...defaultOptions(), noRenaming: true, inlining: "none", ...extra };
     return new Minifier(o, files).shaders.map((s) => Printer.print(s.code));
   };
   it("is off by default", () => {
@@ -357,13 +357,16 @@ describe("--webgl across files", () => {
 // once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
   const losesADeclaration = new Set(["many_variables.frag", "ed-209.frag", "slisesix.frag", "endeavour.frag", "audio-flight-v2.frag"]);
-  const portFlags: Partial<Options> = { expandMacros: true, approximateFolds: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true, noPiSubstitution: true };
-  for (const [label, extra] of [["plugin flags", {}], ["plus aggressive inlining and moved declarations", { aggroInlining: true, moveDeclarations: true }]] as const) {
+  const portFlags: Partial<Options> = { expandMacros: true, approximateFolds: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
+  for (const [label, aggressive] of [["plugin flags", false], ["plus aggressive inlining and moved declarations", true]] as const) {
     for (const argv of loadCommands()) {
       const { options, filenames } = Minifier.parseOptionsWithFiles(argv);
       it(`${filenames.join(" ")} [${label}]`, () => {
         const files = filenames.map((f): [string, string] => [f, fs.readFileSync(path.join(repoRoot, f), "utf8")]);
-        const run = (): Minifier => new Minifier({ ...options, ...portFlags, ...extra }, files);
+        // A command's --no-remove-unused and --no-inlining stay: every other command also removes
+        // unused declarations, and in the second round inlines aggressively and moves declarations.
+        const extra: Partial<Options> = aggressive ? { inlining: options.inlining === "none" ? "none" : "aggressive", moveDeclarations: true } : {};
+        const run = (): Minifier => new Minifier({ ...options, ...portFlags, removeUnused: options.removeUnused === "none" ? "none" : "declarations", ...extra }, files);
         // Five shaders lose a declaration under `--no-remove-unused --aggressive-inlining
         // --move-declarations` and emit a use with nothing to bind to. The bug predates this port
         // (it reproduces at the first commit) and was invisible until the scope check learned to

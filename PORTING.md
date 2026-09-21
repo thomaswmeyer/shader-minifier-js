@@ -577,6 +577,21 @@ says so. Every site is ported deliberately:
     in order over the plugin's own before the pragma. GLSL ignores an
     unknown `#pragma`, so a shader carrying one still compiles unminified.
 
+36. *Settings, not switch pairs, and one flag table.* Upstream's
+    `--no-inlining` and `--aggressive-inlining` are one setting,
+    `inlining: none | default | aggressive` (`--inlining <level>`), and its
+    `--no-remove-unused` with the port's `--remove-unused-declarations` are
+    `removeUnused: none | functions | declarations` (`--remove-unused
+    <level>`); the old flags set the same setting, so the last one given
+    wins and upstream's `aggro && !noInlining` fixup goes. `--inline-single-use`
+    stays a switch of its own rather than a rung between default and
+    aggressive inlining: the plugin wants it without aggressive, the goldens
+    want aggressive without it, and the flag test wants both, so the two are
+    not ordered. One table in `src/options.ts` now drives the help text, the
+    parser, the `--no-` forms and what a pragma may set; adding a flag is
+    one row, and the plugin's mapping is the option's own name, so a new
+    row reaches the plugin with no code of its own.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

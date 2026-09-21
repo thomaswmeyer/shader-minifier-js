@@ -15,7 +15,7 @@ describe("optimisation levels", () => {
   });
   it("each level adds to the one below", () => {
     const o1 = parse("-O1"), o2 = parse("-O2"), o3 = parse("-O3");
-    expect(o1).toEqual({ ...defaultOptions(), noPiSubstitution: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true });
+    expect(o1).toEqual({ ...defaultOptions(), noPiSubstitution: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnused: "declarations" });
     expect(o2).toEqual({ ...o1, expandMacros: true, approximateFolds: true });
     expect(o3).toEqual({ ...o2, removeUnusedVaryings: true, removeUnusedUniforms: true });
   });
@@ -31,7 +31,7 @@ describe("optimisation levels", () => {
     const o = parse("--webgl", "--preserve-externals", "--aggressive-inlining", "-O0");
     expect(o.webgl).toBe(true);
     expect(o.preserveExternals).toBe(true);
-    expect(o.aggroInlining).toBe(true);
+    expect(o.inlining).toBe("aggressive");
   });
   it("is in the help text", () => {
     expect(flagsHelp()).toContain("-O0 | -O1 | -O2 | -O3");

@@ -49,14 +49,14 @@ import frag from "./shader.frag"; // a minified string; `?raw` imports are minif
 Files matching `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` are minified at load
 time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
 `noOverloading`, `noPiSubstitution`, `expandMacros`, `approximateFolds`,
-`dropDefaultPrecision`, `inlineSingleUse` and `removeUnusedDeclarations` are
-on, so uniform and attribute names are kept, macros and constant builtin calls
-are folded away, unused globals, structs and precision statements go, and the
-output only uses constructs ANGLE accepts. Every other
-Shader Minifier flag is available as a camelCased option (`noRenaming`,
-`noRenamingList`, `noInlining`, `aggressiveInlining`, `noSequence`,
-`noRemoveUnused`, `preprocess`, `moveDeclarations`), `include` overrides the
-file pattern, and `options` passes any raw minifier option. `level` picks
+`dropDefaultPrecision` and `inlineSingleUse` are on and `removeUnused` is
+`"declarations"`, so uniform and attribute names are kept, macros and
+constant builtin calls are folded away, unused globals, structs and
+precision statements go, and the output only uses constructs ANGLE accepts.
+Every other flag is available under the minifier option's name
+(`noRenaming`, `noRenamingList`, `inlining`, `noSequence`, `preprocess`,
+`moveDeclarations`), `include` overrides the file pattern, and `options`
+passes any raw minifier option. `level` picks
 the optimisation level the settings start from (`-O0` to `-O3` below;
 default 2).
 
@@ -103,6 +103,14 @@ tolerates a null uniform location. Flags after a level override it
 target flags, `--webgl`, `--preserve-externals`, `--no-overloading`,
 `--stage` and `--preprocess`, are not part of a level: the plugin is
 `-O2 --webgl --preserve-externals --no-overloading`.
+
+Two of Shader Minifier's pairs of switches are also one setting each:
+`--inlining none|default|aggressive` is `--no-inlining` and
+`--aggressive-inlining`, and `--remove-unused none|functions|declarations`
+is `--no-remove-unused`, Shader Minifier's default and
+`--remove-unused-declarations`. The old spellings still work and set the
+same setting, so the last one given wins instead of two booleans
+contradicting each other.
 
 - `--webgl`: skip two Shader Minifier rewrites whose output Chrome rejects (`?:` on
   struct values; a void call folded into a comma sequence, an ES 3.00 rule),

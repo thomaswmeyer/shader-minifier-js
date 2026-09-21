@@ -36,7 +36,7 @@ void main() {
 }`;
 
   it("is kept as text on its own lines, comments and indentation gone", () => {
-    const out = minify(src, { removeUnusedDeclarations: true }).code;
+    const out = minify(src, { removeUnused: "declarations" }).code;
     expect(out).toMatch(/struct \w+\{vec3 \w+;\n#ifdef USE_EXTRA\nfloat extra;T tail;\n#endif\n\};/);
   });
 
@@ -45,7 +45,7 @@ void main() {
     expect(shader.pinnedGlobalNames).toEqual(expect.arrayContaining(["extra", "tail", "T"]));
     expect(shader.pinnedFields).toEqual(expect.arrayContaining(["extra", "tail"]));
     expect(shader.forbiddenNames).toEqual(expect.arrayContaining(["extra", "tail", "T"]));
-    const out = minify(src, { removeUnusedDeclarations: true }).code;
+    const out = minify(src, { removeUnused: "declarations" }).code;
     expect(out).toContain("struct T{float a;};"); // named only in the region, and still declared
     expect(out).toMatch(/\.extra=\w+;\w+\.tail\.a=\w+;/);
     expect(out).toContain("float extra;"); // N's field of the same name keeps it too
@@ -79,12 +79,12 @@ void main() {
 }`;
 
   it("keeps the whole function as text, with its directives on their own lines", () => {
-    const out = minify(src, { removeUnusedDeclarations: true }).code;
+    const out = minify(src, { removeUnused: "declarations" }).code;
     expect(out).toContain("float shadow(\n#if defined(PCF)\nsampler2DShadow shadowMap,\n#else\nsampler2D shadowMap,\n#endif\nvec2 uv){float shadow=1.0;for(int i=0;i<2;i++)shadow*=tap(uv+float(i)/size);return shadow;}");
   });
 
   it("keeps what the text names: the functions it calls and the globals it reads", () => {
-    const out = minify(src, { removeUnusedDeclarations: true }).code;
+    const out = minify(src, { removeUnused: "declarations" }).code;
     expect(out).toContain("float tap(vec2 ");
     expect(out).toContain("uniform vec2 size;");
     expect(out).toMatch(/uniform sampler2D \w+;/); // read by tap alone, so renamed like any other

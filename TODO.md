@@ -559,19 +559,15 @@ The rule these two share: an optimisation that removes *repeated* text is
 paid for by the compressor already. What still pays is removing *unique*
 text, which is why unused varyings and uniforms remain the best items above.
 
-## 8. Flag surface
+## 8. Flag surface: done
 
-Adding one flag today touches six places: the `Options` field, the defaults,
-the usage table, the argv switch, the plugin's option type and the plugin's
-defaults. A descriptor table driving the help text and the parser would cut
-that, but the argv switch is ported from upstream and the changes below
-would rewrite the surface anyway, so the table is only worth building on top
-of whatever this section settles on.
-
-
-The port's flags grew one per discovery and are all off in the CLI so the
-goldens stay byte-identical, which is why reproducing the plugin's output
-from the command line takes nine of them. What that should become:
+Adding one flag touched six places: the `Options` field, the defaults, the
+usage table, the argv switch, the plugin's option type and the plugin's
+defaults. It now touches two: the `Options` field with its default, and one
+row of the flag table in `src/options.ts`, which drives the help text, the
+parser, the `--no-` form and what a `#pragma shader_minifier` may set; the
+plugin maps every setting by the option's own name. What the section asked
+for, and what became of each:
 
 - **`-O0` to `-O3`: done** (`PORTING.md` item 34). `-O0` upstream's
   rewrites only, `-O1` the additions that change neither meaning nor
@@ -595,12 +591,15 @@ from the command line takes nine of them. What that should become:
   file pattern, choose the rewrites for one file; the fp16 measurement in
   section 7 is why it matters, since a `mediump` reduction can only ever be
   opted into per shader.
-- **Level, not boolean, for inlining and for unused removal.**
-  `--inline-single-use` is a middle rung between upstream's default and
-  `--aggressive-inlining`, and it also carries a second rewrite (argument
-  substitution) the name does not mention. `--no-remove-unused` and
-  `--remove-unused-declarations` are three levels (none, functions, all)
-  spelled as two booleans that can contradict each other.
+- **Level, not boolean, for inlining and for unused removal: done, with
+  one correction** (`PORTING.md` item 36). `--remove-unused
+  none|functions|declarations` replaces the two booleans that could
+  contradict each other, and `--inlining none|default|aggressive` replaces
+  upstream's pair. `--inline-single-use` was described here as a middle rung
+  between default and aggressive inlining; it is not. The plugin wants it
+  without aggressive inlining, the goldens want aggressive inlining without
+  it, and the flag test wants both, so the two are independent axes and it
+  stays a switch. Its help text now names both rewrites it carries.
 - **`--no-pi-substitution` stays, and needs no refinement.** The idea was to
   fire only when the literal's float32 value equals float32 pi, making the
   substitution exact so the flag could go. Two things killed it. Every

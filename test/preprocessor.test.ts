@@ -152,7 +152,7 @@ describe("--expand-macros on the spglsl corpus", () => {
   const island = `${spglslShaders}/custom/island-not-found.frag`;
   it.skipIf(!fs.existsSync(island))("beats spglsl on island-not-found and stays valid", () => {
     const src = fs.readFileSync(island, "utf8");
-    const { code } = minify(src, { noRemoveUnused: true, expandMacros: true });
+    const { code } = minify(src, { removeUnused: "none", expandMacros: true });
     expect(code.length).toBeLessThan(12080);
     expect(code).not.toMatch(/SUBMATERIAL|iAnim/);
     expect(() => parse(code, { quiet: true })).not.toThrow();

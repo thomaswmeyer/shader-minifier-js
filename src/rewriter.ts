@@ -1299,7 +1299,7 @@ class RewriterImpl {
     };
     b = replaceIfReturnsWithReturnTernary(b);
 
-    if (!(this.options.noRemoveUnused || hasPreprocessor)) b = this.removeUnusedAssignments(blockLevel, b);
+    if (this.options.removeUnused !== "none" && !hasPreprocessor) b = this.removeUnusedAssignments(blockLevel, b);
 
     if (!(this.optimizationPass !== OptimizationPass.Second || hasPreprocessor)) b = this.reuseExistingVarDecl(blockLevel, b);
 
@@ -1687,20 +1687,20 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
 
 function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {
   let code = li;
-  if (!options.noRemoveUnused) {
+  if (options.removeUnused !== "none") {
     // Removing a global can orphan a function whose only caller was its initializer, and removing
     // a function can orphan a global only it read, so alternate until neither removes anything.
     const changed = { value: true };
     while (changed.value) {
       changed.value = false;
       code = RewriterImpl.removeUnusedFunctions(options, code, changed);
-      if (options.removeUnusedDeclarations) code = RewriterImpl.removeUnusedDeclarations(options, code, changed);
+      if (options.removeUnused === "declarations") code = RewriterImpl.removeUnusedDeclarations(options, code, changed);
     }
   }
   code = code.filter((t) => !(t.kind === "TypeDecl" && t.block.blockType.kind === "Struct" && t.block.name === null)); // e.g. `struct {int A;};`
   new Analyzer(options).resolve(code);
   new Analyzer(options).markWrites(code);
-  if (!options.noInlining) {
+  if (options.inlining !== "none") {
     new FunctionInlining(options).markInlinableFunctions(code);
     new VariableInlining(options).markInlinableVariables(code);
   }
@@ -1713,7 +1713,7 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   code = code.filter((t) => !(t.kind === "Function" && t.funcType.fName.toBeInlined && !t.funcType.fName.name.startsWith("i_")));
 
   new Analyzer(options).checkScopes(code); // before argument inlining's resolve() hides a capture
-  code = options.noInlining ? code : new ArgumentInlining(options).apply(didInline, code);
+  code = options.inlining === "none" ? code : new ArgumentInlining(options).apply(didInline, code);
   new Analyzer(options).checkScopes(code);
 
   if (passCount > 20) {

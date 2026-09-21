@@ -1,9 +1,12 @@
 import * as fs from "node:fs";
 import type { Plugin } from "vite";
 import { minify } from "./api.js";
-import { defaultOptions, optimizationLevels, type OptimizationLevel, type Options } from "./options.js";
+import { defaultOptions, optimizationLevels, type Inlining, type OptimizationLevel, type Options, type RemoveUnused } from "./options.js";
 
-/** The rewrite settings, which apply to every file or, in `overrides`, to the files a pattern matches. */
+/**
+ * The rewrite settings, which apply to every file or, in `overrides`, to the files a pattern
+ * matches. Each is the minifier option of the same name; the defaults are -O2 for a WebGL target.
+ */
 export interface ShaderMinifierRewriteOptions {
   /** The optimisation level the other settings start from (`-O0` to `-O3`). Default 2, the plugin's own rewrites. */
   level?: OptimizationLevel;
@@ -17,14 +20,16 @@ export interface ShaderMinifierRewriteOptions {
   noPiSubstitution?: boolean;
   /** Expand `#define` macros so they vanish from the output (`--expand-macros`). Default true. */
   expandMacros?: boolean;
-  /** Evaluate builtin calls on literals at float32 precision when shorter (`--approximate-folds`). Default true. */
+  /** Fold builtin calls on literals and constant divisions at float32 precision when shorter (`--approximate-folds`). Default true. */
   approximateFolds?: boolean;
+  /** Fold `+ - *` on literals with upstream's decimal arithmetic instead of at float32 (`--decimal-folds`). Default false. */
+  decimalFolds?: boolean;
   /** Drop precision statements that restate the stage's default (`--drop-default-precision`); the stage comes from the file extension. Default true. */
   dropDefaultPrecision?: boolean;
   /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
   inlineSingleUse?: boolean;
-  /** Remove unused globals, struct types and sampler precision statements (`--remove-unused-declarations`); externals stay. Default true, and a no-op under `noRemoveUnused`. */
-  removeUnusedDeclarations?: boolean;
+  /** What to remove when unused (`--remove-unused`): `"none"`, `"functions"` (upstream's default) or `"declarations"`, also globals, struct types and sampler precision statements, externals staying. Default `"declarations"`. */
+  removeUnused?: RemoveUnused;
   /** Remove varyings no fragment shader reads (`--remove-unused-varyings`); needs both stages in one run, so the plugin cannot use it and it defaults false. */
   removeUnusedVaryings?: boolean;
   /** Remove uniforms no shader of the run reads (`--remove-unused-uniforms`); needs both stages, and the application must tolerate a null location. Default false. */
@@ -33,14 +38,10 @@ export interface ShaderMinifierRewriteOptions {
   noRenaming?: boolean;
   /** Extra names never to rename, in addition to `main` and `mainImage` (`--no-renaming-list`). */
   noRenamingList?: string[];
-  /** `--no-inlining` */
-  noInlining?: boolean;
-  /** `--aggressive-inlining` */
-  aggressiveInlining?: boolean;
+  /** How much to inline (`--inlining`): `"none"`, `"default"` or `"aggressive"`. Default `"default"`. */
+  inlining?: Inlining;
   /** `--no-sequence` */
   noSequence?: boolean;
-  /** `--no-remove-unused` */
-  noRemoveUnused?: boolean;
   /** `--preprocess` */
   preprocess?: boolean;
   /** `--move-declarations` */
@@ -73,30 +74,15 @@ export function toMinifierOptions(plugin: ShaderMinifierPluginOptions = {}, file
     o = { ...o, ...settings, noRenamingList: [...(o.noRenamingList ?? []), ...(settings.noRenamingList ?? [])], options: { ...o.options, ...settings.options } };
   }
   // The plugin is -O2 for a WebGL target: the level's rewrites, with the names an application
-  // looks up kept and no new overloads, which ANGLE's linker is strict about.
+  // looks up kept and no new overloads, which ANGLE's linker is strict about. Every other setting
+  // is the minifier option of the same name.
   const d: Options = { ...defaultOptions(), ...optimizationLevels[o.level ?? 2], outputFormat: "text", webgl: true, preserveExternals: true, noOverloading: true };
+  const { level: _level, noRenamingList, options, ...settings } = o;
   return {
     ...d,
-    webgl: o.webgl ?? d.webgl,
-    preserveExternals: o.preserveExternals ?? d.preserveExternals,
-    noOverloading: o.noOverloading ?? d.noOverloading,
-    noPiSubstitution: o.noPiSubstitution ?? d.noPiSubstitution,
-    expandMacros: o.expandMacros ?? d.expandMacros,
-    approximateFolds: o.approximateFolds ?? d.approximateFolds,
-    dropDefaultPrecision: o.dropDefaultPrecision ?? d.dropDefaultPrecision,
-    inlineSingleUse: o.inlineSingleUse ?? d.inlineSingleUse,
-    removeUnusedDeclarations: o.removeUnusedDeclarations ?? d.removeUnusedDeclarations,
-    removeUnusedVaryings: o.removeUnusedVaryings ?? d.removeUnusedVaryings,
-    removeUnusedUniforms: o.removeUnusedUniforms ?? d.removeUnusedUniforms,
-    noRenaming: o.noRenaming ?? false,
-    noRenamingList: [...d.noRenamingList, ...(o.noRenamingList ?? [])],
-    noInlining: o.noInlining ?? false,
-    aggroInlining: o.aggressiveInlining ?? false,
-    noSequence: o.noSequence ?? false,
-    noRemoveUnused: o.noRemoveUnused ?? false,
-    preprocess: o.preprocess ?? false,
-    moveDeclarations: o.moveDeclarations ?? false,
-    ...o.options,
+    ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined)),
+    noRenamingList: [...d.noRenamingList, ...(noRenamingList ?? [])],
+    ...options,
   };
 }
 

@@ -73,23 +73,23 @@ describe("reorderFunctions with #ifdef regions", () => {
   const minify = (src: string, extra: Partial<Options> = {}): string => minifyApi(src, { noRenaming: true, noPiSubstitution: true, ...extra }).code;
   it("keeps alternative definitions in their blocks and puts what they call before them", () => {
     const src = "float tri(float x){return abs(fract(x)-.5);}float noise(vec2 p);\n#ifdef TRI\nfloat noise(vec2 p){return tri(p.x)+tri(p.y);}\n#else\nfloat noise(vec2 p){return sin(p.x)*sin(p.y);}\n#endif\nfloat layer(vec2 p){return noise(p)+noise(p*2.)*.5;}void main(){gl_FragColor=vec4(layer(gl_FragCoord.xy));}";
-    expect(minify(src, { noInlining: true })).toBe(
+    expect(minify(src, { inlining: "none" })).toBe(
       "float tri(float x){return abs(fract(x)-.5);}\n#ifdef TRI\nfloat noise(vec2 p){return tri(p.x)+tri(p.y);}\n#else\nfloat noise(vec2 p){return sin(p.x)*sin(p.y);}\n#endif\nfloat layer(vec2 p){return noise(p)+noise(p*2.)*.5;}void main(){gl_FragColor=vec4(layer(gl_FragCoord.xy));}",
     );
   });
   it("pulls a callee defined later in the file ahead of the region that needs it", () => {
     const src = "float g();\n#ifdef A\nfloat g(){return h(1.);}\n#else\nfloat g(){return h(2.);}\n#endif\nfloat h(float x){return x*2.;}void main(){gl_FragColor=vec4(g());}";
-    const out = minify(src, { noInlining: true });
+    const out = minify(src, { inlining: "none" });
     expect(out.indexOf("float h(")).toBeLessThan(out.indexOf("#ifdef A"));
   });
   it("puts a region before another region that calls into it", () => {
     const src = "float g();float h();\n#ifdef X\nfloat g(){return h()+1.;}\n#else\nfloat g(){return 2.;}\n#endif\n#ifdef Y\nfloat h(){return fract(gl_FragCoord.x);}\n#else\nfloat h(){return 3.;}\n#endif\nvoid main(){gl_FragColor=vec4(g());}";
-    const out = minify(src, { noInlining: true });
+    const out = minify(src, { inlining: "none" });
     expect(out.indexOf("#ifdef Y")).toBeLessThan(out.indexOf("#ifdef X"));
   });
   it("puts a free function after the region it calls and before the region that calls it", () => {
     const src = "float r1();float mid();float r2();\n#ifdef X\nfloat r1(){return mid()+1.;}\n#endif\nfloat mid(){return r2()+2.;}\n#ifdef Y\nfloat r2(){return fract(gl_FragCoord.x);}\n#endif\nvoid main(){gl_FragColor=vec4(r1());}";
-    const out = minify(src, { noInlining: true });
+    const out = minify(src, { inlining: "none" });
     expect(out.indexOf("#ifdef Y")).toBeLessThan(out.indexOf("float mid("));
     expect(out.indexOf("float mid(")).toBeLessThan(out.indexOf("#ifdef X"));
   });
@@ -97,18 +97,18 @@ describe("reorderFunctions with #ifdef regions", () => {
     // `g` has a conditional in its parameter list, so it is verbatim text (PORTING.md item 31):
     // its callees are known only by name, and so are its callers.
     const src = "float h(float x);float g(\n#ifdef A\nfloat x\n#else\nint x\n#endif\n){return h(float(x));}float h(float x){return x*2.;}float k(){return g(1.);}void main(){gl_FragColor=vec4(k());}";
-    const out = minify(src, { noInlining: true });
+    const out = minify(src, { inlining: "none" });
     expect(out.indexOf("float h(")).toBeLessThan(out.indexOf("float g("));
     expect(out.indexOf("float g(")).toBeLessThan(out.indexOf("float k("));
   });
   it("leaves a cycle through two regions in file order, since the forward declarations are gone", () => {
     const src = "float p();float q();\n#ifdef X\nfloat p(){return q()+1.;}\n#endif\n#ifdef Y\nfloat q(){return p()+2.;}\n#endif\nvoid main(){gl_FragColor=vec4(p());}";
-    const out = minify(src, { noInlining: true });
+    const out = minify(src, { inlining: "none" });
     expect(out.indexOf("#ifdef X")).toBeLessThan(out.indexOf("#ifdef Y"));
   });
   it("orders as upstream does when there is no region", () => {
     const src = "float a();float b(){return a()+1.;}float a(){return 2.;}void main(){gl_FragColor=vec4(b());}";
-    expect(minify(src, { noInlining: true })).toBe("float a(){return 2.;}float b(){return a()+1.;}void main(){gl_FragColor=vec4(b());}");
+    expect(minify(src, { inlining: "none" })).toBe("float a(){return 2.;}float b(){return a()+1.;}void main(){gl_FragColor=vec4(b());}");
   });
 });
 
@@ -134,7 +134,7 @@ describe("struct fields named like swizzle components (upstream refuses them)", 
   });
   it("never generates a field's swizzle-like name for anything else", () => {
     const src = hex + "float extra(float a,float b,float c){return a*b+c;}";
-    const out = minify(src, { noRemoveUnused: true });
+    const out = minify(src, { removeUnused: "none" });
     // q, r and s are forbidden as generated names: the three parameters cannot be called that
     expect(out).not.toMatch(/float \w+\(float q,|,float r,|,float s\)/);
   });
@@ -152,7 +152,7 @@ describe("--move-declarations", () => {
   it("does not hoist a local above an earlier use of its name that refers to a global", () => {
     // Upstream merges `float t` into the block's first float declaration, and `t.x` then names it.
     // (Adjacent declarations merge anyway, and that is fine: a declarator's scope starts after it.)
-    const opts = { moveDeclarations: true, noInlining: true };
+    const opts = { moveDeclarations: true, inlining: "none" };
     const src = "uniform vec2 t;void main(){float a=1.;float b=t.x*a;a+=b;float t=0.;for(int i=0;i<2;i++)t+=b;gl_FragColor=vec4(t,a,0,1);}";
     expect(minify(src, opts)).toBe("uniform vec2 t;void main(){float a=1.,b=t.x*a;a+=b;float t=0.;for(int i=0;i<2;i++)t+=b;gl_FragColor=vec4(t,a,0,1);}");
     const control = "uniform vec2 t;void main(){float a=1.;float b=a*2.;a+=b;float c=0.;for(int i=0;i<2;i++)c+=b;gl_FragColor=vec4(c,a,b,1);}";

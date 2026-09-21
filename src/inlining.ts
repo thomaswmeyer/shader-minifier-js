@@ -149,7 +149,7 @@ export class VariableInlining {
   // Detect if a variable can be inlined in multiple places, based on its value.
   private isSimpleEnoughToInline(init: Expr): boolean {
     if (isTrivialExpr(init)) return true;
-    if (!this.options.aggroInlining) return false;
+    if (this.options.inlining !== "aggressive") return false;
     // Allow a few things to be inlined with aggroInlining (even if they have side effects!)
     const use = resolvedVariableUse(init) ?? (init.kind === "Dot" ? resolvedVariableUse(init.expr) : null);
     if (use !== null) {

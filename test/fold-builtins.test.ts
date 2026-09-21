@@ -84,7 +84,7 @@ describe("--approximate-folds", () => {
   });
   it("does not fold a user function that shadows a builtin", () => {
     const src = "float radians(float x){return x*2.;}uniform float a;void main(){gl_FragColor=vec4(radians(45.)*a);}";
-    const out = minify(src, { noRenaming: true, approximateFolds: true, noInlining: true }).code;
+    const out = minify(src, { noRenaming: true, approximateFolds: true, inlining: "none" }).code;
     expect(out).toContain("radians(45.)");
   });
   it("is off by default", () => {

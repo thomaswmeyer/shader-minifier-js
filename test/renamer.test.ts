@@ -70,7 +70,7 @@ describe("computeContextTable / chooseIdent", () => {
 });
 
 function minify(src: string, opts: Partial<ReturnType<typeof defaultOptions>> = {}) {
-  const options = { ...defaultOptions(), noRemoveUnused: true, ...opts };
+  const options = { ...defaultOptions(), removeUnused: "none", ...opts };
   const shader = runParser(options, "test.frag", src);
   const exportedNames = rename(options, [shader]);
   return { shader, exportedNames, text: Printer.print(shader.code) };
@@ -157,7 +157,7 @@ describe("rename", () => {
   });
 
   it("renames consistently across files in multi-file mode", () => {
-    const options = { ...defaultOptions(), noRemoveUnused: true };
+    const options = { ...defaultOptions(), removeUnused: "none" };
     const a = runParser(options, "a.vert", "uniform float time; out vec3 col; void main(){col=vec3(time);}");
     const b = runParser(options, "b.frag", "uniform float time; in vec3 col; out vec4 o; void main(){o=vec4(col,time);}");
     const exportedNames = rename(options, [a, b]);
