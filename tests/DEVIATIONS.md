@@ -34,7 +34,22 @@ in `PORTING.md` section 5.2.
    initializers, and `ed-209`'s two `vec2 coord` declarations get one name
    instead of two. `ed-209`'s loops around them open under `#ifdef AA` and
    close under another, so the port also stops reusing outer names by
-   shadowing inside them, which renames the loop variables.
+   shadowing inside them, which renames the loop variables. With the
+   branches of a region renamed each from the scope the region began in
+   (`PORTING.md` 5.2 item 37), `tests/real/mandelbulb.expected` changes too:
+   its branches share names rather than running on from each other.
+
+5. Fifteen goldens under `tests/real` and `tests/unit` — no reassociation of
+   floating-point arithmetic (`PORTING.md` 5.2 item 38). Upstream turns
+   `x+(y+z)` into `x+y+z` and `x-(y-z)` into `x-y+z`, which is a different
+   number when the magnitudes differ enough; the port commutes instead
+   (`y+z+x`) and keeps the parentheses under a subtraction. Three of the
+   fifteen are corrections where an operand had a side effect and
+   reassociating moved it (`g+(--g-++g)` had become `g+--g-++g`). Files:
+   `kinder_painter`, `mandelbulb`, `monjori`, `moutard`, `mouton`,
+   `ohanami`, `the_real_party_is_in_your_pocket`, `valley_ball`,
+   `lunaquatic`, `from-the-seas-to-the-stars` and, under `tests/unit`,
+   `arg-inlining`, `operators`, `precedence`, `shadowing`, `simplify`.
 
 Not an edit to the corpus, but a flag the runner adds: `test/golden.ts` passes
 `--decimal-folds` to every command, because the port folds float operators

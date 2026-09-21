@@ -39,6 +39,13 @@ describe("--webgl", () => {
     expect(() => minify(src)).not.toThrow();
     expect(() => minify(src, { webgl: true })).toThrow(/ternary operator on struct/);
   });
+  it("accepts a ternary whose type is a kept #define for a builtin", () => {
+    // Cesium's FXAA pass declares `FxaaBool goodSpanN` and writes
+    // `directionN ? goodSpanN : goodSpanP`. `FxaaBool` is not a builtin type name, but it is not
+    // a struct either, and the check has to be sure before it refuses a shader ANGLE accepts.
+    const src = "#define FxaaBool bool\nuniform float u;void main(){FxaaBool a=u<1.,b=u<2.,c=u<3.;gl_FragColor=vec4((a?b:c)?1.:0.);}";
+    expect(() => minify(src, { webgl: true })).not.toThrow();
+  });
   it("rejects a void call in a sequence already present in the input", () => {
     const src = "float g;void f(float x){g=x;}void main(){float a=1.;for(int i=0;i<2;i++)f(a),a+=1.;gl_FragColor=vec4(a+g);}";
     expect(() => minify(src)).not.toThrow();

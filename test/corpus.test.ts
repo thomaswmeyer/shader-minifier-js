@@ -7,13 +7,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
 import * as Printer from "../src/printer.js";
 import { ParseError, type Options } from "../src/options.js";
-import { babylonShaders, glTransitions, playcanvasShaders, pluginOptions, programs, threeShaders, variants, type CorpusShader } from "./corpora.js";
+import { babylonShaders, cesiumShaders, glTransitions, playcanvasShaders, pluginOptions, programs, threeShaders, variants, type CorpusShader } from "./corpora.js";
 import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, type RenderConfig } from "./pixels.js";
 
 interface Case { name: string; file: string; stage: "frag" | "vert"; source: string; options: Options; uniforms?: RenderConfig["uniforms"] }
 
 const cases: Case[] = [];
-for (const [corpus, shaders] of [["gl-transitions", glTransitions()], ["three", threeShaders()], ["babylon", babylonShaders()], ["playcanvas", playcanvasShaders()]] as [string, CorpusShader[]][]) {
+for (const [corpus, shaders] of [["gl-transitions", glTransitions()], ["three", threeShaders()], ["babylon", babylonShaders()], ["playcanvas", playcanvasShaders()], ["cesium", cesiumShaders()]] as [string, CorpusShader[]][]) {
   for (const s of shaders) {
     // gl-transitions are wrapped into a complete fragment shader, whatever the file is called.
     const file = corpus === "gl-transitions" ? s.name.replace(/\.glsl$/, ".frag") : s.name;
@@ -90,7 +90,7 @@ describe("open source shader corpus renders the same", () => {
 describe("engine programs link and draw the same after minification", () => {
   const flat = (px: number[]): boolean => px.every((v, i) => v === px[i % 4]);
   const pairVariants: [string, Partial<Options>][] = [["plugin", {}], ["plugin +remove-unused varyings and uniforms", { removeUnusedVaryings: true, removeUnusedUniforms: true }]];
-  const allPrograms = [...programs(threeShaders()).map((p) => ({ ...p, corpus: "three" })), ...programs(babylonShaders()).map((p) => ({ ...p, corpus: "babylon" })), ...programs(playcanvasShaders()).map((p) => ({ ...p, corpus: "playcanvas" }))];
+  const allPrograms = [...programs(threeShaders()).map((p) => ({ ...p, corpus: "three" })), ...programs(babylonShaders()).map((p) => ({ ...p, corpus: "babylon" })), ...programs(playcanvasShaders()).map((p) => ({ ...p, corpus: "playcanvas" })), ...programs(cesiumShaders()).map((p) => ({ ...p, corpus: "cesium" }))];
   for (const { corpus, name, vert, frag } of allPrograms) for (const [label, extra] of pairVariants) {
     it(`${corpus}/${name} [${label}]`, async (ctx) => {
       if (unavailable !== null) { ctx.skip(`no browser: ${unavailable}`); return; }

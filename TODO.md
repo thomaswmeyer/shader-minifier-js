@@ -221,7 +221,8 @@ directive is the fix. A chain that spans several arguments (`f(a,\n#ifdef
 X\n b, c\n#else\n d\n#endif\n)`) is one too. Neither occurs in the corpora.
 The corpus still runs with `--preprocess` in `npm run metrics`, since the
 other minifiers see preprocessed input and the sizes should compare; item 16
-of `PORTING.md` lists what the flag decides.
+of `PORTING.md` lists what the flag decides, including the macros the
+compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
 
 ## 2. Upstream limits still in place
 

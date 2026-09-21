@@ -12,10 +12,32 @@ type Status = "Active" | "Inactive" | "Unknown";
 // and whether a directive of the block reached the output, so that its #endif must too.
 interface Frame { status: Status; taken: Status; emitted: boolean }
 
+// The compiler owns two identifier prefixes: `GL_` for the profile and the extensions it
+// supports, and `__` for the macros it predefines. A name in them that the file does not define
+// is not absent, it is unknown to this pass: whether `GL_EXT_frag_depth` is defined is the
+// device's answer, not the file's. Reading it as 0, the way C reads an undefined macro, chooses a
+// branch the driver would not, so a condition that mentions one stays undecided instead.
+const compilerOwned = (name: string): boolean => name.startsWith("GL_") || name.startsWith("__");
+
+// What the compiler predefines, as far as the `#version` line settles it. ESSL 3.00 requires
+// highp in fragment shaders, so GL_FRAGMENT_PRECISION_HIGH is defined there; at 1.00 it is the
+// device's answer, so it is left unknown, along with every GL_ extension macro.
+function predefined(content: string): Map<string, string> {
+  const m = /^[ \t]*#[ \t]*version[ \t]+(\d+)[ \t]*([A-Za-z]*)/m.exec(content);
+  const version = m === null ? 100 : Number(m[1]);
+  const es = m === null || m[2] === "es" || version === 100;
+  const defines = new Map<string, string>([["__VERSION__", String(version)]]);
+  if (es) defines.set("GL_ES", "1");
+  if (es && version >= 300) defines.set("GL_FRAGMENT_PRECISION_HIGH", "1");
+  return defines;
+}
+
 class Impl {
   // Dict of macro name to value
-  private readonly defines = new Map<string, string>();
+  private readonly defines: Map<string, string>;
   private readonly stack: Frame[] = [];
+
+  constructor(content: string) { this.defines = predefined(content); }
 
   private currentStatus(): Status {
     return this.stack.length === 0 ? "Active" : this.stack[this.stack.length - 1].status;
@@ -62,9 +84,9 @@ class Impl {
   // define reads as 0, as C does; a name defined as something other than an integer leaves the
   // condition undecidable, and so does anything this cannot evaluate.
   private evalCond(str: string): Status {
-    const v = evalConstantExpression(str, (name) => this.defines.has(name), (name) => {
+    const v = evalConstantExpression(str, (name) => (this.defines.has(name) ? true : compilerOwned(name) ? null : false), (name) => {
       const d = this.defines.get(name);
-      if (d === undefined) return 0; // not defined in the file: 0, as for #ifdef
+      if (d === undefined) return compilerOwned(name) ? null : 0; // not defined in the file: 0, as for #ifdef
       // A trailing comment is not part of the value: engine shaders write `#define N 1 // count`.
       const n = /^\s*(0[xX][0-9a-fA-F]+|\d+)[uU]?\s*(?:\/\/.*|\/\*(?:(?!\*\/)[\s\S])*\*\/\s*)?$/.exec(d);
       return n === null ? null : Number(n[1]);
@@ -111,15 +133,19 @@ class Impl {
         const frame = this.stack.pop();
         return frame !== undefined && frame.emitted ? "#endif" : "";
       }
+      // The line is kept only when the block it opens is undecided. Inside an inactive block it
+      // is not: the whole block is going away, and keeping the `#if` without its `#endif` (which
+      // enterScope marks as not emitted) leaves the output unbalanced.
       case "if": {
-        const status = this.evalCond(afterKw);
-        this.enterScope(status);
-        return status === "Unknown" ? "#if " + afterKw : "";
+        this.enterScope(this.evalCond(afterKw));
+        return this.currentStatus() === "Unknown" ? "#if " + afterKw : "";
       }
       case "ifdef": case "ifndef": {
         const [ident] = Impl.splitIdent(afterKw);
-        this.enterScope(this.defines.has(ident) === (keyword === "ifdef") ? "Active" : "Inactive");
-        return "";
+        // A name the compiler owns and the file does not define is unknown, not absent.
+        const decided = this.defines.has(ident) || !compilerOwned(ident);
+        this.enterScope(!decided ? "Unknown" : this.defines.has(ident) === (keyword === "ifdef") ? "Active" : "Inactive");
+        return this.currentStatus() === "Unknown" ? `#${keyword} ${ident}` : "";
       }
       default:
         // It is valid to have '#' alone on a line. This is a no op.
@@ -150,21 +176,25 @@ class Impl {
 }
 
 export function preprocess(_streamName: string, content: string): string {
-  return new Impl().parse(content);
+  return new Impl(content).parse(content);
 }
 
 /**
  * The integer value of a preprocessor constant expression, or null when it is not one the port
  * decides: anything with a bare identifier, a function-like form other than `defined`, or a
  * syntax error. Precedence climbing over the C operators; division by zero is null too.
+ *
+ * `isDefined` and `valueOf` may answer null for a name they cannot settle, which makes the
+ * operand undecidable rather than absent. That is weaker than a syntax error: C's short circuit
+ * still decides `1 || X` and `0 && X`, whatever X is.
  */
-export function evalConstantExpression(text: string, isDefined: (name: string) => boolean, valueOf: (name: string) => number | null = () => null): number | null {
+export function evalConstantExpression(text: string, isDefined: (name: string) => boolean | null, valueOf: (name: string) => number | null = () => null): number | null {
   const tokens = text.match(/0[xX][0-9a-fA-F]+[uU]?|\d+[uU]?|[A-Za-z_]\w*|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%<>!~()&|^]/g) ?? [];
   if (tokens.join("") !== text.replace(/\s+/g, "")) return null; // something the tokenizer skipped
   let i = 0;
   const peek = (): string | undefined => tokens[i];
   const take = (): string => tokens[i++];
-  const fail = { failed: false };
+  const fail = { failed: false, unknown: false };
   const primary = (): number => {
     const t = take();
     if (t === undefined) { fail.failed = true; return 0; }
@@ -180,10 +210,12 @@ export function evalConstantExpression(text: string, isDefined: (name: string) =
       const name = take();
       if (name === undefined || !/^[A-Za-z_]/.test(name)) { fail.failed = true; return 0; }
       if (paren && take() !== ")") fail.failed = true;
-      return isDefined(name) ? 1 : 0;
+      const d = isDefined(name);
+      if (d === null) { fail.unknown = true; return 0; }
+      return d ? 1 : 0;
     }
     const v = valueOf(t); // a bare identifier: its #define's integer value, 0 when undefined, else not decided
-    if (v === null) { fail.failed = true; return 0; }
+    if (v === null) { fail.unknown = true; return 0; }
     return v;
   };
   const precedence: Record<string, number> = { "||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7, "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10 };
@@ -207,12 +239,18 @@ export function evalConstantExpression(text: string, isDefined: (name: string) =
       const op = peek();
       if (op === undefined || !(op in precedence) || precedence[op] < minPrec) return left;
       take();
+      // C's short circuit decides the expression as well as evaluates it: `1 || X` is 1 and
+      // `0 && X` is 0 however little is known about X. Cesium guards its extension macros that
+      // way, with `__VERSION__ == 300 || defined(GL_EXT_frag_depth)`. The right operand is still
+      // parsed, for the token count, but what it could not settle no longer matters.
+      const decided = !fail.unknown && !fail.failed && ((op === "||" && left !== 0) || (op === "&&" && left === 0));
       const right = expr(precedence[op] + 1);
+      if (decided) { fail.unknown = false; left = op === "||" ? 1 : 0; continue; }
       left = apply(op, left, right);
     }
   };
   const value = expr(0);
-  return fail.failed || i !== tokens.length ? null : value;
+  return fail.failed || fail.unknown || i !== tokens.length ? null : value;
 }
 
 // ---------------------------------------------------------------------------

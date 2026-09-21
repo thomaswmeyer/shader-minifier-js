@@ -470,7 +470,7 @@ export class ArgumentInlining {
     if (r !== null) {
       // 'in' uniforms are read-only globals, they can be inlined
       const vd = r[1];
-      return vd.scope === "Global" && !vd.isEverWrittenAfterDecl;
+      return vd.scope === "Global" && !vd.isEverWrittenAfterDecl && !vd.decl.name.doNotInline;
     }
     switch (e.kind) {
       case "Var": return e.ident.name === "true" || e.ident.name === "false";

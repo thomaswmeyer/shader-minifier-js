@@ -16,6 +16,11 @@ function renList<T>(env: Env, fct: (env: Env, item: T) => Env, li: readonly T[])
   return env;
 }
 
+const directiveOf = (s: Stmt): string => (s.kind === "Directive" ? s.parts[0] : "");
+const opensRegion = (s: Stmt): boolean => /^#\s*(if|ifdef|ifndef)\b/.test(directiveOf(s));
+const isAlternative = (s: Stmt): boolean => /^#\s*(else|elif)\b/.test(directiveOf(s));
+const closesRegion = (s: Stmt): boolean => /^#\s*endif\b/.test(directiveOf(s));
+
 const ordinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const sortedKeys = <V>(m: ReadonlyMap<string, V>): string[] => [...m.keys()].sort(ordinal); // F# Map iterates in key order
 
@@ -91,6 +96,24 @@ class Env {
     return env;
   }
 
+  // Branches of a preprocessor conditional each start from the names in scope where the region
+  // started, but they draw from one pool: a name one branch took is not offered to another for a
+  // different variable, since code after the region reads whichever branch survived.
+  withPoolsFrom(other: Env): Env {
+    return this.with({
+      memberRenames: other.memberRenames, funOverloads: other.funOverloads,
+      availableNames: other.availableNames, availableFieldNames: other.availableFieldNames,
+    });
+  }
+
+  // The env a region leaves behind: the names its branches declared (`shared`, one per original
+  // name) over the names it started with, with the pools `last` consumed.
+  afterRegion(shared: ReadonlyMap<string, string>, last: Env): Env {
+    const identRenames = new Map(this.identRenames);
+    for (const [prev, name] of shared) identRenames.set(prev, name);
+    return this.withPoolsFrom(last).with({ identRenames });
+  }
+
   update(identRenames: ReadonlyMap<string, string>, funOverloads: ReadonlyMap<string, ReadonlyMap<Signature, string>>, availableNames: readonly string[]): Env {
     return this.with({ identRenames, funOverloads, availableNames });
   }
@@ -104,11 +127,12 @@ function mapAdd<V>(m: ReadonlyMap<string, V>, key: string, value: V): ReadonlyMa
 
 type DeclarationContext =
   | { kind: "TopLevelDeclaration" }
-  | { kind: "LocalDeclaration" }
+  // `region` is set when the declaration sits directly in a preprocessor conditional; see renRegion.
+  | { kind: "LocalDeclaration"; region: Map<string, string> | null }
   | { kind: "Field"; block: StructOrInterfaceBlock; hasInstanceName: boolean }
   | { kind: "FunctionArgument"; fn: FunctionType };
 const TopLevelDeclaration: DeclarationContext = { kind: "TopLevelDeclaration" };
-const LocalDeclaration: DeclarationContext = { kind: "LocalDeclaration" };
+const LocalDeclaration = (region: Map<string, string> | null): DeclarationContext => ({ kind: "LocalDeclaration", region });
 
 // This visitor has three jobs:
 //  * for every identifier declaration, give it a name (stored in Env) by calling Env.newName or DontRename
@@ -219,13 +243,27 @@ class RenamerVisitor {
           }
         case "FunctionArgument": return env.newName("VarFunStruct", env, decl.name);
         case "LocalDeclaration": {
-          // In a block with conditional directives a name may be declared twice, in alternative branches, or
-          // redeclare a global or parameter in one branch (Analyzer.unifyAlternativeDeclarations).
-          // The compiler sees one of the declarations; every use is renamed after whichever came
-          // first, so the others take the same name. Shadowing in the source stays shadowing.
-          const same = this.directiveBlocks[this.directiveBlocks.length - 1] === true ? env.identRenames.get(decl.name.name) : undefined;
-          if (same !== undefined) { decl.name.rename(same); return env; }
-          return env.newName("VarFunStruct", env, decl.name);
+          if (context.region === null) {
+            // A block whose conditional is not balanced within it (ed-209 opens `#ifdef AA` above
+            // two loops and puts the `#else` inside them) has no region to share names through, so
+            // a name already renamed in such a block is taken again: the compiler sees one of the
+            // declarations, and every use is renamed after whichever came first.
+            const same = this.directiveBlocks[this.directiveBlocks.length - 1] === true ? env.identRenames.get(decl.name.name) : undefined;
+            if (same !== undefined) { decl.name.rename(same); return env; }
+            return env.newName("VarFunStruct", env, decl.name);
+          }
+          const prev = decl.name.name;
+          const shared = context.region.get(prev);
+          if (shared !== undefined) return env.addRenaming("VarFunStruct", decl.name, shared);
+          // A branch's local over a global or outer local of the same name keeps that name: under
+          // the other setting of the define the uses after the region read the outer one
+          // (three.js declares `float morphTargetInfluences[N]` under `#ifdef USE_INSTANCING_MORPH`
+          // over the uniform). Shadowing in the source stays shadowing.
+          const outer = env.identRenames.get(prev);
+          if (outer !== undefined) { decl.name.rename(outer); context.region.set(prev, outer); return env; }
+          const env2 = env.newName("VarFunStruct", env, decl.name);
+          context.region.set(prev, decl.name.name);
+          return env2;
         }
       }
     };
@@ -269,15 +307,53 @@ class RenamerVisitor {
     return Ast.hasConditionalBraces(stmt) ? env : env.onEnterScope(env, stmt);
   }
 
-  private renStmt(env: Env, stmt: Stmt): Env {
+  // A preprocessor conditional is a set of alternatives of which the compiler sees one, so a name
+  // declared in more than one branch is one variable, and code after the region reads whichever
+  // branch survived. Renaming the branches as a plain list gives the alternatives different names
+  // and lets a later branch resolve a use against an earlier branch's declaration; Cesium's
+  // `#ifdef USE_STEP_SIZE vec2 step = ...; #else vec2 step = step; #endif` needs both to be right.
+  // So every branch starts from the names in scope where the region started, and a name a branch
+  // declares takes the name the first branch to declare it was given.
+  private renRegion(env: Env, region: readonly Stmt[], outer: Map<string, string> | null): Env {
+    // A region nested in another shares its map: `#if A float t; #elif B float t; #endif` inside
+    // both branches of an outer region is still one variable to the code that follows.
+    const shared = outer ?? new Map<string, string>();
+    let acc = env, branch: Stmt[] = [];
+    const renBranch = (): void => { acc = this.renStmts(env.withPoolsFrom(acc), branch, shared); branch = []; };
+    let depth = 0;
+    for (const s of region) {
+      if (opensRegion(s)) { depth++; if (depth > 1) branch.push(s); }
+      else if (closesRegion(s)) { depth--; if (depth === 0) renBranch(); else branch.push(s); }
+      else if (depth === 1 && isAlternative(s)) renBranch();
+      else branch.push(s);
+    }
+    return env.afterRegion(shared, acc);
+  }
+
+  // Rename a list of statements, keeping each preprocessor conditional in it whole.
+  private renStmts(env: Env, stmts: readonly Stmt[], region: Map<string, string> | null = null): Env {
+    for (let i = 0; i < stmts.length; i++) {
+      if (!opensRegion(stmts[i])) { env = this.renStmt(env, stmts[i], region); continue; }
+      let depth = 0, end = i;
+      for (; end < stmts.length; end++) {
+        if (opensRegion(stmts[end])) depth++;
+        else if (closesRegion(stmts[end]) && --depth === 0) break;
+      }
+      env = this.renRegion(env, stmts.slice(i, end + 1), region);
+      i = end;
+    }
+    return env;
+  }
+
+  private renStmt(env: Env, stmt: Stmt, region: Map<string, string> | null = null): Env {
     const renOpt = (o: Ast.Expr | null): void => { if (o !== null) this.renExpr(env, o); };
     switch (stmt.kind) {
       case "Expr": this.renExpr(env, stmt.expr); return env;
       case "Decl":
-        return this.renDecl(LocalDeclaration, null, env, stmt.decl);
+        return this.renDecl(LocalDeclaration(region), null, env, stmt.decl);
       case "Block":
         this.directiveBlocks.push(stmt.stmts.some(Ast.isConditionalDirective));
-        try { renList(env, (e, s) => this.renStmt(e, s), stmt.stmts); } finally { this.directiveBlocks.pop(); }
+        try { this.renStmts(env, stmt.stmts); } finally { this.directiveBlocks.pop(); }
         return env;
       case "If":
         this.renStmt(this.scope(env, stmt.then), stmt.then);
@@ -288,7 +364,7 @@ class RenamerVisitor {
         const envForType = env; // Use the outer env to rename the init variable's type! In the inner env the type name might have been removed.
         {
           let innerEnv = this.scope(env, stmt); // In the for scope, we use an env that allows shadowing unused outer decls.
-          innerEnv = this.renDecl(LocalDeclaration, envForType, innerEnv, stmt.init); // Use the inner env to rename the init variable.
+          innerEnv = this.renDecl(LocalDeclaration(null), envForType, innerEnv, stmt.init); // Use the inner env to rename the init variable.
           this.renStmt(innerEnv, stmt.body);
           if (stmt.cond !== null) this.renExpr(innerEnv, stmt.cond);
           if (stmt.inc !== null) this.renExpr(innerEnv, stmt.inc);
@@ -320,7 +396,7 @@ class RenamerVisitor {
       case "Switch": {
         const renCase = (env: Env, c: Ast.SwitchCase): Env => {
           if (c.label.kind === "Case") this.renExpr(env, c.label.expr);
-          return renList(env, (e, s) => this.renStmt(e, s), c.stmts);
+          return this.renStmts(env, c.stmts);
         };
         this.renExpr(env, stmt.expr);
         renList(env, renCase, stmt.cases);

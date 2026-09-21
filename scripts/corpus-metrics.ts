@@ -3,7 +3,12 @@
 //   Shader Minifier (.NET) -> the port with only Shader Minifier's rewrites (the goldens'
 //                             behaviour), externals kept
 //   shader-minifier-js     -> the Vite plugin's defaults
+//   +preprocess            -> the plugin's defaults plus --preprocess
 //   spglsl   -> Google ANGLE's minifier, when `npm install --no-save spglsl` was run
+//
+// spglsl always evaluates the preprocessor, so its output is a shader for one set of defines.
+// The column comparable with it is `preproc`, not `plugin`: only that one answers the same
+// question. `plugin` is what a site ships when the defines arrive at runtime.
 // Corpora: test/tomto, test/corpus/gl-transitions (wrapped as the pixel test wraps them),
 // test/corpus/three (with --preprocess, as the pixel test runs them), and the WebGL-compatible
 // shaders of Shader Minifier's corpus. A minifier that refuses any shader of a corpus gets no total for
@@ -14,7 +19,7 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { Minifier } from "../src/api.js";
 import type { Options } from "../src/options.js";
-import { babylonShaders, glTransitions, playcanvasShaders, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
+import { babylonShaders, cesiumShaders, glTransitions, playcanvasShaders, pluginOptions, threeShaders, upstreamOptions } from "../test/corpora.js";
 import { repoRoot } from "../test/golden.js";
 import { readTomto, tomtoShaders } from "../test/tomto.js";
 
@@ -37,6 +42,8 @@ const babylon = babylonShaders();
 if (babylon.length > 0) corpora.push({ name: "Babylon.js", shaders: babylon });
 const playcanvas = playcanvasShaders();
 if (playcanvas.length > 0) corpora.push({ name: "PlayCanvas", shaders: playcanvas });
+const cesium = cesiumShaders();
+if (cesium.length > 0) corpora.push({ name: "CesiumJS", shaders: cesium });
 {
   const list = fs.readFileSync(path.join(repoRoot, "tests/compile.txt"), "utf8").split("\n").map((l) => l.trim().split(/\s+/)).filter((p) => p.length === 3 && !p[0].startsWith("#"));
   const header = "#version 300 es\nprecision highp float;\nuniform vec3 iResolution; uniform float iTime, iTimeDelta; uniform int iFrame; uniform vec4 iMouse, iDate;\nuniform float iChannelTime[4]; uniform vec3 iChannelResolution[4];\nuniform sampler2D iChannel0, iChannel1, iChannel2, iChannel3;\n";
@@ -53,6 +60,7 @@ if (playcanvas.length > 0) corpora.push({ name: "PlayCanvas", shaders: playcanva
 
 const upstream = upstreamOptions();
 const plugin = pluginOptions();
+const preproc = { ...pluginOptions(), preprocess: true };
 const text = (options: Options, s: Shader): string | null => {
   try {
     const o = { ...options, ...s.options };
@@ -90,37 +98,39 @@ const brotli = (parts: string[]): number =>
   zlib.brotliCompressSync(Buffer.from(parts.join("\n"), "utf8"), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
 const gzip = (parts: string[]): number => zlib.gzipSync(Buffer.from(parts.join("\n"), "utf8"), { level: 9 }).length;
 const rows: string[] = [];
-rows.push(`| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |`);
-rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|`);
-const header = `| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|`;
+rows.push(`| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |`);
+rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|--:|`);
+const header = `| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|--:|`;
 const compressed: string[] = [header];
 const compressedGz: string[] = [header];
 const perShader_: string[] = [header];
 const largest: string[] = [];
 for (const corpus of corpora) {
-  let source = 0, up = 0, pl = 0, sp = 0, spSource = 0, upSource = 0, plSource = 0, refusedUp = 0, refusedPl = 0, refusedSp = 0;
+  let source = 0, up = 0, pl = 0, pr = 0, sp = 0, spSource = 0, upSource = 0, plSource = 0, refusedUp = 0, refusedPl = 0, refusedPr = 0, refusedSp = 0;
   const perShader: [string, number, number | null, number | null, number | null][] = [];
-  const texts: Record<"source" | "up" | "pl" | "sp", string[]> = { source: [], up: [], pl: [], sp: [] };
+  const texts: Record<"source" | "up" | "pl" | "pr" | "sp", string[]> = { source: [], up: [], pl: [], pr: [], sp: [] };
   for (const s of corpus.shaders) {
-    const u = text(upstream, s), p = text(plugin, s), a = await angle(s);
+    const u = text(upstream, s), p = text(plugin, s), q = text(preproc, s), a = await angle(s);
     source += s.source.length;
     texts.source.push(s.source);
     if (u === null) refusedUp++; else { up += u.length; upSource += s.source.length; texts.up.push(u); }
     if (p === null) refusedPl++; else { pl += p.length; plSource += s.source.length; texts.pl.push(p); }
+    if (q === null) refusedPr++; else { pr += q.length; texts.pr.push(q); }
     if (a === null) refusedSp++; else { sp += a.length; spSource += s.source.length; texts.sp.push(a); }
     perShader.push([s.name, s.source.length, u === null ? null : u.length, p === null ? null : p.length, a === null ? null : a.length]);
   }
   const aloneSource = texts.source.reduce((a, t) => a + brotli([t]), 0);
   const aloneUp = texts.up.reduce((a, t) => a + brotli([t]), 0);
   const alonePl = texts.pl.reduce((a, t) => a + brotli([t]), 0);
+  const alonePr = texts.pr.reduce((a, t) => a + brotli([t]), 0);
   const aloneSp = spglsl === null ? null : texts.sp.reduce((a, t) => a + brotli([t]), 0);
-  perShader_.push(`| ${corpus.name} | ${aloneSource.toLocaleString("en")} | ${cell(aloneUp, refusedUp)} | ${cell(alonePl, refusedPl)} | ${refusedUp === refusedPl ? pct(alonePl, aloneUp) : ""} | ${cell(aloneSp, refusedSp)} | ${aloneSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(alonePl, aloneSp) : ""} |`);
+  perShader_.push(`| ${corpus.name} | ${aloneSource.toLocaleString("en")} | ${cell(aloneUp, refusedUp)} | ${cell(alonePl, refusedPl)} | ${refusedUp === refusedPl ? pct(alonePl, aloneUp) : ""} | ${cell(alonePr, refusedPr)} | ${cell(aloneSp, refusedSp)} | ${aloneSp !== null && refusedSp === refusedPr && refusedSp === 0 ? pct(alonePr, aloneSp) : ""} |`);
   for (const [rows, z] of [[compressed, brotli], [compressedGz, gzip]] as [string[], (p: string[]) => number][]) {
-    const cSource = z(texts.source), cUp = z(texts.up), cPl = z(texts.pl);
+    const cSource = z(texts.source), cUp = z(texts.up), cPl = z(texts.pl), cPr = z(texts.pr);
     const cSp = spglsl === null ? null : z(texts.sp);
-    rows.push(`| ${corpus.name} | ${cSource.toLocaleString("en")} | ${cell(cUp, refusedUp)} | ${cell(cPl, refusedPl)} | ${refusedUp === refusedPl ? pct(cPl, cUp) : ""} | ${cell(cSp, refusedSp)} | ${cSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(cPl, cSp) : ""} |`);
+    rows.push(`| ${corpus.name} | ${cSource.toLocaleString("en")} | ${cell(cUp, refusedUp)} | ${cell(cPl, refusedPl)} | ${refusedUp === refusedPl ? pct(cPl, cUp) : ""} | ${cell(cPr, refusedPr)} | ${cell(cSp, refusedSp)} | ${cSp !== null && refusedSp === refusedPr && refusedSp === 0 ? pct(cPr, cSp) : ""} |`);
   }
-  rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${cell(up, refusedUp)} | ${cell(pl, refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${cell(spglsl === null ? null : sp, refusedSp)} | ${spglsl !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(pl, sp) : ""} |`);
+  rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${cell(up, refusedUp)} | ${cell(pl, refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${cell(pr, refusedPr)} | ${cell(spglsl === null ? null : sp, refusedSp)} | ${spglsl !== null && refusedSp === refusedPr && refusedSp === 0 ? pct(pr, sp) : ""} |`);
   perShader.sort((x, y) => y[1] - x[1]);
   for (const [name, src, u, p, a] of perShader.slice(0, 3)) largest.push(`| ${corpus.name}/${name} | ${src.toLocaleString("en")} | ${u ?? "refused"} | ${p ?? "refused"} | ${a === null ? (spglsl === null ? "n/a" : "refused") : a} |`);
 }

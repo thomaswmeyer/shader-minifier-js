@@ -130,6 +130,14 @@ class RewriterImpl {
     return !Builtin.builtinTypes.has(n) && !Builtin.isSamplerType(n);
   }
 
+  // The same question for the check rather than for a guard: is this type proven to be a struct?
+  // "Not a builtin" is not proof, since a kept `#define` can name a builtin: Cesium's FXAA pass
+  // declares `FxaaBool goodSpanN`, and refusing `directionN?goodSpanN:goodSpanP` would refuse a
+  // shader ANGLE accepts.
+  private isDeclaredStructType(ty: Type): boolean {
+    return ty.name.kind === "TypeBlock" || this.structs.has(ty.name.ident.name);
+  }
+
   // Best-effort static type; null means unknown.
   private typeOf(e: Expr): Type | null {
     switch (e.kind) {
@@ -194,7 +202,7 @@ class RewriterImpl {
       if (op === null) return e;
       if (op.op === "?:" && op.args.length === 3) {
         const t = this.typeOf(op.args[1]) ?? this.typeOf(op.args[2]);
-        if (t !== null && this.isStructType(t)) throw new Error(`--webgl: WebGL rejects the ternary operator on struct values: ${Printer.exprToS(e)}`);
+        if (t !== null && this.isDeclaredStructType(t)) throw new Error(`--webgl: WebGL rejects the ternary operator on struct values: ${Printer.exprToS(e)}`);
       } else if (op.op === ",") {
         const v = op.args.find((a) => a.kind === "FunCall" && a.fn.kind === "Var" && a.fn.ident.declaration.kind === "UserFunction" && this.hasVoidOperand(a));
         if (v !== undefined) throw new Error(`--webgl: WebGL (ES 3.00) rejects a void call in a comma sequence: ${Printer.exprToS(v)} in ${Printer.exprToS(e)}`);
@@ -491,33 +499,27 @@ class RewriterImpl {
       }
     }
 
-    // Swap operands to get rid of parentheses.
+    // Swap operands to get rid of parentheses. Commuting the outer operator is exact: IEEE
+    // addition and multiplication give the same number either way round. Reassociating is not,
+    // and upstream does that too, turning `x+(y+z)` into `x+y+z` and `x-(y+z)` into `x-y-z`; this
+    // port only commutes (port addition; PORTING.md item 38). GLSL evaluates in the order the
+    // expression is written, and Cesium builds a double out of two floats: in
+    // `czm_translateRelativeToEye`, `high+(low-c)` keeps the low word that `high+low-c` rounds
+    // away, and four of its polyline vertex outputs came out wrong by 4e-5 relative. Subtraction
+    // does not commute, so `x-(y+z)` and `x-(y-z)` keep their parentheses.
     // x*(y*z) -> y*z*x
-    if (op === "*" && n === 2 && this.isNoParen(a0) && sub1 !== null && sub1.op === "*" && sub1.args.length === 2) {
+    // x+(y+z) -> y+z+x
+    // x+(y-z) -> y-z+x
+    if (n === 2 && (op === "*" || op === "+") && this.isNoParen(a0) && sub1 !== null && sub1.args.length === 2 &&
+      (op === "*" ? sub1.op === "*" : sub1.op === "+" || sub1.op === "-")) {
       const x = a0;
       const [y, z] = sub1.args;
       if (Effects.isPure(x) && Effects.isPure(y) && Effects.isPure(z) &&
         // Matrix multiplication is not commutative! Except with scalars.
-        ((isKnownToBeScalarOrVector(x) && isKnownToBeScalarOrVector(y) && isKnownToBeScalarOrVector(z)) ||
+        (op === "+" || (isKnownToBeScalarOrVector(x) && isKnownToBeScalarOrVector(y) && isKnownToBeScalarOrVector(z)) ||
           [isKnownToBeScalar(x), isKnownToBeScalar(y), isKnownToBeScalar(z)].filter((b) => b).length >= 2)) {
-        return env.fExpr(env, OpCall("*", [OpCall("*", [y, z]), x]));
+        return env.fExpr(env, OpCall(op, [OpCall(sub1.op, [y, z]), x]));
       }
-    }
-    // x+(y+z) -> x+y+z
-    // x+(y-z) -> x+y-z
-    if (op === "+" && n === 2 && this.isNoParen(a0) && sub1 !== null && (sub1.op === "+" || sub1.op === "-") && sub1.args.length === 2) {
-      const [y, z] = sub1.args;
-      return env.fExpr(env, OpCall(sub1.op, [OpCall("+", [a0, y]), z]));
-    }
-    // x-(y+z) -> x-y-z
-    if (op === "-" && n === 2 && sub1 !== null && sub1.op === "+" && sub1.args.length === 2) {
-      const [y, z] = sub1.args;
-      return env.fExpr(env, OpCall("-", [OpCall("-", [a0, y]), z]));
-    }
-    // x-(y-z) -> x-y+z
-    if (op === "-" && n === 2 && sub1 !== null && sub1.op === "-" && sub1.args.length === 2) {
-      const [y, z] = sub1.args;
-      return env.fExpr(env, OpCall("+", [OpCall("-", [a0, y]), z]));
     }
 
     if (op === "-" && n === 1 && sub0 !== null && sub0.args.length === 2) {
@@ -1665,13 +1667,18 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     calls: new Set(members.flatMap((n) => callsIn(n.body))),
   });
   const byFunc = new Map(infos.map((n) => [n.func, n]));
-  const units: Unit[] = segments.map((s) => (s.region
-    ? unitOf(s.items, s.items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }))
-    : unitOf([s.tl], s.tl.kind === "Function" && byFunc.has(s.tl) ? [byFunc.get(s.tl)!] : [])))
-    .filter((u) => u.items.length > 0 && (u.defines.size > 0 || u.items.some((t) => t.kind === "Function")));
+  // A segment with no function in it is not a unit: it defines nothing and calls nothing, so it
+  // stays among the declarations. That covers a region of alternative declarations too, such as
+  // the `#ifdef GL_FRAGMENT_PRECISION_HIGH` block that picks a default precision.
+  const segItems = (s: Segment): TopLevel[] => (s.region ? s.items : [s.tl]);
+  const isUnit = (s: Segment): boolean => segItems(s).some((t) => t.kind === "Function");
+  const units: Unit[] = segments.filter(isUnit).map((s) => {
+    const items = segItems(s);
+    return unitOf(items, items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }));
+  });
   units.push(...textUnits);
   const defined = new Set(units.flatMap((u) => [...u.defines]));
-  const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" && !textItems.has(s.tl) ? [s.tl] : []));
+  const out: TopLevel[] = segments.filter((s) => !isUnit(s)).flatMap(segItems).filter((t) => !textItems.has(t));
   const pending = units.slice();
   const done = new Set<string>();
   while (pending.length > 0) {

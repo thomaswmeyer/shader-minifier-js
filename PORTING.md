@@ -191,7 +191,10 @@ says so. Every site is ported deliberately:
    overload returns the same type, and void when any does), and fails if the
    output would still contain either. The check is best effort: an operand
    of unknown type passes, since the guards never produce the constructs and
-   a miss only moves the error to the browser's compiler. The sequence rule is applied regardless of
+   a miss only moves the error to the browser's compiler. "Struct" means a
+   struct the file declares, not merely a type name that is not a builtin:
+   Cesium's FXAA pass writes `directionN ? goodSpanN : goodSpanP` over
+   `#define FxaaBool bool`, which the looser reading refused. The sequence rule is applied regardless of
    `#version`, because the header is usually prepended at runtime. Default
    off so the goldens stay byte-identical.
 6. *`--expand-macros`.* Upstream keeps `#define` verbatim (they are demoscene
@@ -340,6 +343,20 @@ says so. Every site is ported deliberately:
     directive there. The three.js programs in `test/corpus/three` needed
     this flag until item 31; `npm run metrics` still uses it for them, so the
     sizes compare with minifiers that see preprocessed input.
+
+    Two further differences come from the GL compiler owning two identifier
+    prefixes, `GL_` and `__`. A name in them that the file does not define is
+    not absent, it is unknown to this pass: whether `GL_EXT_frag_depth` is
+    defined is the device's answer. So the port predefines what the `#version`
+    line settles (`__VERSION__`, `GL_ES`, and `GL_FRAGMENT_PRECISION_HIGH`
+    from ESSL 3.00, where highp is required in fragment shaders) and leaves a
+    condition that reads any other compiler-owned name undecided, rather than
+    reading it as 0 the way C reads an undefined macro. Cesium's
+    `#ifdef GL_FRAGMENT_PRECISION_HIGH` otherwise took the `#else`, dropping a
+    whole shader from `highp` to `mediump`. And since a name may be undecided
+    rather than malformed, `evalConstantExpression` short-circuits: `1 || X`
+    is 1 and `0 && X` is 0 whatever X is, which is how Cesium guards its
+    extension macros (`__VERSION__ == 300 || defined(GL_EXT_frag_depth)`).
 
 17. *Fields of external structs.* Under `--preserve-externals` the name an
     application looks up for a struct uniform includes the field
@@ -592,6 +609,42 @@ says so. Every site is ported deliberately:
     one row, and the plugin's mapping is the option's own name, so a new
     row reaches the plugin with no code of its own.
 
+37. *Preprocessor branches are alternatives, in scope and in names.* Item 32
+    made the declarations of one name across branches one variable. Cesium's
+    shaders showed the rest of the problem: upstream reads an `#if`/`#else`
+    region as a plain sequence, so the branches share one scope and are
+    renamed one after the other, and `#else vec2 step = step;` resolves its
+    initializer to the first branch's local rather than to the global it
+    shadows. The environment the AST walk carries (`MapEnv.foldAlternatives`)
+    now restarts each branch from the scope the region began in and carries
+    every branch's declarations past the `#endif`; the renamer (`renRegion`)
+    renames each branch from the names in scope at the region's start, gives
+    every branch's copy of a name the same new name, and draws the branches'
+    names from one pool. Item 32's unification keeps the first declaration
+    alive and its narrow inlining guards stay: only a duplicated name and a
+    global passed from inside a region into a function body are kept out of
+    inlining, rather than every declaration under a `#if`, which is what
+    keeps `orchard`'s second `lookat` in the output at no cost elsewhere.
+    `reorderFunctions` also kept only the regions that held a function, which
+    silently dropped the `#ifdef GL_FRAGMENT_PRECISION_HIGH` block that picks
+    a default precision; a region without a function now stays among the
+    declarations. Found by the CesiumJS corpus (`globe`, `globe-2`,
+    `post-processing-2`).
+
+38. *No reassociation of arithmetic.* Upstream drops the parentheses in
+    `x+(y+z)`, `x+(y-z)`, `x-(y+z)` and `x-(y-z)` by reassociating. IEEE
+    addition is not associative and GLSL evaluates in the order written, so
+    `high+(low-c)` and `high+low-c` are different numbers. Cesium builds a
+    double out of two floats: `czm_translateRelativeToEye` returns
+    `high+(low-c)`, and the reassociated form rounds the low word away, which
+    moved four of the polyline shader's vertex outputs by 4e-5 relative. The
+    port keeps the *commutation* — `x+(y+z)` becomes `y+z+x`, as upstream
+    already does for `x*(y*z)`, and that is exact — and declines the rest,
+    which is what `x-(...)` loses. Over the whole corpus it costs about 0.1%
+    of the raw bytes and nothing the compressed measurement can see. Fifteen
+    goldens move; three of them, where an operand has a side effect, are
+    fixes.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -628,7 +681,13 @@ shader in this repository:
   `#define AA 0` and `orchard` loses one of its two `lookat` values (item
   32, `test/directive-alternatives.test.ts`);
 - decimal folding of float operators, which lands one ulp from what the GPU
-  computes (`4.3+3.4` to `7.7`; item 33, `test/fold-builtins.test.ts`).
+  computes (`4.3+3.4` to `7.7`; item 33, `test/fold-builtins.test.ts`);
+- reading an `#if`/`#else` region as a sequence: alternatives renamed apart,
+  a declaration inlined out of its branch, a region without a function
+  dropped by `reorderFunctions` (item 37, Cesium's `globe`, `globe-2` and
+  `post-processing-2`);
+- reassociating floating-point addition to drop parentheses (item 38,
+  Cesium's `polyline.vert`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

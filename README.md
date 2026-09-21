@@ -210,8 +210,8 @@ contradicting each other.
 
 ## Results
 
-`npm run metrics` minifies every corpus three ways and, when spglsl is
-installed, a fourth. The columns:
+`npm run metrics` minifies every corpus four ways and, when spglsl is
+installed, a fifth. The columns:
 
 - **Shader Minifier (.NET)**: the original, version 1.5.1. The numbers come
   from this port run with only Shader Minifier's own rewrites, which is what
@@ -219,18 +219,28 @@ installed, a fourth. The columns:
   byte for byte.
 - **shader-minifier-js**: this repository, with the Vite plugin's defaults,
   so the port additions above are on.
+- **js +preprocess**: the same, plus `--preprocess`, so every `#if` the
+  file can decide is decided. This is the column comparable with spglsl,
+  which always evaluates the preprocessor and so emits a shader for one set
+  of defines; shader-minifier-js keeps every `#ifdef` by default, which is a
+  different product and what a site ships when its defines arrive at
+  runtime. Babylon.js and PlayCanvas run their own preprocessor before the
+  driver sees the GLSL, so for them the two columns coincide.
 - **spglsl (ANGLE)**: ANGLE's shader translator, built to wasm and run
   offline through the `spglsl` package on one shader at a time with its
   minify and mangle options on. The number is the size of the GLSL text it
   emits, externals kept. It gets the same single source as the other columns
   and no link-time or runtime context, so this is a wire-size comparison,
   not the compile ANGLE does in the browser.
-- **js vs .NET**, **js vs spglsl**: how much smaller shader-minifier-js's
-  output is than that column.
+- **js vs .NET**, **preprocessed vs spglsl**: how much smaller
+  shader-minifier-js's output is than that column, the spglsl one taken from
+  the preprocessed column so that like is compared with like.
 
 The corpora: tom.to is six GLSL ES 3.00 shaders from tom.to's ink mark, a
 WebGL2 particle engine, under `test/tomto`; gl-transitions, three.js,
-Babylon.js and PlayCanvas are vendored under `test/corpus`; the Shadertoy
+Babylon.js, PlayCanvas and CesiumJS are vendored under `test/corpus`, the
+last a globe renderer rather than a game engine, captured from a running
+scene since a Cesium shader as written is not a whole shader; the Shadertoy
 row is the eight Shadertoy shaders in Shader Minifier's own test corpus
 under `tests/real`, each wrapped in a Shadertoy header and `main()`.
 
@@ -246,14 +256,15 @@ pixel test skips them for the same reason.
 Output bytes, externals kept in all of them; three.js runs with
 `--preprocess`:
 
-| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
-|---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
-| gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
-| three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
-| Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 59,928 | 3.6% |
-| PlayCanvas | 20 | 191,012 | 5 refused | 48,662 | | 60,037 | 18.9% |
-| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 2 refused | |
+| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,378 | 2,484 | 4.3% |
+| gl-transitions | 125 | 169,066 | 69,608 | 67,955 | 2.4% | 67,889 | 79,689 | 14.8% |
+| three.js | 56 | 1,337,454 | 218,875 | 131,622 | 39.9% | 131,622 | 143,890 | 8.5% |
+| Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 57,789 | 59,928 | 3.6% |
+| PlayCanvas | 20 | 191,012 | 5 refused | 48,662 |  | 48,662 | 60,037 | 18.9% |
+| CesiumJS | 32 | 174,106 | 74,317 | 70,630 | 5.0% | 41,991 | 43,750 | 4.0% |
+| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,904 | 44,221 | 1.5% | 42,666 | 2 refused |  |
 
 Shaders ship compressed, so the same corpora after compression. Two
 variables: the codec (brotli -q 11 is what a CDN serves, gzip -9 what an
@@ -267,51 +278,65 @@ bound.
 | corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
 |---|--:|--:|--:|--:|
 | tom.to | 2,378 | 1,591 | 1,093 | 31% |
-| gl-transitions | 67,931 | 35,875 | 14,104 | 61% |
-| three.js | 131,598 | 43,331 | 12,764 | 71% |
+| gl-transitions | 67,955 | 35,880 | 14,128 | 61% |
+| three.js | 131,622 | 43,355 | 12,758 | 71% |
 | Babylon.js | 57,789 | 16,070 | 6,717 | 58% |
 | PlayCanvas | 48,662 | 17,957 | 5,278 | 71% |
+| CesiumJS | 70,630 | 22,978 | 11,771 | 49% |
 
 **brotli -q 11, each shader on its own**
 
-| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
-|---|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,621 | 1.9% |
-| gl-transitions | 67,081 | 36,734 | 35,875 | 2.3% | 39,307 | 8.7% |
-| three.js | 269,870 | 68,840 | 43,331 | 37.1% | 46,531 | 6.9% |
-| Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 17,418 | 7.7% |
-| PlayCanvas | 47,336 | 5 refused | 17,957 | | 20,615 | 12.9% |
-| Shadertoy (Shader Minifier tests) | 30,115 | 17,372 | 17,008 | 2.1% | 2 refused | |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,591 | 1,621 | 1.9% |
+| gl-transitions | 67,081 | 36,732 | 35,880 | 2.3% | 35,766 | 39,307 | 9.0% |
+| three.js | 269,870 | 68,963 | 43,355 | 37.1% | 43,355 | 46,531 | 6.8% |
+| Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 16,070 | 17,418 | 7.7% |
+| PlayCanvas | 47,336 | 5 refused | 17,957 |  | 17,957 | 20,615 | 12.9% |
+| CesiumJS | 38,439 | 24,195 | 22,978 | 5.0% | 15,329 | 16,507 | 7.1% |
+| Shadertoy (Shader Minifier tests) | 30,115 | 17,416 | 17,050 | 2.1% | 16,503 | 2 refused |  |
 
 **brotli -q 11, whole corpus as one blob**
 
-| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
-|---|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,132 | 3.4% |
-| gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
-| three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
-| Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
-| PlayCanvas | 8,444 | 5 refused | 5,278 | | 5,254 | -0.5% |
-| Shadertoy (Shader Minifier tests) | 25,952 | 14,345 | 14,000 | 2.4% | 2 refused | |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,093 | 1,132 | 3.4% |
+| gl-transitions | 29,088 | 14,369 | 14,128 | 1.7% | 14,077 | 15,188 | 7.3% |
+| three.js | 22,926 | 15,230 | 12,758 | 16.2% | 12,758 | 13,713 | 7.0% |
+| Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 6,717 | 7,192 | 6.6% |
+| PlayCanvas | 8,444 | 5 refused | 5,278 |  | 5,278 | 5,254 | -0.5% |
+| CesiumJS | 17,592 | 11,880 | 11,771 | 0.9% | 7,118 | 7,484 | 4.9% |
+| Shadertoy (Shader Minifier tests) | 25,952 | 14,333 | 14,084 | 1.7% | 13,529 | 2 refused |  |
 
 **gzip -9**
 
-| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
-|---|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,213 | 4.7% |
-| gl-transitions | 35,330 | 16,518 | 16,109 | 2.5% | 17,470 | 7.8% |
-| three.js | 196,245 | 21,310 | 17,050 | 20.0% | 19,536 | 12.7% |
-| Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 8,901 | 11.3% |
-| PlayCanvas | 24,421 | 5 refused | 7,072 | | 7,276 | 2.8% |
-| Shadertoy (Shader Minifier tests) | 29,728 | 16,159 | 15,816 | 2.1% | 2 refused | |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,156 | 1,213 | 4.7% |
+| gl-transitions | 35,330 | 16,505 | 16,106 | 2.4% | 16,071 | 17,470 | 8.0% |
+| three.js | 196,245 | 21,456 | 17,026 | 20.6% | 17,026 | 19,536 | 12.8% |
+| Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 7,896 | 8,901 | 11.3% |
+| PlayCanvas | 24,421 | 5 refused | 7,072 |  | 7,072 | 7,276 | 2.8% |
+| CesiumJS | 25,813 | 14,423 | 14,091 | 2.3% | 8,284 | 8,747 | 5.3% |
+| Shadertoy (Shader Minifier tests) | 29,728 | 16,196 | 15,859 | 2.1% | 15,315 | 2 refused |  |
 
 The order of the three minifiers is the same under every codec and unit.
 The unit changes the margin: shader-minifier-js's win over Shader Minifier
-on three.js is 37.1% per shader and 16.0% as a blob, since the blob already
+on three.js is 37.1% per shader and 16.2% as a blob, since the blob already
 compresses the repeated chunk text. gzip gives slightly larger margins than
-brotli. As blobs the engine corpora compress 17 to 58 fold, mostly one
+brotli. As blobs the engine corpora compress 10 to 58 fold, mostly one
 program against another, which makes them useful for finding bugs and a poor
 measure of size.
+
+Compared like with like, through the preprocessed column, shader-minifier-js
+is smaller than spglsl on every corpus, at every codec and unit, except
+PlayCanvas as one blob by 0.5%. On CesiumJS the difference between the two
+shader-minifier-js columns is the point: with every `#if` kept it is 70,630
+bytes, with the file's own defines decided 41,991, and the whole of that is
+dead preprocessor branches, not rewriting. One caveat about the spglsl
+column, which counts against this table rather than against spglsl: the
+pixel harness checks shader-minifier-js's output, never spglsl's, so its
+number is bytes ANGLE emitted, not bytes verified to render the same.
 
 ## Running the browser tests
 
@@ -369,11 +394,15 @@ Three tests guard real output rather than parity with Shader Minifier:
 - `test/corpus.test.ts` runs the same comparison over shaders from open
   source projects that ship on the web, vendored under `test/corpus/` with
   their licenses: the 125 gl-transitions (MIT, two BSD), wrapped for WebGL1
-  with each transition's default parameters, and the programs three.js (MIT)
-  assembles for its materials, dumped from a real renderer in the harness's
-  browser so the chunk expansion and the runtime `#define`s are the ones a
-  game ships. `npm run corpus:gl-transitions` and `npm run corpus:three`
+  with each transition's default parameters, and the programs four engines
+  assemble for their materials — three.js (MIT), Babylon.js (Apache-2.0),
+  PlayCanvas (MIT) and CesiumJS (Apache-2.0) — dumped from a real renderer in
+  the harness's browser so the chunk expansion and the runtime `#define`s are
+  the ones a site ships. `npm run corpus:gl-transitions`,
+  `corpus:three`, `corpus:babylon`, `corpus:playcanvas` and `corpus:cesium`
   refresh them from the npm packages; the version is recorded next to each.
+  The engine shaders are also compiled and drawn in vertex/fragment pairs, so
+  a rename that only breaks across the two stages is caught.
 
 - `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
   Vite plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`

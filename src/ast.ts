@@ -428,6 +428,43 @@ export class MapEnv {
     return this.with({ fns });
   }
 
+  // The declarations of two alternative branches seen together: after `#endif` either of them may
+  // be the one the compiler kept.
+  private withAlternative(other: MapEnv): MapEnv {
+    return this.with({ vars: new Map([...this.vars, ...other.vars]), fns: new Map([...this.fns, ...other.fns]) });
+  }
+
+  // `#if`/`#else` branches are alternatives: the compiler keeps one, so a declaration in one
+  // branch is not in scope in another, and after `#endif` any branch may be the one that survived.
+  // Folding a list of statements or of top levels therefore restarts each branch from the
+  // environment the region began in, and carries every branch's declarations past the `#endif`.
+  private foldAlternatives<T>(parts: (item: T) => readonly string[] | null, fct: (env: MapEnv, item: T) => [MapEnv, T], li: readonly T[]): [MapEnv, T[]] {
+    let env: MapEnv = this;
+    const regions: { start: MapEnv; branches: MapEnv }[] = [];
+    const res = li.map((item) => {
+      const p = parts(item);
+      const d = p === null ? "" : p[0];
+      if (/^#\s*(if|ifdef|ifndef)\b/.test(d)) regions.push({ start: env, branches: env });
+      else if (/^#\s*(else|elif)\b/.test(d) && regions.length > 0) {
+        const region = regions[regions.length - 1];
+        region.branches = region.branches.withAlternative(env);
+        env = region.start;
+      }
+      const [env2, x] = fct(env, item);
+      env = env2;
+      if (/^#\s*endif\b/.test(d)) {
+        const region = regions.pop();
+        if (region !== undefined) env = region.branches.withAlternative(env);
+      }
+      return x;
+    });
+    return [env, res];
+  }
+
+  foldStmts(fct: (env: MapEnv, s: Stmt) => [MapEnv, Stmt], stmts: readonly Stmt[]): [MapEnv, Stmt[]] {
+    return this.foldAlternatives((s) => (s.kind === "Directive" ? s.parts : null), fct, stmts);
+  }
+
   foldList<T>(fct: (env: MapEnv, item: T) => [MapEnv, T], li: readonly T[]): [MapEnv, T[]] {
     let env: MapEnv = this;
     const res = li.map((i) => {
@@ -472,7 +509,7 @@ export class MapEnv {
     const aux = (): [MapEnv, Stmt] => {
       switch (stmt.kind) {
         case "Block": {
-          const [, stmts] = env.foldList(mapStmtNested, stmt.stmts);
+          const [, stmts] = env.foldStmts(mapStmtNested, stmt.stmts);
           return [env, Block(stmts)];
         }
         case "Expr": return [env, ExprStmt(env.mapExpr(stmt.expr))];
@@ -500,7 +537,7 @@ export class MapEnv {
         case "Switch": {
           const mapCase = (c: SwitchCase): SwitchCase => {
             const label: CaseLabel = c.label.kind === "Case" ? { kind: "Case", expr: env.mapExpr(c.label.expr) } : c.label;
-            const [, stmts] = env.foldList(mapStmtNested, c.stmts);
+            const [, stmts] = env.foldStmts(mapStmtNested, c.stmts);
             return { label, stmts };
           };
           return [env, Switch(env.mapExpr(stmt.expr), stmt.cases.map(mapCase))];
@@ -514,7 +551,7 @@ export class MapEnv {
 
   iterTopLevel(li: readonly TopLevel[]): void { this.mapTopLevel(li); }
   mapTopLevel(li: readonly TopLevel[]): TopLevel[] {
-    const [, res] = this.foldList((env: MapEnv, tl: TopLevel): [MapEnv, TopLevel] => {
+    const [, res] = this.foldAlternatives((tl: TopLevel) => (tl.kind === "TLDirective" ? tl.parts : null), (env: MapEnv, tl: TopLevel): [MapEnv, TopLevel] => {
       switch (tl.kind) {
         case "TLDecl": {
           const [env2, res] = env.mapDecl(tl.decl);
