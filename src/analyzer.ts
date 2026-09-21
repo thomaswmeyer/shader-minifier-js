@@ -269,7 +269,9 @@ export class Analyzer {
       return e;
     };
     const collectLocalUsesInStmt = (_env: Ast.MapEnv, s: Stmt): Stmt => {
-      if (s.kind === "Decl" && s.decl[0].name.kind === "TypeName" && kind & IdentKind.Type) idents.push(s.decl[0].name.ident);
+      // A declaration's type name is a use of that type (a struct), in a statement or a for header.
+      const decl = s.kind === "Decl" ? s.decl : s.kind === "ForD" ? s.init : null;
+      if (decl !== null && decl[0].name.kind === "TypeName" && kind & IdentKind.Type) idents.push(decl[0].name.ident);
       return s;
     };
     Ast.visitor(collectLocalUses, collectLocalUsesInStmt).iterStmt(Ast.UnknownLevel, stmt);

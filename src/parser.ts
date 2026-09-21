@@ -856,7 +856,7 @@ class ParserImpl {
   private topLevelItem(): Ast.TopLevel {
     return this.choice<Ast.TopLevel>("top-level declaration",
       () => this.opaqueHeaderRegion(),
-      () => { const ss = this.macro(); return Ast.TLDirective(ss, this.location()); },
+      () => { const loc = this.location(); return Ast.TLDirective(this.macro(), loc); },
       () => Ast.TLVerbatim(this.verbatim()),
       () => { const d = this.declaration(); this.ch(";"); return Ast.TLDecl(d); },
       () => this.structDecl(),
