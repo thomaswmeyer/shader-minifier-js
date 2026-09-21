@@ -334,7 +334,13 @@ fragment-only comparison already is the real pair.
   interface see. `tests/real/mouton` itself is `#version 150` desktop GLSL,
   which WebGL does not take.
 - More seeds where a shader's branches depend on textures rather than
-  uniforms, and a larger canvas for shaders with fine detail.
+  uniforms, and a larger canvas for shaders with fine detail. Looked at: the
+  harness already hashes every texel from the seed, so the three seeds give a
+  texture-driven branch three different noise textures, and a threshold on a
+  texel is crossed somewhere in 48x48 of white noise. A larger canvas would
+  multiply the eight minutes of browser time for detail the comparison
+  already has, so both stay as they are unless a shader turns up that the
+  three seeds miss.
 - The upstream candidates of `PORTING.md`, filed upstream with their
   reproducing shaders.
 
