@@ -146,24 +146,22 @@ file pattern, and `options` passes any raw minifier option.
 ## Results
 
 `npm run metrics` minifies every corpus three ways and, when spglsl is
-installed, a fourth. The columns, and the two words this README uses for them
-throughout:
+installed, a fourth. The columns:
 
-- **upstream rewrites**: this port limited to the rewrites upstream Shader
-  Minifier 1.5.1 itself performs. It is what the goldens pin, and on the tom.to
-  shaders it matches upstream's .NET binary byte for byte. "Upstream" always
-  means Shader Minifier, the F# original this repository ports.
+- **upstream rewrites**: this port limited to the rewrites Shader Minifier
+  1.5.1 performs. This is what the goldens pin; on the tom.to shaders it
+  matches the .NET binary byte for byte. "Upstream" in this README means
+  Shader Minifier, the F# original.
 - **plugin defaults**: this port with the Vite plugin's defaults, so the port
-  additions above are on. "Plugin" and "port" always mean this repository.
-- **spglsl (ANGLE)**: Google ANGLE's shader translator, C++ built to wasm
-  and run offline through the `spglsl` package, one shader at a time with its
-  minify and mangle options on. What is measured is the GLSL text it emits,
-  externals kept. It sees the same single source the other two columns see,
-  with no link-time or runtime context, so this is the same over-the-wire
-  question as the other columns, not the compile ANGLE does inside the
-  browser at run time.
+  additions above are on. "Plugin" and "port" mean this repository.
+- **spglsl (ANGLE)**: ANGLE's shader translator, built to wasm and run
+  offline through the `spglsl` package on one shader at a time with its
+  minify and mangle options on. The number is the size of the GLSL text it
+  emits, externals kept. It gets the same single source as the other columns
+  and no link-time or runtime context, so this is a wire-size comparison,
+  not the compile ANGLE does in the browser.
 - **plugin vs upstream**, **plugin vs spglsl**: how much smaller the plugin
-  column is than that column.
+  column is.
 
 The corpora: tom.to is six GLSL ES 3.00 shaders from tom.to's ink mark, a
 WebGL2 particle engine, under `test/tomto`; gl-transitions, three.js,
@@ -171,13 +169,13 @@ Babylon.js and PlayCanvas are vendored under `test/corpus`; "upstream
 shadertoy" is the eight Shadertoy shaders in upstream's own test corpus under
 `tests/real`, each wrapped in a Shadertoy header and `main()`.
 
-A shader a minifier refuses is left out of that minifier's total and noted as
-`(n refused)`. The totals in that row then cover different shaders, so the
-comparison cell is left blank rather than comparing unlike sums: PlayCanvas
-declares a function parameter through a macro that the upstream rewrites
-cannot parse without `--expand-macros`, and ANGLE rejects two of the
-Shadertoy shaders, one for the byte order mark its file starts with and one
-for a `texture` overload it does not have.
+A shader a minifier refuses is left out of that minifier's total, noted as
+`(n refused)`, and the comparison cell is left blank because the totals no
+longer cover the same shaders. Five PlayCanvas shaders declare a function
+parameter through a macro, which the upstream rewrites cannot parse without
+`--expand-macros`. ANGLE rejects two Shadertoy shaders, one for a byte order
+mark at the top of the file and one for a `texture` overload it does not
+have.
 
 Output bytes, externals kept in all of them; three.js runs with
 `--preprocess`:
@@ -191,21 +189,14 @@ Output bytes, externals kept in all of them; three.js runs with
 | PlayCanvas | 20 | 191,012 | 36,026 (5 refused) | 48,662 | | 60,037 | 18.9% |
 | upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 33,164 (2 refused) | |
 
-Shaders ship compressed, so the same corpora again after compression. Two
-things have to be said before the numbers, because both change them.
-
-The **codec**: brotli at quality 11 is what a CDN serves a static asset with,
-gzip -9 what an older server gives. They differ mostly in window size, 32 KB
-against much more.
-
-The **unit**: compressing a whole corpus as one blob lets every shader
-compress against its near-twins, and for the engines that is most of the
-win. It is also not how anything ships. three.js sends its chunk library and
-assembles these 56 programs in the browser, so the blob never exists;
-Babylon and PlayCanvas likewise. Compressing each shader on its own is the
-pessimistic end, and a shader sitting somewhere in a real JavaScript bundle,
-far from any twin, is much nearer that. Judge a change on the per-shader
-table; read the blob as an optimistic bound.
+Shaders ship compressed, so the same corpora after compression. Two
+variables: the codec (brotli -q 11 is what a CDN serves, gzip -9 what an
+older server gives; they differ mainly in window size) and the unit.
+Compressing a corpus as one blob lets each shader compress against its
+near-twins. The engines never ship that way: three.js assembles its programs
+from chunks in the browser, and a shader in a real bundle sits far from any
+twin. The per-shader table is the one to judge by; the blob is an upper
+bound.
 
 | corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
 |---|--:|--:|--:|--:|
@@ -248,17 +239,13 @@ table; read the blob as an optimistic bound.
 | PlayCanvas | 24,421 | 2,298 (5 refused) | 7,072 | | 7,276 | 2.8% |
 | upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 11,962 | |
 
-The order of the three minifiers never changes, under either codec or either
-unit, so none of the choices here are ones a compressor would have made for
-free. Beyond that the unit decides the story. On the blob the plugin's win
-over upstream's rewrites on three.js is 16.0%; per shader it is 37.1%,
-because the blob was already getting the repetition for free. The codec
-matters less, and in the same direction: gzip gives the plugin a larger
-margin than brotli, so brotli is the conservative choice.
-
-The engine corpora compress 17 to 58 fold as blobs, and most of that is one
-program against another rather than anything inside a program. That is what
-makes them excellent for finding bugs and poor for judging size.
+The order of the three minifiers is the same under every codec and unit.
+The unit changes the margin: the plugin's win over the upstream rewrites on
+three.js is 37.1% per shader and 16.0% as a blob, since the blob already
+compresses the repeated chunk text. gzip gives slightly larger margins than
+brotli. As blobs the engine corpora compress 17 to 58 fold, mostly one
+program against another, which makes them useful for finding bugs and a poor
+measure of size.
 
 ## Running the browser tests
 
