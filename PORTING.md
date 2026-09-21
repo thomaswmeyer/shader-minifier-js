@@ -5,6 +5,12 @@ How this port relates to upstream Shader Minifier (Ctrl-Alt-Test, F#, Apache
 diverge. Upstream: `~/projects/shader-minifier` @ `tests/UPSTREAM`
 (9653515, 2026-05-06), version 1.5.1.
 
+Terms: **upstream** is Shader Minifier, the F# original (.NET). **The port**
+is shader-minifier-js, this repository. **The plugin** is shader-minifier-js
+run with the Vite plugin's default flags, the configuration the size
+measurements use; **upstream's rewrites** is shader-minifier-js limited to
+the rewrites Shader Minifier itself performs, which reproduces its output.
+
 ## 1. What is ported
 
 Upstream is 4,182 lines of F# in 12 modules. Pipeline per file:

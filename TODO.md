@@ -3,6 +3,13 @@
 What is known to be missing or limited, with the plan for each. `PORTING.md`
 section 5.2 records what has been changed and why; this file is what has not.
 
+Terms used throughout: **upstream** is Shader Minifier, the F# original
+(.NET). **The port** is shader-minifier-js, this repository. **The plugin**
+is shader-minifier-js run with the Vite plugin's default flags, which is what
+the size tables measure; **upstream's rewrites** is shader-minifier-js
+limited to the rewrites Shader Minifier itself performs, which reproduces
+its output.
+
 ## 0. Turn the CI workflow on in GitHub
 
 `.github/workflows/ci.yml` is on `master` but nothing has run it yet. Actions
