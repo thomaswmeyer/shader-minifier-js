@@ -1,13 +1,33 @@
 # shader-minifier-js
 
-A TypeScript port of [Shader Minifier](https://github.com/laurentlb/Shader_Minifier)
-(Ctrl-Alt-Test, F#, Apache 2.0): a GLSL minifier for size-constrained WebGL
-and demoscene shaders. Zero runtime dependencies, Node >= 20, ESM.
+A GLSL minifier for WebGL, in TypeScript. Zero runtime dependencies, Node >= 20,
+ESM; a CLI, a library and a Vite plugin.
 
-The port tracks Shader Minifier version 1.5.1 module for module and is
-validated by Shader Minifier's own golden test corpus: all 96 commands in
-`tests/commands.txt` produce byte-identical output. Deliberate deviations are listed in
-`PORTING.md` section 5.2 and, where they touch a golden file, `tests/DEVIATIONS.md`.
+It takes WebGL shaders only, GLSL ES rather than HLSL, and it takes them as an
+engine ships them: the `#if` chains that a `#define` injected at runtime will
+decide are kept for the compiler instead of needing to be resolved first. Over
+the 265 shaders of the corpora below, from three.js, Babylon.js, PlayCanvas,
+CesiumJS, gl-transitions and Shadertoy, each shader compressed on its own with
+brotli:
+
+| smaller than | by |
+|---|--:|
+| [Shader Minifier](https://github.com/laurentlb/Shader_Minifier), the F# original this ports | 2% to 49% |
+| [spglsl](https://github.com/SalvatorePreviti/spglsl), ANGLE's own shader translator | 2% to 13% |
+
+Smaller on every corpus, but by how much depends on the shader. The low end is
+hand-written demoscene work, where there is little left to find and all three
+tools land close together. The high end is an engine's generated shaders, where
+most of the gain is work neither alternative attempts. Those shaders are also
+rendered in a headless browser and compared with the original pixel by pixel,
+so the output is checked for meaning and not only for size. [Results](#results)
+has the tables and says exactly what each column measures.
+
+The port tracks Shader Minifier version 1.5.1 (Ctrl-Alt-Test, F#, Apache 2.0)
+module for module and is validated by Shader Minifier's own golden test corpus:
+all 96 commands in `tests/commands.txt` produce byte-identical output.
+Deliberate deviations are listed in `PORTING.md` section 5.2 and, where they
+touch a golden file, `tests/DEVIATIONS.md`.
 
 ## CLI
 
