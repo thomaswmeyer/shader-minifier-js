@@ -436,6 +436,36 @@ under every unit and codec.
   it gives a shader that computes what a mobile GPU would. Build that first,
   then the rewrite is a small one.
 
+- **Shortest float32 digits for every literal.** ANGLE prints each float
+  literal with the fewest digits that round-trip at float32, so
+  `6.283185307179586` becomes `6.2831855` and `2.399963229728653` becomes
+  `2.3999631`. The port keeps the digits as written unless `--fold-builtins`
+  produces the literal, and that path already has the shortest-float32
+  printer. GLSL `float` is 32-bit on every implementation, so applying the
+  same printing to every literal is lossless. Visible in three.js's
+  ShadowMaterial.frag, where spglsl's output is 19.4% smaller raw (4,787
+  against 3,859 bytes); the literals are part of that gap. Measure over the
+  corpora, raw and per shader compressed.
+- **Name reuse against externals: re-measure per shader.** The renamer
+  gives locals and parameters names that already occur in the file, external
+  names included, so a shadow helper in three.js's ShadowMaterial.frag has
+  parameters called `spotShadowMap` and `vDirectionalShadowCoord`. This is
+  upstream's behaviour and it is meant to pay after compression, since the
+  compressor already has the string: on that shader the gap to spglsl is
+  19.4% raw and 3.5% brotli. On Babylon's StandardMaterial.frag it is 21.5%
+  raw and 0.0% brotli. Whether it still pays when each shader is compressed
+  on its own, rather than as a blob, is the open question. Measure a variant
+  that never reuses an external's name, per shader compressed, before
+  changing anything.
+- **Unused uniform blocks.** `--remove-unused-uniforms` leaves a uniform
+  block alone even when nothing reads any member, because an application
+  finds the block by name. ANGLE drops such a block: Babylon's
+  StandardMaterial.frag declares `Light1` and `Light2` and reads neither,
+  and they are most of the four declarations spglsl's output lacks there.
+  Whether Babylon tolerates a block index lookup that fails is the thing to
+  check first. Then worth offering under the same opt-in flag, once the
+  block is proven unreferenced in every shader of the run.
+
 ### Measured and not worth building
 
 Kept here so they are not proposed again. Both were judged on the compressed

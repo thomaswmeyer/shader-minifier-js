@@ -5,8 +5,8 @@
 //   spglsl   -> Google ANGLE's minifier, when `npm install --no-save spglsl` was run
 // Corpora: test/tomto, test/corpus/gl-transitions (wrapped as the pixel test wraps them),
 // test/corpus/three (with --preprocess, as the pixel test runs them), and the WebGL-compatible
-// shaders of upstream's corpus. A shader a minifier refuses counts under "refused" and is left out
-// of that column's total, so totals are only comparable when the counts match.
+// shaders of upstream's corpus. A minifier that refuses any shader of a corpus gets no total for
+// that corpus, only the refusal count: a total over fewer shaders reads as a smaller size.
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
@@ -67,6 +67,8 @@ const angle = async (s: Shader): Promise<string | null> => {
 };
 
 const pct = (a: number, b: number): string => (b === 0 ? "" : `${(100 * (b - a) / b).toFixed(1)}%`);
+// A column's cell: the total when the minifier took every shader, else the refusal count and no size.
+const cell = (total: number | null, refused: number): string => (total === null ? "n/a" : refused > 0 ? `${refused} refused` : total.toLocaleString("en"));
 // What actually ships: the shaders of a corpus travel together in one bundle, compressed once, so
 // the number that matters is the compression of their concatenation, not the sum of compressing
 // each alone. It also counts what the shaders share, which is most of an engine's chunk text.
@@ -111,14 +113,13 @@ for (const corpus of corpora) {
   const aloneUp = texts.up.reduce((a, t) => a + brotli([t]), 0);
   const alonePl = texts.pl.reduce((a, t) => a + brotli([t]), 0);
   const aloneSp = spglsl === null ? null : texts.sp.reduce((a, t) => a + brotli([t]), 0);
-  perShader_.push(`| ${corpus.name} | ${aloneSource.toLocaleString("en")} | ${aloneUp.toLocaleString("en")} | ${alonePl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(alonePl, aloneUp) : ""} | ${aloneSp === null ? "n/a" : aloneSp.toLocaleString("en")} | ${aloneSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(alonePl, aloneSp) : ""} |`);
+  perShader_.push(`| ${corpus.name} | ${aloneSource.toLocaleString("en")} | ${cell(aloneUp, refusedUp)} | ${cell(alonePl, refusedPl)} | ${refusedUp === refusedPl ? pct(alonePl, aloneUp) : ""} | ${cell(aloneSp, refusedSp)} | ${aloneSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(alonePl, aloneSp) : ""} |`);
   for (const [rows, z] of [[compressed, brotli], [compressedGz, gzip]] as [string[], (p: string[]) => number][]) {
     const cSource = z(texts.source), cUp = z(texts.up), cPl = z(texts.pl);
     const cSp = spglsl === null ? null : z(texts.sp);
-    rows.push(`| ${corpus.name} | ${cSource.toLocaleString("en")} | ${cUp.toLocaleString("en")} | ${cPl.toLocaleString("en")} | ${refusedUp === refusedPl ? pct(cPl, cUp) : ""} | ${cSp === null ? "n/a" : cSp.toLocaleString("en")} | ${cSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(cPl, cSp) : ""} |`);
+    rows.push(`| ${corpus.name} | ${cSource.toLocaleString("en")} | ${cell(cUp, refusedUp)} | ${cell(cPl, refusedPl)} | ${refusedUp === refusedPl ? pct(cPl, cUp) : ""} | ${cell(cSp, refusedSp)} | ${cSp !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(cPl, cSp) : ""} |`);
   }
-  const note = (n: number) => (n > 0 ? ` (${n} refused)` : "");
-  rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${up.toLocaleString("en")}${note(refusedUp)} | ${pl.toLocaleString("en")}${note(refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${spglsl === null ? "n/a" : sp.toLocaleString("en") + note(refusedSp)} | ${spglsl !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(pl, sp) : ""} |`);
+  rows.push(`| ${corpus.name} | ${corpus.shaders.length} | ${source.toLocaleString("en")} | ${cell(up, refusedUp)} | ${cell(pl, refusedPl)} | ${refusedUp === refusedPl ? pct(pl, up) : ""} | ${cell(spglsl === null ? null : sp, refusedSp)} | ${spglsl !== null && refusedSp === refusedPl && refusedSp === 0 ? pct(pl, sp) : ""} |`);
   perShader.sort((x, y) => y[1] - x[1]);
   for (const [name, src, u, p, a] of perShader.slice(0, 3)) largest.push(`| ${corpus.name}/${name} | ${src.toLocaleString("en")} | ${u ?? "refused"} | ${p ?? "refused"} | ${a === null ? (spglsl === null ? "n/a" : "refused") : a} |`);
 }
