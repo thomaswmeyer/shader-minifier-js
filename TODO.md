@@ -10,27 +10,15 @@ the size tables measure; **upstream's rewrites** is shader-minifier-js
 limited to the rewrites Shader Minifier itself performs, which reproduces
 its output.
 
-## 0. Turn the CI workflow on in GitHub
+## 0. CI: running
 
-`.github/workflows/ci.yml` is on `master` but nothing has run it yet. Actions
-has to be enabled for the repository before it does: **Settings -> Actions ->
-General**, allow workflows to run, then push anything (or use **Run workflow**
-from the Actions tab) to get the first run.
-
-Worth checking on that first run, because none of it has executed on GitHub's
-runners, only here:
-
-- Chromium installs and the semantic tests actually run. They skip themselves
-  without a browser, so a green run that reports skips means `REQUIRE_BROWSER`
-  did not take effect and the browser step needs looking at.
-- The whole suite takes about eight minutes locally, most of it
-  `test/corpus.test.ts`. If that is too slow for every push, splitting the
-  browser tests into a second job is the obvious change.
-- `npm install --no-save spglsl` is allowed to fail, so the ANGLE compile test
-  may skip. That is deliberate; a registry hiccup should not fail the build.
-
-Consider also requiring the check on `master` once it is green, since the
-goldens are the thing most easily broken by accident.
+`.github/workflows/ci.yml` runs on every push to `master` and every pull
+request: typecheck, build and the whole suite with Chromium, about eight and
+a half minutes, the browser tests included (`REQUIRE_BROWSER` turns a
+missing browser into a failure, and the totals match a local full run).
+Left to decide: requiring the check on `master`, a repository setting, since
+the goldens are the thing most easily broken by accident; and splitting the
+browser tests into a second job if the run time starts to matter.
 
 ## 0b. WebGPU, aimed at TensorFlow.js: measured, and the answer is no
 
