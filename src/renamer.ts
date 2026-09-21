@@ -56,7 +56,7 @@ class Env {
     return new Env(new Map(), new Map(), new Map(), availableNames, availableFieldNames, { value: [] }, allowOverloading, newName, onEnterScope);
   }
 
-  private with(changes: {
+  with(changes: {
     identRenames?: ReadonlyMap<string, string>;
     memberRenames?: ReadonlyMap<string, string>;
     funOverloads?: ReadonlyMap<string, ReadonlyMap<Signature, string>>;
@@ -112,10 +112,6 @@ class Env {
     for (const [prev, name] of shared) identRenames.set(prev, name);
     return this.withPoolsFrom(last).with({ identRenames });
   }
-
-  update(identRenames: ReadonlyMap<string, string>, funOverloads: ReadonlyMap<string, ReadonlyMap<Signature, string>>, availableNames: readonly string[]): Env {
-    return this.with({ identRenames, funOverloads, availableNames });
-  }
 }
 
 function mapAdd<V>(m: ReadonlyMap<string, V>, key: string, value: V): ReadonlyMap<string, V> {
@@ -129,9 +125,10 @@ type DeclarationContext =
   // `region` is set when the declaration sits directly in a preprocessor conditional; see renRegion.
   | { kind: "LocalDeclaration"; region: Map<string, string> | null }
   | { kind: "Field"; block: StructOrInterfaceBlock; hasInstanceName: boolean }
-  | { kind: "FunctionArgument"; fn: FunctionType };
+  | { kind: "FunctionArgument" };
 const TopLevelDeclaration: DeclarationContext = { kind: "TopLevelDeclaration" };
 const LocalDeclaration = (region: Map<string, string> | null): DeclarationContext => ({ kind: "LocalDeclaration", region });
+const FunctionArgument: DeclarationContext = { kind: "FunctionArgument" };
 
 // This visitor has three jobs:
 //  * for every identifier declaration, give it a name (stored in Env) by calling Env.newName or DontRename
@@ -416,7 +413,7 @@ class RenamerVisitor {
       const newName = found;
       const overloads = env.funOverloads.get(found)!;
       const funOverloads = mapAdd(env.funOverloads, newName, mapAdd(overloads, signature, id.name));
-      const env2 = env.update(mapAdd(env.identRenames, id.name, newName), funOverloads, env.availableNames);
+      const env2 = env.with({ identRenames: mapAdd(env.identRenames, id.name, newName), funOverloads });
       id.rename(newName);
       return env2;
     } else {
@@ -424,7 +421,7 @@ class RenamerVisitor {
       const prevName = id.name;
       const env2 = env.newName("VarFunStruct", env, id);
       const funOverloads = mapAdd(env2.funOverloads, id.name, new Map([[signature, prevName]]));
-      return env2.update(env2.identRenames, funOverloads, env2.availableNames);
+      return env2.with({ funOverloads });
     }
   }
 
@@ -476,7 +473,7 @@ class RenamerVisitor {
     let envForBody = env.onEnterScope(env, tl.body);
     // Use the function body's env to rename arguments (they can shadow unused top level names).
     const envForType = env; // Use the top level env to rename the argument types! (In the body env the type names might have been removed.)
-    envForBody = renList(envForBody, (e, d) => this.renDecl({ kind: "FunctionArgument", fn: fct }, envForType, e, d), fct.args);
+    envForBody = renList(envForBody, (e, d) => this.renDecl(FunctionArgument, envForType, e, d), fct.args);
 
     // Use the function body's env to rename in the body.
     this.renStmt(envForBody, tl.body);
@@ -609,37 +606,6 @@ class RenamerImpl {
     };
   }
 
-  // A renaming strategy that always picks the first available name. This optimizes the
-  // frequency of a few variables. It also ensures that two identical functions will use the
-  // same names for local variables, which can be very important in some multifile scenarios.
-  private optimizeNameFrequency(): NewNameFn {
-    return (ns, env, id) => {
-      const newName = listHead(env.availableNames);
-      return env.addRenaming(ns, id, newName);
-    };
-  }
-
-  // A renaming strategy that's bijective: if (and only if) two variables had the same old name,
-  // they will get the same new name.
-  // This leads to a slightly longer output (because lots of names are created, most of them
-  // have two chars). However, this preserves similarities from the input code, so that can be
-  // compression-friendly.
-  private bijectiveRenaming(ns: Namespace, allNames: readonly string[]): (env: Env, id: Ident) => Env {
-    let names = allNames;
-    const d = new Map<string, string>();
-    return (env, id) => {
-      const name = d.get(id.oldName);
-      if (name !== undefined) {
-        return env.addRenaming(ns, id, name);
-      } else {
-        const newName = listHead(names);
-        names = names.slice(1);
-        d.set(id.oldName, newName);
-        return env.addRenaming(ns, id, newName);
-      }
-    };
-  }
-
   // Renaming safe across multiple files (e.g. uniform/in/out variables are
   // renamed in a consistent way) that tries to optimize based on the context
   // and variable reuse.
@@ -686,7 +652,7 @@ class RenamerImpl {
     }
     reusable = reusable.filter((x) => !this.options.noRenamingList.includes(x));
     const allAvailable = [...new Set([...reusable, ...env.availableNames])];
-    return env.update(identRenames, env.funOverloads, allAvailable);
+    return env.with({ identRenames, availableNames: allAvailable });
   };
 
   private renameAsts(shaders: readonly Shader[], env: Env): ExportedName[] {
@@ -738,7 +704,6 @@ class RenamerImpl {
     const allowOverloading = !this.options.noOverloading;
     let env: Env;
     if (shaders.length > 1) {
-      // Env.Create(names, true, bijectiveRenaming names, shadowVariables)
       const exportsRenames = new Map<string, string>();
       exportedNames.forEach((e, i) => { if (i < names.length) exportsRenames.set(e.name, names[i]); });
       const contextTable = computeContextTable(text);

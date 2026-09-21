@@ -4,7 +4,7 @@ import type { BlockLevel, Decl, DeclElt, Expr, FunctionType, Ident as IdentT, Lo
 import {
   Block, DeclStmt, Dot, ExprStmt, Float, ForD, ForE, FunCall, DoWhile, Function as FunctionTL, Ident, If, Int, Jump, OpCall,
   TLDecl, TLDirective, TLVerbatim, TypeDecl, Var, Verbatim, Directive,
-  asOpCall, exprListEquals, funParameters, funPrototype, prototypeKey, resolvedVariableUse,
+  asOpCall, exprListEquals, funParameters, funPrototype, locToS, prototypeKey, resolvedVariableUse,
   typeEquals, typeIsConst, typeIsOutOrInout, typeIsScalar, typeIsScalarOrVector, makeType, asStmtList,
 } from "./ast.js";
 import { Analyzer, Effects, IdentKind, VarVisitor, callPrototypes, type FuncInfo, type VarUse } from "./analyzer.js";
@@ -14,7 +14,6 @@ import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining
 import { renameField, trace, type Options, type Stage } from "./options.js";
 import * as Printer from "./printer.js";
 
-const locToS = (loc: Location): string => `${loc.line}:${loc.col}`;
 
 const commaSeparatedExprs = (li: Expr[]): Expr => li.reduce((a, b) => OpCall(",", [a, b]));
 
@@ -820,50 +819,20 @@ class RewriterImpl {
     return stmts.flatMap(replacements);
   }
 
-  // GLSL allows squeezing array declarations of different dimensions: `float a[4], b[7];`.
-  private declsCanBeSqueezed([ty1, li1]: Decl, [ty2, li2]: Decl): boolean {
-    // Helper for determining if all array dimensions in two declaration lists are equal.
-    const allSizesEqual = (l1: DeclElt[], l2: DeclElt[]): boolean => {
-      const all = [...l1, ...l2];
-      if (all.length === 0) return true;
-      const sizes = all[0].sizes;
-      return all.slice(1).every((decl) => exprListEquals(decl.sizes, sizes));
-    };
-    return typeEquals(ty1, ty2);
-  }
-
-  // Squeeze declarations: "float a=2.; float b;"  ->  "float a=2.,b;"
-  private squeezeConsecutiveDeclarations(stmts: Stmt[]): Stmt[] {
-    const out: Stmt[] = [];
-    let i = 0;
-    while (i < stmts.length) {
-      let cur = stmts[i];
-      i++;
-      while (cur.kind === "Decl" && i < stmts.length) {
-        const next = stmts[i];
-        if (next.kind === "Decl" && this.declsCanBeSqueezed(cur.decl, next.decl)) {
-          cur = DeclStmt([cur.decl[0], [...cur.decl[1], ...next.decl[1]]]);
-          i++;
-        } else break;
-      }
-      out.push(cur);
-    }
-    return out;
-  }
-
-  // Squeeze top-level declarations, e.g. uniforms
-  private squeezeTLDeclarations(tls: TopLevel[]): TopLevel[] {
-    const out: TopLevel[] = [];
-    let i = 0;
-    while (i < tls.length) {
-      let cur = tls[i];
-      i++;
-      while (cur.kind === "TLDecl" && i < tls.length) {
-        const next = tls[i];
-        if (next.kind === "TLDecl" && this.declsCanBeSqueezed(cur.decl, next.decl)) {
-          cur = TLDecl([cur.decl[0], [...cur.decl[1], ...next.decl[1]]]);
-          i++;
-        } else break;
+  // Squeeze consecutive declarations of one type: "float a=2.; float b;"  ->  "float a=2.,b;", in a
+  // block (statements) or at top level (uniforms). Only the type has to agree: GLSL allows arrays
+  // of different dimensions in one declaration, `float a[4], b[7];`.
+  private static squeezeDeclarations<T>(items: readonly T[], declOf: (item: T) => Decl | null, ofDecl: (decl: Decl) => T): T[] {
+    const out: T[] = [];
+    for (let i = 0; i < items.length; ) {
+      let cur = items[i++];
+      let decl = declOf(cur);
+      while (decl !== null && i < items.length) {
+        const next = declOf(items[i]);
+        if (next === null || !typeEquals(decl[0], next[0])) break;
+        decl = [decl[0], [...decl[1], ...next[1]]];
+        cur = ofDecl(decl);
+        i++;
       }
       out.push(cur);
     }
@@ -1306,7 +1275,7 @@ class RewriterImpl {
     if (!(this.optimizationPass !== OptimizationPass.Second || hasPreprocessor)) b = this.reuseExistingVarDecl(blockLevel, b);
 
     // Consecutive declarations of the same type become one.  float a;float b;  ->  float a,b;
-    b = this.squeezeConsecutiveDeclarations(b);
+    b = RewriterImpl.squeezeDeclarations(b, (s) => (s.kind === "Decl" ? s.decl : null), DeclStmt);
 
     // Group declarations, optionally (may compress poorly).  float a,f();float b=4.;  ->  float a,b;f();b=4.;
     b = hasPreprocessor || !this.options.moveDeclarations ? b : this.groupDeclarations(b);
@@ -1551,7 +1520,7 @@ class RewriterImpl {
       tls1 = tls2;
       tls2 = moveDeclarationsUp(tls2);
     }
-    return this.squeezeTLDeclarations(tls2);
+    return RewriterImpl.squeezeDeclarations(tls2, (t) => (t.kind === "TLDecl" ? t.decl : null), TLDecl);
   }
 
   cleanup = (tl: TopLevel[]): TopLevel[] => {
@@ -1583,26 +1552,12 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     console.log("Reordering functions because of forward declarations.");
   }
 
-  const graphReorder = (nodes: FuncInfo[]): TopLevel[] => { // slow, but who cares?
-    if (nodes.length === 0) return [];
-    // Find a function that doesn't call anything else
-    const node = nodes.find((n) => n.callSites.length === 0);
-    if (node === undefined) throw new Error("Cannot reorder functions (probably because of a recursion).");
-    // Remove that function from the graph
-    const proto = funPrototype(node.funcType);
-    const rest = nodes.filter((n) => n !== node)
-      // Remove that function from the callSites. This step assumes no type-based overloading.
-      .map((n) => ({ ...n, callSites: n.callSites.filter((c) => c.prototype !== proto) }));
-    // Recurse
-    return [node.func, ...graphReorder(rest)];
-  };
-
   // Functions inside a conditional directive region at top level (#ifdef ... #else ... #endif)
   // are alternatives of which the compiler keeps one; pulling them out, as upstream does, defines
   // a function twice. Such a region stays where it is, as a unit, among the non-function items,
   // preceded by the functions outside any region that it calls (in dependency order); every
   // other function follows at the end, in upstream's order. Without regions this is upstream's
-  // layout exactly.
+  // layout exactly: every function after its callees, the first ready one in file order first.
   type Segment = { region: false; tl: TopLevel } | { region: true; items: TopLevel[] };
   const segments: Segment[] = [];
   let depth = 0;
@@ -1616,11 +1571,7 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     else segments.push({ region: false, tl });
     if (kind === "close") depth = Math.max(0, depth - 1);
   }
-  const regionFunctions = new Set<TopLevel>(segments.flatMap((s) => (s.region ? s.items.filter((t) => t.kind === "Function") : [])));
   const infos = new Analyzer().findFuncInfos(code);
-  const free = infos.filter((n) => !regionFunctions.has(n.func));
-  const freeByProto = new Map(free.map((n) => [funPrototype(n.funcType), n]));
-  const freeNodes = free.map((n) => ({ ...n, callSites: n.callSites.filter((c) => freeByProto.has(c.prototype)) }));
   // Calls are read from the bodies rather than from the analysis's call sites, which leave out a
   // call to a function it cannot see, such as one kept as text.
   const callsIn = callPrototypes;
@@ -1640,7 +1591,6 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
     return calls.size === 0 && defines.size === 0 ? [] : [{ items: [s.tl], defines, calls }];
   });
   const textItems = new Set(textUnits.flatMap((u) => u.items));
-  if (regionFunctions.size === 0 && textUnits.length === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
 
   // Every declaration outside a region first, as upstream lays them out, so a function pulled
   // ahead of a region never precedes a global it reads. Then the functions and the regions, each
@@ -1675,7 +1625,7 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   while (pending.length > 0) {
     // Ready: everything this unit calls is either already emitted or not defined in this file.
     let i = pending.findIndex((u) => [...u.calls].every((c) => done.has(c) || !defined.has(c) || u.defines.has(c)));
-    if (i < 0) i = 0; // a cycle the dropped forward declarations cannot be recovered for
+    if (i < 0) i = 0; // a cycle (recursion, or through two regions) the dropped forward declarations cannot be recovered for
     const [u] = pending.splice(i, 1);
     for (const d of u.defines) done.add(d);
     out.push(...u.items);

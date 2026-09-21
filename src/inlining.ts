@@ -1,13 +1,12 @@
 // Port of Minifier/inlining.fs
 import * as Ast from "./ast.js";
 import type { Decl, Expr, Ident, Level, Location, Stmt, TopLevel, VarDecl } from "./ast.js";
-import { asOpCall, asVarCall, resolvedVariableUse } from "./ast.js";
+import { asOpCall, asVarCall, locToS, resolvedVariableUse } from "./ast.js";
 import { Analyzer, Effects, IdentKind, type CallSite, type FuncInfo } from "./analyzer.js";
 import * as Builtin from "./builtin.js";
 import * as Printer from "./printer.js";
 import { trace, type Options } from "./options.js";
 
-const locToS = (loc: Location): string => `${loc.line}:${loc.col}`;
 
 function isTrivialExpr(e: Expr): boolean { // "trivial" means "small enough to inline to multiple places".
   switch (e.kind) {

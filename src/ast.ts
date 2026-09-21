@@ -5,6 +5,7 @@ export type VarScope = "Global" | "Local" | "Parameter";
 
 export interface Location { line: number; col: number }
 export const noLoc: Location = { line: -1, col: -1 };
+export const locToS = (loc: Location): string => `${loc.line}:${loc.col}`;
 
 // a Var in the AST can be a read, a write, both, or neither.
 export interface Access {
