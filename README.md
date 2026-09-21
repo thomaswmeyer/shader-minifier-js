@@ -359,7 +359,7 @@ without one. They need Playwright's browser once:
 
 ```sh
 npx playwright install chromium   # downloads Chromium for the installed Playwright
-npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about six minutes
+npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about eight minutes
 npm test                          # runs them too when the browser is there
 ```
 
@@ -412,7 +412,10 @@ Three tests guard real output rather than parity with Shader Minifier:
   assemble for their materials — three.js (MIT), Babylon.js (Apache-2.0),
   PlayCanvas (MIT) and CesiumJS (Apache-2.0) — dumped from a real renderer in
   the harness's browser so the chunk expansion and the runtime `#define`s are
-  the ones a site ships. `npm run corpus:gl-transitions`,
+  the ones a site ships. The three.js shaders also run with their `#if`s
+  kept, as the plugin sees them, once as dumped and once with every runtime
+  define the file leaves undecided switched on, so the compiler decides the
+  kept branches both ways. `npm run corpus:gl-transitions`,
   `corpus:three`, `corpus:babylon`, `corpus:playcanvas` and `corpus:cesium`
   refresh them from the npm packages; the version is recorded next to each.
   The engine shaders are also compiled and drawn in vertex/fragment pairs, so

@@ -1,7 +1,8 @@
 // The pixel test (test/pixels.test.ts) over shaders from open source projects that ship on the
 // web, vendored under test/corpus/ with their licenses; test/corpora.ts describes them and wraps
-// them. Each shader runs under the plugin's defaults and under upstream's rewrites alone, and
-// each three.js program is linked as a real vertex and fragment pair. Refresh the corpora with
+// them. Each shader runs under the plugin's defaults and under upstream's rewrites alone, the
+// three.js shaders also with their `#if`s kept and once more with the runtime defines switched on,
+// and each three.js program is linked as a real vertex and fragment pair. Refresh the corpora with
 // `npm run corpus:gl-transitions` and `npm run corpus:three`. Skips without a browser.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
@@ -10,7 +11,28 @@ import { ParseError, type Options } from "../src/options.js";
 import { babylonShaders, cesiumShaders, glTransitions, playcanvasShaders, pluginOptions, programs, threeShaders, variants, type CorpusShader } from "./corpora.js";
 import { compareVaryings, countDifferingPixels, glslVersion, judgePixels, perturbFloatLiterals, seeds, shaderInterface, ShaderRunner, type RenderConfig } from "./pixels.js";
 
-interface Case { name: string; file: string; stage: "frag" | "vert"; source: string; options: Options; uniforms?: RenderConfig["uniforms"] }
+interface Case { name: string; file: string; stage: "frag" | "vert"; source: string; options: Options; uniforms?: RenderConfig["uniforms"]; defines?: string[] }
+
+/**
+ * The names a shader's `#ifdef`, `#ifndef` and `defined()` test and the file never defines: the
+ * switches three.js injects at runtime. A minified shader must render the same under any setting
+ * of them, and the dumped file carries one setting only.
+ */
+export function undecidedDefines(source: string): string[] {
+  const defined = new Set([...source.matchAll(/^\s*#\s*define\s+(\w+)/gm)].map((m) => m[1]));
+  const tested = new Set<string>();
+  for (const m of source.matchAll(/^\s*#\s*(?:ifdef|ifndef)\s+(\w+)/gm)) tested.add(m[1]);
+  for (const m of source.matchAll(/\bdefined\s*\(?\s*(\w+)/g)) tested.add(m[1]);
+  return [...tested].filter((n) => !defined.has(n) && !/^(GL_|__)/.test(n)).sort();
+}
+
+/** The shader with `#define NAME` for each name, after its `#version` line if it has one, as an engine injects them. */
+export function withDefines(source: string, names: readonly string[]): string {
+  if (names.length === 0) return source;
+  const defs = names.map((n) => `#define ${n}\n`).join("");
+  const m = /^[ \t]*#[ \t]*version[^\n]*\n/.exec(source);
+  return m === null ? defs + source : source.slice(0, m[0].length) + defs + source.slice(m[0].length);
+}
 
 const cases: Case[] = [];
 for (const [corpus, shaders] of [["gl-transitions", glTransitions()], ["three", threeShaders()], ["babylon", babylonShaders()], ["playcanvas", playcanvasShaders()], ["cesium", cesiumShaders()]] as [string, CorpusShader[]][]) {
@@ -23,7 +45,13 @@ for (const [corpus, shaders] of [["gl-transitions", glTransitions()], ["three", 
     // three.js injects its defines at runtime, so the plugin sees these with every `#if` still in
     // place: the `#if` chains around arguments, struct members and parameters are kept for the
     // compiler's preprocessor to decide, and this checks it decides the same way on the output.
-    if (corpus === "three") cases.push({ name: `${corpus}/${s.name} [plugin without --preprocess]`, file, stage: file.endsWith(".vert") ? "vert" : "frag", source: s.source, options: { ...pluginOptions(), preprocess: false }, uniforms: s.uniforms });
+    if (corpus === "three") {
+      const stage = file.endsWith(".vert") ? "vert" : "frag";
+      cases.push({ name: `${corpus}/${s.name} [plugin without --preprocess]`, file, stage, source: s.source, options: { ...pluginOptions(), preprocess: false }, uniforms: s.uniforms });
+      // The other setting of those switches: every one the original still compiles with turned on,
+      // in both the original and the minified shader, whose kept `#if`s the compiler decides again.
+      cases.push({ name: `${corpus}/${s.name} [plugin without --preprocess, undecided defines on]`, file, stage, source: s.source, options: { ...pluginOptions(), preprocess: false }, uniforms: s.uniforms, defines: undecidedDefines(s.source) });
+    }
   }
 }
 
@@ -49,11 +77,42 @@ describe("open source shader corpus renders the same", () => {
         throw e;
       }
       const mode = c.stage === "frag" ? "pixels" : "varyings";
-      const inputs = shaderInterface(c.file, c.source, c.stage);
-      const cfg = (source: string, seed: number): RenderConfig => ({ mode, version, source, inputs, size: 48, vertices: 16, instances: 2, uniforms: c.uniforms, seed });
+      const cfgFor = (interfaceSource: string) => {
+        const inputs = shaderInterface(c.file, interfaceSource, c.stage);
+        return (source: string, seed: number): RenderConfig => ({ mode, version, source, inputs, size: 48, vertices: 16, instances: 2, uniforms: c.uniforms, seed });
+      };
+      let originalSource = c.source;
+      if (c.defines !== undefined) {
+        // As many of them on as the original compiles with: the whole set when it does, else each
+        // half on its own, down to the single names that break it (a `USE_MAP` without its `MAP_UV`).
+        const compiles = async (names: string[]): Promise<boolean> =>
+          (await runner.run({ mode: "compile", stage: c.stage, version, source: withDefines(c.source, names), inputs: [], size: 1, vertices: 1, instances: 1, seed: 0 })).ok;
+        const renders = async (names: string[]): Promise<boolean> => { const t = withDefines(c.source, names); return (await runner.run(cfgFor(t)(t, seeds[0]))).ok; };
+        const settle = async (accepts: (names: string[]) => Promise<boolean>, candidates: string[]): Promise<string[]> => {
+          const on: string[] = [];
+          const go = async (names: string[]): Promise<void> => {
+            if (names.length === 0) return;
+            if (await accepts([...on, ...names])) { on.push(...names); return; }
+            if (names.length === 1) return;
+            await go(names.slice(0, names.length >> 1));
+            await go(names.slice(names.length >> 1));
+          };
+          await go(candidates);
+          return on;
+        };
+        // Compiling alone is the cheap trial; a set that compiles can still fail to link or draw
+        // (every attribute on at once is too many), and then the set is settled again by rendering.
+        let on = await settle(compiles, c.defines);
+        if (on.length > 0 && !(await renders(on))) on = await settle(renders, on);
+        if (process.env.CORPUS_DEFINES_LOG) console.log(`${c.file}: ${on.length} of ${c.defines.length} undecided defines on`);
+        if (on.length === 0) { ctx.skip("no undecided define compiles on its own"); return; }
+        originalSource = withDefines(c.source, on);
+        minified = withDefines(minified, on);
+      }
+      const cfg = cfgFor(originalSource);
       // Several sets of inputs, so branches one set misses are still exercised.
       for (const seed of seeds) {
-        const original = await runner.run(cfg(c.source, seed));
+        const original = await runner.run(cfg(originalSource, seed));
         if (!original.ok) { ctx.skip(`WebGL rejects the original: ${original.error.split("\n")[0]}`); return; }
         const result = await runner.run(cfg(minified, seed));
         expect(result.ok, `minified shader failed: ${result.ok ? "" : result.error}\n${minified.slice(0, 4000)}`).toBe(true);
@@ -63,7 +122,7 @@ describe("open source shader corpus renders the same", () => {
           expect(cmp.same, `seed ${seed}: ${cmp.summary}\n${minified.slice(0, 4000)}`).toBe(true);
           continue;
         }
-        const perturbed = await runner.run(cfg(perturbFloatLiterals(c.source), seed));
+        const perturbed = await runner.run(cfg(perturbFloatLiterals(originalSource), seed));
         const noise = perturbed.ok ? countDifferingPixels(original.data, perturbed.data, 1) : 0;
         const cmp = judgePixels(original.data, result.data, noise);
         if (cmp.chaotic) { ctx.skip(`chaotic shader (seed ${seed}): ${cmp.summary}`); return; }

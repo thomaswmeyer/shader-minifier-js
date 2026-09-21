@@ -228,6 +228,7 @@
     };
 
     try {
+      if (cfg.mode === "compile") { compile(cfg.stage === "vert" ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER, cfg.source); return { ok: true, data: [] }; }
       if (cfg.mode === "link") { link(cfg.source, cfg.fragmentSource); return { ok: true, data: [] }; }
       if (cfg.mode === "program") return { ok: true, data: renderProgram() };
       if (cfg.mode === "pixels") return { ok: true, data: renderPixels() };

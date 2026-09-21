@@ -312,10 +312,17 @@ fragment-only comparison already is the real pair.
   declares a function parameter through a macro
   (`float f(SHADOWMAP_ACCEPT(shadowMap), ...)`), which only `--expand-macros`
   can take, and needed the harness to learn integer samplers.
-- A shader whose defines are injected at runtime, rendered under both
-  settings of a define. The three.js pairs without `--preprocess` (section 1)
-  are the first half: the compiler decides the kept `#if`s the same way on
-  the output, but only for the defines the dumped shader carries.
+- **A shader whose defines are injected at runtime, rendered under both
+  settings: done.** `test/corpus.test.ts` renders each three.js shader
+  without `--preprocess` a second time with every `#ifdef` name the file
+  never defines switched on, in the original and in the minified output
+  alike, so the compiler decides the kept `#if`s the other way. The set is
+  settled by bisection against the compiler (a `USE_MAP` without its
+  `MAP_UV` does not compile; every attribute on at once does not link):
+  1,396 of the 2,052 undecided names end up on, 54 of the 56 shaders render
+  the same, the two `ShaderMaterial`s have no undecided name. Two minutes
+  of browser time, most of it the compile trials. Toggling one name at a
+  time would be the exhaustive form; this is the other corner of the space.
 - A multi-file run in the pixel test (`tests/real/mouton` is one).
 - More seeds where a shader's branches depend on textures rather than
   uniforms, and a larger canvas for shaders with fine detail.

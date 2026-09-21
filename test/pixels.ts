@@ -13,10 +13,13 @@ import { repoRoot } from "./golden.js";
 export interface ShaderInput { name: string; type: string; size: number; array: boolean; flat: boolean }
 export interface RenderConfig {
   /**
+   * compile: compile `source` alone, as the shader `stage` says, and report the compiler's verdict.
    * link: compile `source` as the vertex shader and `fragmentSource` as the fragment shader and link them.
    * program: link them and draw, so a real pair is rendered rather than a shader with a generated partner.
    */
-  mode: "pixels" | "varyings" | "link" | "program";
+  mode: "compile" | "pixels" | "varyings" | "link" | "program";
+  /** compile mode: which stage `source` is. */
+  stage?: "vert" | "frag";
   version: 1 | 2;
   source: string;
   /** link and program modes: the fragment shader of the pair. */
