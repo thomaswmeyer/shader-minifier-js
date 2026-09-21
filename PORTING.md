@@ -744,6 +744,19 @@ says so. Every site is ported deliberately:
     keep the directive as text, which the compiler then rejects; only the
     plugin has a file system to resolve against.
 
+45. *Type knowledge across the files of a run.* The rewriter learns the
+    structs, interface blocks and function return types it may meet from
+    the code it is given; upstream and the port gave it one file at a time,
+    so in a multi-file run a call into another file had an unknown type,
+    which `--webgl` treats as possibly a struct (no `?:`) and possibly void
+    (no comma sequence), and the swizzle-like field rule could not tell a
+    field from a swizzle. The rewriter now reads its knowledge from the file
+    and the other files' declarations, the file's own winning where a name
+    is declared in both (two stages may each declare a `Light`). Nothing
+    else crosses files: removals count uses per file and effects are
+    resolved per file, as upstream does, so a shader split over several
+    files still runs with `--no-remove-unused`.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

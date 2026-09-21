@@ -38,9 +38,11 @@ export class Minifier {
       if (options.removeUnusedUniforms) removeUnusedUniforms(options, staged);
       parsed.forEach(({ shader }, i) => { shader.code = staged[i].code; });
     }
-    this.shaders = parsed.map(({ filename, options: own, shader }) => {
+    this.shaders = parsed.map(({ filename, options: own, shader }, i) => {
       const code = shader.reorderFunctions ? reorderFunctions(own, shader.code) : shader.code;
-      return { ...shader, code: simplify(own, code, Options_.stageOfFilename(filename)) };
+      // The other files' declarations: a struct or a function declared in one file may be used in this one.
+      const context = parsed.flatMap((p, j) => (j === i ? [] : p.shader.code));
+      return { ...shader, code: simplify(own, code, Options_.stageOfFilename(filename), context) };
     });
     vprint("Rewrite tricks applied. "); printSize(this.shaders);
 

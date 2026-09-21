@@ -238,10 +238,15 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
   directive does, since a declaration grouped above it or a variable reused
   across it would take the other precision; `--drop-default-precision`
   leaves such a body's qualifiers alone (`PORTING.md` item 43).
-- **Struct types from another file.** In a multi-file run each file is
-  analysed alone, so a struct declared in one file is unknown in the next.
-  Sharing declarations across files in `Minifier` would fix `--webgl` and the
-  swizzle-like field handling for that case.
+- **Struct types from another file: done.** The rewriter reads its type
+  knowledge (structs, interface blocks, function return types) from the
+  file being rewritten and the other files of the run, the file's own
+  declarations winning (`PORTING.md` item 45), so `--webgl` and the
+  swizzle-like field handling see a struct or a function declared in a
+  sibling file. The files stay separate shaders in every other respect, as
+  with upstream: removals count uses per file, and the effects of a call
+  into another file are unknown, so a run that concatenates its files still
+  passes `--no-remove-unused`.
 - **A declaration lost under `--move-declarations`: fixed.** Five shaders
   of the upstream corpus emitted a use with no declaration under
   `--no-remove-unused --aggressive-inlining --move-declarations`. The cause

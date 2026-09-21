@@ -373,12 +373,21 @@ describe("--remove-unused-uniforms", () => {
 });
 
 describe("--webgl across files", () => {
-  it("treats a struct declared in another file as unknown, so the rewrites stay conservative", () => {
+  const run = (files: [string, string][]): string => minifyApi(files.map(([name, content]) => ({ name, content })), { webgl: true, noRenaming: true, noPiSubstitution: true, inlining: "none" }).format("text");
+  it("knows a struct declared in another file, so the struct rules apply to it", () => {
     const a = "struct S{float d;};";
     const b = "S pick(S a,S b){if(a.d<b.d)return a;return b;}void main(){S x;x.d=1.;gl_FragColor=vec4(pick(x,x).d);}";
-    const out = minifyApi([{ name: "a.frag", content: a }, { name: "b.frag", content: b }], { webgl: true, noRenaming: true, noPiSubstitution: true });
-    expect(out.shaders[1].code.length).toBeGreaterThan(0);
-    expect(out.format("text")).toContain("if(a.d<b.d)return a;return b;");
+    expect(run([["a.frag", a], ["b.frag", b]])).toContain("if(a.d<b.d)return a;return b;");
+  });
+  it("knows a function declared in another file, so a call to it is not an unknown type", () => {
+    // Unknown, the call might yield a struct, which WebGL's ?: rejects, so the if/else would stay.
+    // The files are still separate shaders otherwise: `pick` is removed from a.frag as unused there
+    // (a run that concatenates its files passes --no-remove-unused, as with upstream), and the
+    // effects of a call into another file are unknown, so the lone `pick(u,1.)` stays.
+    const a = "uniform float u;float pick(float a,float b){return a<b?a:b;}";
+    const b = "float r;void main(){if(u<1.)r=pick(u,2.);else r=pick(u,3.);pick(u,1.);gl_FragColor=vec4(r);}";
+    const out = run([["a.frag", a], ["b.frag", b]]);
+    expect(out).toContain("r=u<1.?pick(u,2.):pick(u,3.);pick(u,1.);");
   });
 });
 

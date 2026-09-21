@@ -87,6 +87,11 @@ class RewriterImpl {
   // swizzle only where e is known not to be a struct. Without such fields every one is, as upstream assumes.
   private readonly swizzleLikeFields: boolean;
 
+  /**
+   * `code` is what the rewriter learns its types from: the structs, interface blocks and function
+   * return types it may meet. In a multi-file run it is the file being rewritten and the other
+   * files' declarations, since a struct or a function declared in one file is used in the next.
+   */
   constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass, code: readonly TopLevel[] = []) {
     const blocks: StructOrInterfaceBlock[] = [];
     for (const tl of code) {
@@ -1655,7 +1660,7 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   return out;
 }
 
-function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[]): TopLevel[] {
+function iterateSimplifyAndInline(options: Options, optimizationPass: OptimizationPass, passCount: number, li: TopLevel[], context: readonly TopLevel[]): TopLevel[] {
   let code = li;
   if (options.removeUnused !== "none") {
     // Removing a global can orphan a function whose only caller was its initializer, and removing
@@ -1676,7 +1681,7 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   }
   const didInline = { value: false };
   const before = Printer.print(code);
-  const rewriter = new RewriterImpl(options, optimizationPass, code);
+  const rewriter = new RewriterImpl(options, optimizationPass, [...context, ...code]);
   code = Ast.visitor(rewriter.simplifyExpr(didInline), rewriter.simplifyStmt).mapTopLevel(code);
 
   // now that the functions were inlined, we can remove them
@@ -1693,7 +1698,7 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   const after = Printer.print(code);
   if (after !== before) {
     trace(options, "- significant changes happened: running analysis again...");
-    return iterateSimplifyAndInline(options, optimizationPass, passCount + 1, code);
+    return iterateSimplifyAndInline(options, optimizationPass, passCount + 1, code, context);
   }
   return code;
 }
@@ -1845,14 +1850,18 @@ export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: 
   return out;
 }
 
-/** `fileStage` is the stage the file name implies, if any; `--stage` overrides it. */
-export function simplify(options: Options, li: TopLevel[], fileStage: Stage | null = null): TopLevel[] {
+/**
+ * `fileStage` is the stage the file name implies, if any; `--stage` overrides it. `context` is the
+ * other files of the run, whose structs and functions this file may use (declared there, used
+ * here, as `tests/real/mouton` does): the rewrites read their types from it and rewrite nothing in it.
+ */
+export function simplify(options: Options, li: TopLevel[], fileStage: Stage | null = null, context: readonly TopLevel[] = []): TopLevel[] {
   let code = processPragmas(options, li);
-  code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code);
-  code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code);
-  let out = new RewriterImpl(options, OptimizationPass.First, code).cleanup(code);
+  code = iterateSimplifyAndInline(options, OptimizationPass.First, 1, code, context);
+  code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code, context);
+  let out = new RewriterImpl(options, OptimizationPass.First, [...context, ...code]).cleanup(code);
   if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out, fileStage);
-  if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
+  if (options.webgl) new RewriterImpl(options, OptimizationPass.First, [...context, ...out]).webglCheck(out);
   // The finished shader: every use must now name a declaration that is in scope. A rewrite that
   // leaves one behind emits a shader that does not compile, so failing here is the better outcome.
   new Analyzer().checkScopes(out, true);
