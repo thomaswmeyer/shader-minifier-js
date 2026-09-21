@@ -511,7 +511,7 @@ under every unit and codec.
 - **Shortest float32 digits for every literal.** ANGLE prints each float
   literal with the fewest digits that round-trip at float32, so
   `6.283185307179586` becomes `6.2831855` and `2.399963229728653` becomes
-  `2.3999631`. The port keeps the digits as written unless `--fold-builtins`
+  `2.3999631`. The port keeps the digits as written unless `--approximate-folds`
   produces the literal, and that path already has the shortest-float32
   printer. GLSL `float` is 32-bit on every implementation, so applying the
   same printing to every literal is lossless. Visible in three.js's
