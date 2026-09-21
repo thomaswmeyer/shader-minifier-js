@@ -85,6 +85,7 @@ export function emulateHalf(name: string, source: string): string {
 
   const wrap = (e: Expr): Expr => Ast.FunCall(Ast.Var(new Ast.Ident(HALF)), [e]);
   const plain: Ctx = {};
+  const constant: Ctx = { constant: true };
   // An lvalue whose evaluation has no effect, so `x op= e` may become `x = H(x op e)`.
   const pureLvalue = (e: Expr): boolean =>
     e.kind === "Var" || (e.kind === "Dot" && pureLvalue(e.expr)) || (e.kind === "Subscript" && pureLvalue(e.arr) && (e.index === null || e.index.kind === "Var" || e.index.kind === "Int"));
@@ -124,6 +125,11 @@ export function emulateHalf(name: string, source: string): string {
     }
   };
 
+  // The printer's tabs are indentation and are stripped from the output; the rewriter normally
+  // turns a tab in a directive into a space (three.js: `#define RE_Direct\t\t\tRE_Direct_Lambert`),
+  // and this transform prints without the rewriter.
+  const directiveParts = (parts: string[]): string[] => parts.map((p, i) => (i === 2 ? p.replace(/^\s+/, " ") : p).replace(/\t/g, " "));
+
   const txDecl = ([ty, elts]: Ast.Decl, constant: boolean): Ast.Decl =>
     [ty, elts.map((d) => ({ ...d, init: d.init === null ? null : tx(d.init, { constant: constant || Ast.typeIsConst(ty) }) }))];
   const txStmt = (s: Stmt): Stmt => {
@@ -132,12 +138,15 @@ export function emulateHalf(name: string, source: string): string {
       case "Decl": return Ast.DeclStmt(txDecl(s.decl, false));
       case "Expr": return Ast.ExprStmt(tx(s.expr, plain));
       case "If": return Ast.If(tx(s.cond, plain), txStmt(s.then), s.else === null ? null : txStmt(s.else));
-      case "ForD": return Ast.ForD(txDecl(s.init, false), s.cond === null ? null : tx(s.cond, plain), s.inc === null ? null : tx(s.inc, plain), txStmt(s.body));
-      case "ForE": return Ast.ForE(s.init === null ? null : tx(s.init, plain), s.cond === null ? null : tx(s.cond, plain), s.inc === null ? null : tx(s.inc, plain), txStmt(s.body));
+      // ES 1.00 wants a loop index initialised, bounded and stepped by constant expressions, so a
+      // loop header keeps fp32; the loop variable is the one intermediate not rounded.
+      case "ForD": return Ast.ForD(txDecl(s.init, true), s.cond === null ? null : tx(s.cond, constant), s.inc === null ? null : tx(s.inc, constant), txStmt(s.body));
+      case "ForE": return Ast.ForE(s.init === null ? null : tx(s.init, constant), s.cond === null ? null : tx(s.cond, constant), s.inc === null ? null : tx(s.inc, constant), txStmt(s.body));
       case "While": return Ast.While(tx(s.cond, plain), txStmt(s.body));
       case "DoWhile": return Ast.DoWhile(tx(s.cond, plain), txStmt(s.body));
       case "Jump": return Ast.Jump(s.keyword, s.expr === null ? null : tx(s.expr, plain));
-      case "Verbatim": case "Directive": return s;
+      case "Verbatim": return s;
+      case "Directive": return Ast.Directive(directiveParts(s.parts));
       case "Switch": return Ast.Switch(tx(s.expr, plain), s.cases.map((c) => ({ label: c.label, stmts: c.stmts.map(txStmt) })));
     }
   };
@@ -145,6 +154,7 @@ export function emulateHalf(name: string, source: string): string {
     switch (tl.kind) {
       case "Function": return Ast.Function(tl.funcType, txStmt(tl.body));
       case "TLDecl": return Ast.TLDecl(txDecl(tl.decl, true)); // a global initializer must stay a constant expression
+      case "TLDirective": return Ast.TLDirective(directiveParts(tl.parts), tl.loc);
       default: return tl;
     }
   });
