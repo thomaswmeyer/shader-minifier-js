@@ -275,9 +275,14 @@ fragment-only comparison already is the real pair.
 - **spglsl** is ANGLE compiled to wasm: a second front end for validation
   (`test/angle-compile.test.ts`, opt-in) and the competitor in `npm run
   metrics`. It cannot execute a shader.
-- **glslang** exists as a wasm package (`@webgpu/glslang`); it is the Khronos
-  reference front end, a genuinely different parser from ANGLE's, and would
-  make a cheap third validation oracle for the corpus outputs.
+- **glslang** exists as a wasm package (`@webgpu/glslang`), the Khronos
+  reference front end and a genuinely different parser from ANGLE's. Tried,
+  and it is not an oracle for this corpus: the package is built for Vulkan
+  (GLSL to SPIR-V), so it rejects `#version 300 es` ("ES shaders for SPIR-V
+  require version 310"), uniforms outside a block and `gl_FragColor`, and it
+  reports failures without an info log. Feeding it WebGL shaders would mean
+  rewriting them into something it accepts, which tests a different shader.
+  A glslang built for the OpenGL ES profiles would do; none is on npm.
 - **Firefox and WebKit** through Playwright would exercise other drivers only
   on a machine with a GPU; headless they also use ANGLE or SwiftShader.
 - Nothing here reaches a real GPU driver. Rounding, `mediump` and folding
