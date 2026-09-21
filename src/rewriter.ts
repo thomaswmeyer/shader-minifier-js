@@ -1875,6 +1875,11 @@ const hasQualifier = (tl: TopLevel, qs: string[]): boolean => tl.kind === "TLDec
 const opaqueText = (code: readonly TopLevel[]): string[] =>
   code.flatMap((tl) => (tl.kind === "TLVerbatim" ? [tl.text] : tl.kind === "TLDirective" ? [tl.parts.join(" ")] : []));
 const namedInText = (texts: string[], name: string): boolean => texts.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+/** Whether a declaration is needed by what this code reads, by a use the minifier cannot see, or by a mention in its opaque text. */
+const isNamed = (d: DeclElt, used: ReadonlySet<string>, texts: string[]): boolean => d.name.hiddenUses || used.has(d.name.name) || namedInText(texts, d.name.name);
+/** A declaration after a removal: gone, unchanged, or shortened to the elements kept. */
+const keepDeclElts = (tl: TopLevel & { kind: "TLDecl" }, keep: DeclElt[]): TopLevel[] =>
+  keep.length === 0 ? [] : keep.length === tl.decl[1].length ? [tl] : [TLDecl([tl.decl[0], keep])];
 
 // --remove-unused-uniforms: a uniform no shader of the run reads. Opt-in and separate from the
 // varyings, because the risk is different: a varying is private to the program, but an application
@@ -1902,7 +1907,7 @@ export function removeUnusedUniforms(options: Options, files: StagedCode[]): voi
   for (const f of files) {
     const readHere = namesReadBy(options, f.code);
     const textsHere = opaqueText(f.code);
-    const unreadHere = (d: DeclElt): boolean => !d.name.hiddenUses && !readHere.has(d.name.name) && !namedInText(textsHere, d.name.name);
+    const unreadHere = (d: DeclElt): boolean => !isNamed(d, readHere, textsHere);
     f.code = f.code.flatMap((tl) => {
       if (tl.kind === "TypeDecl" && isUniformBlock(tl.block)) {
         const members = tl.block.members;
@@ -1920,10 +1925,9 @@ export function removeUnusedUniforms(options: Options, files: StagedCode[]): voi
         return [tl];
       }
       if (!hasQualifier(tl, ["uniform"]) || tl.kind !== "TLDecl" || tl.decl[0].name.kind !== "TypeName") return [tl];
-      const keep = tl.decl[1].filter((d) => d.name.hiddenUses || read.has(d.name.name) || namedInText(texts, d.name.name));
-      if (keep.length === tl.decl[1].length) return [tl];
-      trace(options, "removing uniforms no shader of the run reads: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
-      return keep.length === 0 ? [] : [TLDecl([tl.decl[0], keep])];
+      const keep = tl.decl[1].filter((d) => isNamed(d, read, texts));
+      if (keep.length !== tl.decl[1].length) trace(options, "removing uniforms no shader of the run reads: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
+      return keepDeclElts(tl, keep);
     });
   }
 }
@@ -1940,21 +1944,13 @@ export function removeUnusedVaryings(options: Options, files: StagedCode[]): voi
   for (const f of frags) {
     const used = namesUsed(f.code);
     const texts = verbatim(f.code);
-    const out: TopLevel[] = [];
-    for (const tl of f.code) {
-      if (hasQualifier(tl, ["in", "varying"]) && tl.kind === "TLDecl") {
-        const keep = tl.decl[1].filter((d) => d.name.keepName || d.name.hiddenUses || used.has(d.name.name) || namedInText(texts, d.name.name));
-        for (const d of keep) kept.add(d.name.name);
-        if (keep.length !== tl.decl[1].length) {
-          trace(options, "removing unread fragment inputs: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
-          if (keep.length === 0) continue;
-          out.push(TLDecl([tl.decl[0], keep]));
-          continue;
-        }
-      }
-      out.push(tl);
-    }
-    f.code = out;
+    f.code = f.code.flatMap((tl) => {
+      if (!hasQualifier(tl, ["in", "varying"]) || tl.kind !== "TLDecl") return [tl];
+      const keep = tl.decl[1].filter((d) => d.name.keepName || isNamed(d, used, texts));
+      for (const d of keep) kept.add(d.name.name);
+      if (keep.length !== tl.decl[1].length) trace(options, "removing unread fragment inputs: " + tl.decl[1].filter((d) => !keep.includes(d)).map((d) => d.name.name).join(", "));
+      return keepDeclElts(tl, keep);
+    });
   }
 
   // A vertex output no fragment input names, and the writes that fed it.
@@ -2007,8 +2003,7 @@ export function removeUnusedVaryings(options: Options, files: StagedCode[]): voi
     v.code = Ast.visitor(undefined, dropWrites).mapTopLevel(v.code)
       .flatMap((tl) => {
         if (!hasQualifier(tl, ["out", "varying"]) || tl.kind !== "TLDecl") return [tl];
-        const keep = tl.decl[1].filter((d) => !remove.has(d.name.name));
-        return keep.length === 0 ? [] : keep.length === tl.decl[1].length ? [tl] : [TLDecl([tl.decl[0], keep])];
+        return keepDeclElts(tl, tl.decl[1].filter((d) => !remove.has(d.name.name)));
       });
   }
 }
