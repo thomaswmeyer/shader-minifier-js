@@ -176,16 +176,21 @@ contradicting each other.
   one should change what the GPU does, since a varying costs an interpolator
   slot and the vertex work behind it whatever the driver can prove.
 - `--remove-unused-uniforms`: remove a plain uniform no shader of the run
-  reads. Like the varyings it needs both stages together, since a uniform one
-  file ignores may be the one its partner reads, and a uniform block is left
-  alone because its members are looked up through the block. Opt-in and off
-  by default: an application looks a uniform up by name and may treat a null
-  location as an error rather than a no-op. Worth 2.9% of the three.js
-  programs and 4.0% of the PlayCanvas ones raw, and 811 and 258 bytes with
-  each program compressed on its own. Compressed as one blob it costs a few
-  bytes instead, because each program's dead uniforms are a different subset
-  and removing them desynchronises programs that were compressing against
-  each other; that is the blob's artifact, not a reason to skip it.
+  reads, and a uniform block from every stage that reads nothing of it. Like
+  the varyings it needs both stages together, since a uniform one file
+  ignores may be the one its partner reads. A block goes whole or not at all,
+  because its members are looked up through the block; while the other stage
+  keeps it the program's interface does not change, since the application
+  finds the block by name in the linked program. Opt-in and off by default:
+  an application looks a uniform up by name and may treat a null location, or
+  a block index that is not there, as an error rather than a no-op
+  (Babylon.js checks it). Worth 3.1% of the three.js programs raw, 4.5% of
+  the PlayCanvas ones and 19.6% of the Babylon.js ones, whose `Material`
+  block is declared in both stages and read in one; with each shader file
+  compressed on its own 2.8%, 3.5% and 15.4%. Compressed as one blob the
+  three.js gain shrinks and the Babylon.js one turns into a few bytes' cost,
+  because a vertex shader's copy of a block compresses against the fragment
+  shader's; that is the blob's artifact, not a reason to skip it.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
   an internal error instead of emitting the shader. Shader Minifier rules that could

@@ -1882,8 +1882,14 @@ const namedInText = (texts: string[], name: string): boolean => texts.some((t) =
 // the varyings it acts only when the run holds both stages, since a uniform this file ignores may
 // be the one its partner reads.
 //
-// Plain `uniform T name;` only. A uniform block is left alone: its members are looked up through
-// the block and removing one changes the layout the application uploads.
+// A uniform block is whole or gone: its members are looked up through the block, so removing one
+// would change the layout the application uploads. A block a stage reads nothing of (no member of a
+// nameless block, nor the instance of a named one) goes from that stage. The application finds the
+// block by name in the linked program, whichever stage declares it, so while the other stage keeps
+// the block the program's interface does not change at all; when no stage reads it the block
+// disappears, which is what this flag asks the application to tolerate (Babylon.js checks the
+// lookup before binding). Babylon declares its whole `Material` block in both stages and reads it
+// in the fragment shader only: a fifth of its minified vertex shaders.
 export function removeUnusedUniforms(options: Options, files: StagedCode[]): void {
   if (!files.some((f) => f.stage === "fragment") || !files.some((f) => f.stage === "vertex")) return;
   const read = new Set<string>();
@@ -1892,8 +1898,27 @@ export function removeUnusedUniforms(options: Options, files: StagedCode[]): voi
     for (const n of namesReadBy(options, f.code)) read.add(n);
     texts.push(...opaqueText(f.code));
   }
+  const isUniformBlock = (block: StructOrInterfaceBlock): boolean => block.blockType.kind === "InterfaceBlock" && /\buniform\b/.test(block.blockType.prefix);
   for (const f of files) {
+    const readHere = namesReadBy(options, f.code);
+    const textsHere = opaqueText(f.code);
+    const unreadHere = (d: DeclElt): boolean => !d.name.hiddenUses && !readHere.has(d.name.name) && !namedInText(textsHere, d.name.name);
     f.code = f.code.flatMap((tl) => {
+      if (tl.kind === "TypeDecl" && isUniformBlock(tl.block)) {
+        const members = tl.block.members;
+        if (members.every((m) => m.kind === "MemberVariable" && m.decl[1].every(unreadHere))) {
+          trace(options, `removing uniform block ${tl.block.name?.name ?? ""} this shader does not read`);
+          return [];
+        }
+        return [tl];
+      }
+      if (tl.kind === "TLDecl" && tl.decl[0].name.kind === "TypeBlock" && isUniformBlock(tl.decl[0].name.block)) {
+        if (tl.decl[1].every(unreadHere)) {
+          trace(options, `removing uniform block ${tl.decl[0].name.block.name?.name ?? ""} this shader does not read`);
+          return [];
+        }
+        return [tl];
+      }
       if (!hasQualifier(tl, ["uniform"]) || tl.kind !== "TLDecl" || tl.decl[0].name.kind !== "TypeName") return [tl];
       const keep = tl.decl[1].filter((d) => d.name.hiddenUses || read.has(d.name.name) || namedInText(texts, d.name.name));
       if (keep.length === tl.decl[1].length) return [tl];

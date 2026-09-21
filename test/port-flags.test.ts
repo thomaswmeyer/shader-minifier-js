@@ -332,10 +332,27 @@ describe("--remove-unused-uniforms", () => {
     const [, f] = run([["a.vert", v2], ["a.frag", frag]], { removeUnusedUniforms: true });
     expect(f).toContain("fragOnly");
   });
-  it("leaves a uniform block alone, since its members are looked up through the block", () => {
-    const v3 = "uniform Light0{vec4 unreadHere;}light0;in vec3 p;void main(){gl_Position=vec4(p,1);}";
-    const [v] = run([["a.vert", v3], ["a.frag", frag]], { removeUnusedUniforms: true });
-    expect(v).toContain("unreadHere");
+  it("removes a uniform block from a stage that reads nothing of it, whole, and keeps it where it is read", () => {
+    // The application finds the block by name in the linked program, so while the fragment shader
+    // keeps `Material` the program's interface is unchanged (Babylon.js declares its whole Material
+    // block in both stages and reads it in one). A block no stage reads goes from both, which is
+    // what the flag asks the application to tolerate.
+    const v3 = "uniform Material{vec4 diffuse;float alpha;};uniform Light0{vec4 dir;}light0;uniform Dead{vec4 x;};in vec3 p;void main(){gl_Position=vec4(p,1)*light0.dir;}";
+    const f3 = "uniform Material{vec4 diffuse;float alpha;};uniform Dead{vec4 x;};out vec4 o;void main(){o=diffuse*alpha;}";
+    const [v, f] = run([["a.vert", v3], ["a.frag", f3]], { removeUnusedUniforms: true });
+    expect(v).toBe("uniform Light0{vec4 dir;} light0;in vec3 p;void main(){gl_Position=vec4(p,1)*light0.dir;}");
+    expect(f).toBe("uniform Material{vec4 diffuse;float alpha;};out vec4 o;void main(){o=diffuse*alpha;}");
+  });
+  it("never removes a member of a block, since the members are looked up through the block", () => {
+    const v4 = "uniform Material{vec4 diffuse;float alpha;};in vec3 p;void main(){gl_Position=vec4(p,1)*alpha;}";
+    const [v] = run([["a.vert", v4], ["a.frag", frag]], { removeUnusedUniforms: true });
+    expect(v).toContain("uniform Material{vec4 diffuse;float alpha;};");
+  });
+  it("keeps a block whose members it cannot see into, or that a kept #define names", () => {
+    const v5 = "uniform Lights{\n#ifdef TWO\nvec4 b;\n#endif\nvec4 a;};\n#define LIGHT dir\nuniform Sun{vec4 dir;};in vec3 p;void main(){gl_Position=vec4(p,1);}";
+    const [v] = run([["a.vert", v5], ["a.frag", frag]], { removeUnusedUniforms: true });
+    expect(v).toContain("uniform Lights{");
+    expect(v).toContain("uniform Sun{vec4 dir;};");
   });
   it("does nothing without both stages in the run", () => {
     expect(run([["a.vert", vert]], { removeUnusedUniforms: true })[0]).toContain("deadEverywhere");

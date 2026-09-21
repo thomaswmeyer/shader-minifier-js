@@ -551,14 +551,27 @@ under every unit and codec.
   ShadowMaterial one named here before. The rule that decided it is the one
   section 6 states: unique text, which a long name in a new place is, is
   what compression does not remove.
-- **Unused uniform blocks.** `--remove-unused-uniforms` leaves a uniform
-  block alone even when nothing reads any member, because an application
-  finds the block by name. ANGLE drops such a block: Babylon's
-  StandardMaterial.frag declares `Light1` and `Light2` and reads neither,
-  and they are most of the four declarations spglsl's output lacks there.
-  Whether Babylon tolerates a block index lookup that fails is the thing to
-  check first. Then worth offering under the same opt-in flag, once the
-  block is proven unreferenced in every shader of the run.
+- **Unused uniform blocks: done.** `--remove-unused-uniforms` now removes a
+  block from every stage that reads nothing of it (`PORTING.md` item 41).
+  The two-stage rule plain uniforms use (unread by every shader of the run)
+  would have removed nothing: every unread block in the corpora is read by
+  the other stage of its program. Removing it from the stage that does not
+  read it leaves the program's interface untouched, since the application
+  finds the block by name in the linked program, and Babylon.js checks the
+  lookup in any case. Measured over the engine pairs, the whole flag before
+  and after, with `--remove-unused-varyings` on in both:
+
+  | corpus | pairs | raw | each file alone | each pair alone |
+  |---|--:|--:|--:|--:|
+  | Babylon.js | 9 | -9,216 (19.6%) | -2,385 (15.4%) | -22 |
+  | PlayCanvas | 10 | -2,179 (4.5%) | -635 (3.5%) | -267 |
+  | three.js | 28 | -20,520 (3.1%) | -4,722 (2.8%) | -4,782 |
+
+  Babylon's number is its `Material` block, declared whole in both stages
+  and read in the fragment shader only. The unit matters again: a pair
+  compressed together already had the vertex copy for free against the
+  fragment one, so there the gain is 22 bytes; shipped as two strings it is
+  15%. The Vite plugin cannot use this, since it sees one file at a time.
 
 ### Measured and not worth building
 

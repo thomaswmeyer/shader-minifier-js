@@ -493,10 +493,10 @@ says so. Every site is ported deliberately:
     `uniform T name;` that no shader of the run reads, from every shader
     that declares it. Upstream keeps every uniform, since it minifies one
     file at a time and cannot know. Gated on both stages being present, for
-    the same reason as the varyings, and confined to plain declarations: a
-    uniform block's members are looked up through the block and removing one
-    changes the layout the application uploads. Off by default, because an
-    application may treat the null location it then gets as an error.
+    the same reason as the varyings. A uniform block's members are looked up
+    through the block, so a member is never removed on its own; item 41 has
+    the block as a whole. Off by default, because an application may treat
+    the null location it then gets as an error.
 
 30. *A global initialized by a call.* Desktop GLSL allows `float g = f();`.
     Upstream counts calls only in function bodies, so it removes `f` as
@@ -686,6 +686,24 @@ says so. Every site is ported deliberately:
     out of letters. The `Shader Minifier (.NET)` column of the README's
     tables, the port limited to upstream's rewrites with externals kept,
     moves with it, since renaming is not a rewrite a level governs.
+
+41. *Unused uniform blocks.* Under `--remove-unused-uniforms`, a uniform
+    block that a stage reads nothing of (no member of a nameless block, nor
+    the instance of a named one) goes from that stage, whole. The
+    application finds a block by name in the linked program, whichever
+    stage declares it, so while the other stage keeps the block nothing the
+    application can observe changes; when no stage reads it the block is
+    gone, which is the tolerance the flag already asks for, and Babylon.js
+    has it (`bindUniformBlock` skips a block whose index comes back
+    invalid). Babylon declares its whole `Material` block in both stages and
+    reads it in the fragment shader alone: 19.6% of its minified program
+    pairs raw, 15.4% with each file compressed on its own, and about nothing
+    with a pair compressed together, since the vertex copy compressed
+    against the fragment one. PlayCanvas's `ub_view` is the same shape,
+    worth 0.6%. A block with a member the minifier cannot see into (a `#if`
+    region) stays, and so does one a kept `#define` names. The pixel
+    harness binds a buffer to every block the linked program reports, so
+    the corpus pairs render with the flag on.
 
 ### Upstream candidates
 

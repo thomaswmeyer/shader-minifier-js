@@ -203,7 +203,7 @@ const flags: Flag[] = [
   { flag: "--remove-unused", arg: "<level>", help: "--no-remove-unused, upstream's default and --remove-unused-declarations as one setting: 'none', 'functions' or 'declarations'", pragma: true,
     parse: (v, o) => { o.removeUnused = choice("remove-unused level", removeUnuseds, v); } },
   { flag: "--remove-unused-varyings", help: "Remove a varying no fragment shader of the run reads, and a fragment input nothing reads; needs the vertex and fragment shader in one run", set: { removeUnusedVaryings: true }, off: { flag: "--no-remove-unused-varyings", set: { removeUnusedVaryings: false } } },
-  { flag: "--remove-unused-uniforms", help: "Remove a plain uniform no shader of the run reads; needs the vertex and fragment shader in one run, and the application must tolerate a null location", set: { removeUnusedUniforms: true }, off: { flag: "--no-remove-unused-uniforms", set: { removeUnusedUniforms: false } } },
+  { flag: "--remove-unused-uniforms", help: "Remove a uniform no shader of the run reads, and a uniform block from every stage that reads nothing of it; needs the vertex and fragment shader in one run, and the application must tolerate a null location or block index", set: { removeUnusedUniforms: true }, off: { flag: "--no-remove-unused-uniforms", set: { removeUnusedUniforms: false } } },
   { flag: "--version", help: "Display the version and exit", upstream: true, set: { version: true } },
 ];
 
