@@ -201,7 +201,7 @@ contradicting each other.
   and minified around; one around a group of struct members or parameters is
   kept as text with what it names pinned. A name declared in both branches
   of a `#if` is one variable, kept, never inlined and renamed once, where
-  upstream binds every use to the last declaration. So the plugin takes a
+  Shader Minifier binds every use to the last declaration. So the plugin takes a
   shader whose defines are injected at runtime as it comes.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Struct fields named like swizzle components (`float q;`, `vec3 rgb;`) are
