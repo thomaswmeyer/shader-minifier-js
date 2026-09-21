@@ -216,7 +216,7 @@ bound.
 | three.js | 269,870 | 68,840 | 43,331 | 37.1% | 46,531 | 6.9% |
 | Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 17,418 | 7.7% |
 | PlayCanvas | 47,336 | 5 refused | 17,957 | | 20,615 | 12.9% |
-| upstream shadertoy | 30,115 | 17,372 | 17,008 | 2.1% | 12,564 | |
+| upstream shadertoy | 30,115 | 17,372 | 17,008 | 2.1% | 2 refused | |
 
 **brotli -q 11, whole corpus as one blob**
 
@@ -227,7 +227,7 @@ bound.
 | three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
 | Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
 | PlayCanvas | 8,444 | 5 refused | 5,278 | | 5,254 | -0.5% |
-| upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 10,628 | |
+| upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 2 refused | |
 
 **gzip -9**
 
@@ -238,7 +238,7 @@ bound.
 | three.js | 196,245 | 21,310 | 17,050 | 20.0% | 19,536 | 12.7% |
 | Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 8,901 | 11.3% |
 | PlayCanvas | 24,421 | 5 refused | 7,072 | | 7,276 | 2.8% |
-| upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 11,962 | |
+| upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 2 refused | |
 
 The order of the three minifiers is the same under every codec and unit.
 The unit changes the margin: the plugin's win over the upstream rewrites on
