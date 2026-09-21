@@ -826,6 +826,17 @@ says so. Every site is ported deliberately:
     of an assignment or `++`, and not an argument of a call whose parameters
     are unknown. The PlayCanvas renders caught it the same hour.
 
+50. *A macro call among the parameters.* PlayCanvas declares a parameter
+    through a function-like macro, `float f(SHADOWMAP_ACCEPT(shadowMap),
+    vec3 c)` with `#define SHADOWMAP_ACCEPT(name) sampler2DShadow name`,
+    which no parser of declarations can read; upstream and the port refused
+    the file without `--expand-macros`. The parser now keeps such a function
+    as text, as it keeps one with a directive among its parameters (item
+    31): a call to a function-like macro the file defines, at the top level
+    of the parameter list, makes the whole function opaque, with its names
+    pinned. Five PlayCanvas shaders parse without the flag; nothing changes
+    for a file that expands its macros.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

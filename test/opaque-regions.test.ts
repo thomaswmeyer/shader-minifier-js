@@ -7,7 +7,7 @@ import { minify } from "../src/api.js";
 import { defaultOptions } from "../src/options.js";
 import { runParser } from "../src/parser.js";
 import * as Printer from "../src/printer.js";
-import { pluginOptions, threeShaders } from "./corpora.js";
+import { playcanvasShaders, pluginOptions, threeShaders, upstreamOptions } from "./corpora.js";
 
 const roundTrips = (src: string): void => {
   const first = Printer.print(runParser(defaultOptions(), "t.frag", src).code);
@@ -146,6 +146,27 @@ void main() {
 // The corpus that motivated this: three.js assembles its programs from chunks that put `#if`
 // around arguments, struct members and parameters, and injects the defines at runtime, so the
 // plugin has to take them as they come.
+// A function-like macro standing for a whole parameter (PlayCanvas: `float f(SHADOWMAP_ACCEPT(shadowMap),
+// vec3 c)` with `#define SHADOWMAP_ACCEPT(name) sampler2DShadow name`): the function is kept as text,
+// like one with a directive among its parameters, so the file no longer needs --expand-macros.
+describe("a macro call among the parameters", () => {
+  const src = "#define ACCEPT(n) sampler2D n\nuniform sampler2D tex;uniform vec2 uv;float pick(ACCEPT(t), vec2 p){return texture2D(t,p).x;}void main(){gl_FragColor=vec4(pick(tex,uv));}";
+  it("keeps the function as written and its callers calling it", () => {
+    const out = minify(src, { noRenaming: true }).code;
+    expect(out).toContain("float pick(ACCEPT(t),vec2 p){return texture2D(t,p).x;}");
+    expect(out).toContain("pick(tex,uv)");
+    const renamed = minify(src, {}).code;
+    expect(renamed).toContain("float pick(ACCEPT(t),vec2 p){return texture2D(t,p).x;}");
+    expect(renamed).toMatch(/pick\(\w+,\w+\)/);
+  });
+  it("still parses a parameter list with a call that is not a macro of the file as an error, as before", () => {
+    expect(() => minify("float pick(OTHER(t), vec2 p){return p.x;}void main(){gl_FragColor=vec4(pick(1.,vec2(0)));}", {})).toThrow();
+  });
+  it("takes every PlayCanvas shader without --expand-macros", () => {
+    for (const s of playcanvasShaders()) expect(() => minify([{ name: s.name, content: s.source }], { ...upstreamOptions(), expandMacros: false })).not.toThrow();
+  });
+});
+
 describe("every three.js shader parses without --preprocess", () => {
   const options = { ...pluginOptions(), preprocess: false };
   for (const s of threeShaders()) {

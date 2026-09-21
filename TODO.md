@@ -235,11 +235,14 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
   -3.0% raw and -1.2% per shader compressed (-5.7% and -3.2% preprocessed),
   Babylon.js -2.3% and -1.6%, three.js -0.9% and -0.3%, PlayCanvas -0.9% and
   -0.4%, the Shadertoy set -0.9% and -0.5%.
-- **A macro in declaration position.** PlayCanvas writes
-  `float f(SHADOWMAP_ACCEPT(shadowMap), vec3 c)`, where the macro expands to
-  a whole parameter. The parser cannot represent it, so those five shaders
-  need `--expand-macros`; without it they are refused. Section 1's plan
-  covers the general case.
+- **A macro in declaration position: done for parameters.** PlayCanvas
+  writes `float f(SHADOWMAP_ACCEPT(shadowMap), vec3 c)`, where the macro
+  expands to a whole parameter. Such a function is kept as text now, the way
+  one with a directive among its parameters is (`PORTING.md` item 50), so
+  the five shaders parse without `--expand-macros`; with the flag, as the
+  plugin runs, they were always fine. A macro standing for a whole global
+  declaration or statement is still a parse error; none occurs in the
+  corpora.
 - **`#include`: done in the plugin.** The load hook replaces an `#include
   "file"` line with the file's text, relative to the including file and
   recursively, and registers each file with Vite's watcher (`PORTING.md`

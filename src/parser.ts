@@ -61,6 +61,8 @@ class ParserImpl {
   forbiddenNames: string[] = [];
   pinnedNames = new Set<string>();
   pinnedFields = new Set<string>();
+  /** The function-like macros the file defines (`#define ACCEPT(n) sampler2D n`): a call to one in a parameter list is a parameter the parser cannot read. */
+  functionMacros = new Set<string>();
   pinnedGlobalNames = new Set<string>();
   reorderFunctions = false;
 
@@ -539,24 +541,34 @@ class ParserImpl {
     return this.opaqueBody(start);
   }
 
-  /** A function whose parameter list holds a directive: the whole function, as text. */
+  /**
+   * A function whose parameter list holds a directive, or a call to a function-like macro the file
+   * defines (PlayCanvas: `float f(SHADOWMAP_ACCEPT(shadowMap), vec3 c)`, where the macro expands to
+   * a whole parameter): the whole function, as text.
+   */
   private opaqueFunction(): Ast.TopLevel {
     const start = this.pos;
     this.specifiedType();
     this.ident();
     this.ch("(");
     let depth = 1;
-    let directive = false;
+    let opaque = false;
     while (depth > 0) {
       if (this.eof()) this.fail("')'");
       if (this.commentLine() || this.commentBlock()) continue;
       const c = this.peek();
       if (c === "(") depth++;
       else if (c === ")") depth--;
-      else if (c === "#" && /^[ \t]*$/.test(this.src.slice(this.src.lastIndexOf("\n", this.pos - 1) + 1, this.pos))) directive = true;
+      else if (c === "#" && /^[ \t]*$/.test(this.src.slice(this.src.lastIndexOf("\n", this.pos - 1) + 1, this.pos))) opaque = true;
+      else if (depth === 1 && isIdentChar(c) && !/\d/.test(c) && (this.pos === 0 || !isIdentChar(this.src[this.pos - 1]))) {
+        const m = /^[A-Za-z_]\w*/.exec(this.src.slice(this.pos))!;
+        if (this.functionMacros.has(m[0]) && /^\s*\(/.test(this.src.slice(this.pos + m[0].length))) opaque = true;
+        this.pos += m[0].length;
+        continue;
+      }
       this.pos++;
     }
-    if (!directive) this.fail("a directive among the parameters");
+    if (!opaque) this.fail("a directive or a macro call among the parameters");
     this.ws();
     this.ch("{");
     return this.opaqueBody(start);
@@ -820,6 +832,7 @@ class ParserImpl {
       const id = rawIdent();
       const rest = line();
       this.forbiddenNames = [id, ...this.forbiddenNames];
+      if (rest.startsWith("(")) this.functionMacros.add(id);
       const idents = macroBodyIdents(rest);
       for (const name of idents.names) this.pinnedNames.add(name);
       for (const name of idents.fields) this.pinnedFields.add(name);
