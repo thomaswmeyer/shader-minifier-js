@@ -13,6 +13,7 @@ import { float32Literal, foldBuiltinCall } from "./fold-builtins.js";
 import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining.js";
 import { renameField, trace, type Options, type Stage } from "./options.js";
 import * as Printer from "./printer.js";
+import { TypeInfo, nonStructType } from "./typing.js";
 
 
 const commaSeparatedExprs = (li: Expr[]): Expr => li.reduce((a, b) => OpCall(",", [a, b]));
@@ -75,159 +76,25 @@ enum OptimizationPass {
 
 type Assignment = { name: IdentT; target: Expr | null; expr: Expr };
 
-const nonStructType: Type = makeType(Ast.TypeName(new Ident("float")), [], []);
 
 class RewriterImpl {
   // For --webgl: what ANGLE rejects depends on struct-ness and void-ness, which upstream never
   // tracks, so the declarations of the file are indexed once per pass.
-  private readonly structs = new Map<string, StructOrInterfaceBlock>();
-  private readonly returnTypes = new Map<string, Type[]>(); // every overload's return type, by function name
+  private readonly types: TypeInfo;
   private readonly voidSequenceForbidden: boolean;
-  // Whether a struct of the file has a field named like a swizzle (`q`, `rgb`): then `e.q` is a
-  // swizzle only where e is known not to be a struct. Without such fields every one is, as upstream assumes.
-  private readonly swizzleLikeFields: boolean;
 
-  /**
-   * `code` is what the rewriter learns its types from: the structs, interface blocks and function
-   * return types it may meet. In a multi-file run it is the file being rewritten and the other
-   * files' declarations, since a struct or a function declared in one file is used in the next.
-   */
+  /** `code` is what the rewriter learns its types from (TypeInfo): this file and, in a multi-file run, the other files' declarations. */
   constructor(private readonly options: Options, private readonly optimizationPass: OptimizationPass, code: readonly TopLevel[] = []) {
-    const blocks: StructOrInterfaceBlock[] = [];
-    for (const tl of code) {
-      if (tl.kind === "TypeDecl") blocks.push(tl.block);
-      else if (tl.kind === "TLDecl" && tl.decl[0].name.kind === "TypeBlock") blocks.push(tl.decl[0].name.block);
-    }
-    this.swizzleLikeFields = blocks.some((b) => b.members.some((m) => m.kind === "MemberVariable" && m.decl[1].some((d) => Builtin.isFieldSwizzle(d.name.name))));
-    for (const tl of code) {
-      if (tl.kind === "TypeDecl" && tl.block.name !== null) this.structs.set(tl.block.name.name, tl.block);
-      else if (tl.kind === "Function") {
-        const name = tl.funcType.fName.name;
-        const ret = tl.funcType.retType;
-        this.returnTypes.set(name, [...(this.returnTypes.get(name) ?? []), ret]);
-      }
-    }
+    this.types = new TypeInfo(code);
     // Only ES 3.00 rejects void operands in a sequence, but the `#version 300 es` line is usually
     // prepended at runtime (shadertoy, three.js), so the source can't tell us which rules apply.
     this.voidSequenceForbidden = options.webgl;
   }
 
-  // `typeOf` answers `null` for what it cannot work out: an unresolved overload, a macro that
-  // looks like a call, a builtin variable that is not `gl_`-prefixed. The two kinds of caller read
-  // that `null` in opposite directions, and must:
-  //
-  //   a guard (`mayBeStruct`, `structTernaryForbidden`, `hasVoidOperand`) asks "could this be one?"
-  //     and treats the unknown as yes, so a rewrite is skipped rather than risked;
-  //   a check on finished output (`webglCheck`) asks "is this proven to be one?" and treats the
-  //     unknown as no, so it reports what the guards let through instead of failing on a shader it
-  //     merely cannot type.
-  //
-  // Reading `null` the other way around in either place would be a bug: a permissive guard emits a
-  // shader ANGLE rejects, a conservative check refuses a shader that is fine.
-  private isVoidType(ty: Type): boolean {
-    return ty.name.kind === "TypeName" && ty.name.ident.name === "void";
-  }
-
-  private isStructType(ty: Type): boolean {
-    if (ty.name.kind === "TypeBlock") return true;
-    const n = ty.name.ident.name;
-    return !Builtin.builtinTypes.has(n) && !Builtin.isSamplerType(n);
-  }
-
-  // The same question for the check rather than for a guard: is this type proven to be a struct?
-  // "Not a builtin" is not proof, since a kept `#define` can name a builtin: Cesium's FXAA pass
-  // declares `FxaaBool goodSpanN`, and refusing `directionN?goodSpanN:goodSpanP` would refuse a
-  // shader ANGLE accepts.
-  private isDeclaredStructType(ty: Type): boolean {
-    return ty.name.kind === "TypeBlock" || this.structs.has(ty.name.ident.name);
-  }
-
-  // Best-effort static type; null means unknown.
-  private typeOf(e: Expr): Type | null {
-    switch (e.kind) {
-      case "Int": case "Float": return nonStructType;
-      case "Var":
-        if (e.ident.declaration.kind === "Variable") return e.ident.declaration.decl.ty;
-        return e.ident.name.startsWith("gl_") ? nonStructType : null; // a builtin variable is never a struct
-      case "Subscript": return this.typeOf(e.arr);
-      case "Dot": {
-        const t = this.typeOf(e.expr);
-        if (t === null) return null;
-        if (!this.isStructType(t)) return nonStructType;
-        const block = t.name.kind === "TypeBlock" ? t.name.block : this.structs.get(t.name.ident.name);
-        if (block === undefined) return null;
-        for (const m of block.members) {
-          if (m.kind === "MemberVariable" && m.decl[1].some((d) => d.name.name === e.field.name)) return m.decl[0];
-        }
-        return null;
-      }
-      case "FunCall": {
-        if (e.fn.kind === "Op") {
-          if (e.fn.op === "?:") return this.typeOf(e.args[1]);
-          if (Builtin.assignOps.has(e.fn.op)) return this.typeOf(e.args[0]);
-          if (e.fn.op === ",") return this.typeOf(e.args[e.args.length - 1]);
-          return nonStructType; // structs only support == and !=, which yield bool
-        }
-        if (e.fn.kind !== "Var") return null;
-        const d = e.fn.ident.declaration;
-        if (d.kind === "UserFunction") return d.decl.funcType.retType;
-        if (d.kind === "BuiltinFunction" || Builtin.builtinTypes.has(e.fn.ident.name)) return nonStructType;
-        // An overloaded call the analyzer cannot resolve still has a known type when every overload agrees.
-        const overloads = this.returnTypes.get(e.fn.ident.name);
-        if (overloads !== undefined && overloads.every((t) => typeEquals(t, overloads[0]))) return overloads[0];
-        const s = this.structs.get(e.fn.ident.name);
-        return s === undefined ? null : makeType(Ast.TypeName(s.name!), [], []);
-      }
-      default: return null;
-    }
-  }
-
-  private mayBeStruct(e: Expr): boolean {
-    const t = this.typeOf(e);
-    return t === null || this.isStructType(t);
-  }
-
-  /** Whether `expr.field` is a swizzle rather than a struct field access. */
-  private isSwizzle(expr: Expr, field: string): boolean {
-    return Builtin.isFieldSwizzle(field) && (!this.swizzleLikeFields || !this.mayBeStruct(expr));
-  }
-
   private structTernaryForbidden(blockLevel: BlockLevel, e1: Expr, e2: Expr): boolean {
     if (!this.options.webgl) return false;
-    if (blockLevel.kind === "FunctionRoot") return this.isStructType(blockLevel.fn.retType);
-    return this.mayBeStruct(e1) || this.mayBeStruct(e2);
-  }
-
-  // Under --webgl the output must not contain what ANGLE rejects, whether it came from the input or
-  // from a rewrite the guards missed: failing here beats emitting a shader that won't compile.
-  webglCheck(code: readonly TopLevel[]): void {
-    const check = (_env: MapEnv, e: Expr): Expr => {
-      const op = asOpCall(e);
-      if (op === null) return e;
-      if (op.op === "?:" && op.args.length === 3) {
-        const t = this.typeOf(op.args[1]) ?? this.typeOf(op.args[2]);
-        if (t !== null && this.isDeclaredStructType(t)) throw new Error(`--webgl: WebGL rejects the ternary operator on struct values: ${Printer.exprToS(e)}`);
-      } else if (op.op === ",") {
-        const v = op.args.find((a) => a.kind === "FunCall" && a.fn.kind === "Var" && a.fn.ident.declaration.kind === "UserFunction" && this.hasVoidOperand(a));
-        if (v !== undefined) throw new Error(`--webgl: WebGL (ES 3.00) rejects a void call in a comma sequence: ${Printer.exprToS(v)} in ${Printer.exprToS(e)}`);
-      }
-      return e;
-    };
-    Ast.visitor(check).iterTopLevel(code);
-  }
-
-  private hasVoidOperand(e: Expr): boolean {
-    const op = asOpCall(e);
-    if (op !== null && op.op === ",") return op.args.some((a) => this.hasVoidOperand(a));
-    if (e.kind !== "FunCall" || e.fn.kind !== "Var") return false;
-    const d = e.fn.ident.declaration;
-    const name = e.fn.ident.name;
-    if (d.kind === "UserFunction") return this.isVoidType(d.decl.funcType.retType);
-    if (d.kind === "BuiltinFunction") return false;
-    // overloads: void if any overload is; a macro that looks like a call: assume void unless it names something known
-    const overloads = this.returnTypes.get(name);
-    if (overloads !== undefined) return overloads.some((t) => this.isVoidType(t));
-    return !(Builtin.builtinFunctions.has(name) || Builtin.builtinTypes.has(name) || this.structs.has(name));
+    if (blockLevel.kind === "FunctionRoot") return this.types.isStructType(blockLevel.fn.retType);
+    return this.types.mayBeStruct(e1) || this.types.mayBeStruct(e2);
   }
 
   // Remove useless spaces in macros
@@ -592,7 +459,7 @@ class RewriterImpl {
       if (list.length === 0) return [];
       const [d1, d2] = list;
       if (list.length >= 2 && d1.kind === "Dot" && d1.expr.kind === "Var" && d2.kind === "Dot" && d2.expr.kind === "Var" &&
-        this.isSwizzle(d1.expr, d1.field.name) && this.isSwizzle(d2.expr, d2.field.name) && d1.expr.ident.name === d2.expr.ident.name) {
+        this.types.isSwizzle(d1.expr, d1.field.name) && this.types.isSwizzle(d2.expr, d2.field.name) && d1.expr.ident.name === d2.expr.ident.name) {
         return combineSwizzles([Dot(Var(d1.expr.ident), new Ident(d1.field.name + d2.field.name, d1.field.loc)), ...list.slice(2)]);
       }
       return [d1, ...combineSwizzles(list.slice(1))];
@@ -627,7 +494,7 @@ class RewriterImpl {
 
     // vec3(a.x, b.xy) => vec3(a.x, b)
     const dropLastSwizzle = (n: number, list: Expr[]): Expr[] => {
-      if (list.length === 1 && list[0].kind === "Dot" && this.isSwizzle(list[0].expr, list[0].field.name)) {
+      if (list.length === 1 && list[0].kind === "Dot" && this.types.isSwizzle(list[0].expr, list[0].field.name)) {
         const last = list[0];
         const idx = [...last.field.name].map(Builtin.swizzleIndex).join(",");
         if (idx === "0" && n === 1) return [last.expr];
@@ -727,7 +594,7 @@ class RewriterImpl {
       }
       return r;
     }
-    if (e.kind === "Dot" && this.options.canonicalFieldNames !== "" && this.isSwizzle(e.expr, e.field.name)) {
+    if (e.kind === "Dot" && this.options.canonicalFieldNames !== "" && this.types.isSwizzle(e.expr, e.field.name)) {
       return Dot(e.expr, new Ident(renameField(this.options, e.field.name), e.field.loc));
     }
 
@@ -881,7 +748,7 @@ class RewriterImpl {
       // Try to remove blocks by using the comma operator
       if (canOptimize) {
         const li = b.flatMap((s) => (s.kind === "Expr" ? [s.expr] : []));
-        if (this.voidSequenceForbidden && li.some((e) => this.hasVoidOperand(e))) return stmt;
+        if (this.voidSequenceForbidden && li.some((e) => this.types.hasVoidOperand(e))) return stmt;
         const returnStmt = b.find((s) => s.kind === "Jump" && s.keyword === "return");
         const returnExp = returnStmt !== undefined && returnStmt.kind === "Jump" ? returnStmt.expr : null;
         if (returnExp === null) {
@@ -1228,7 +1095,7 @@ class RewriterImpl {
             // float m=14;m=58.;  ->  float m=58.;
             if (es.length === 0) return [DeclStmt([ty, [{ ...declElt, init: init2 }]])];
             // float m=f();m=58.;  ->  float m=(f(),58.);
-            if (this.voidSequenceForbidden && es.some((e) => this.hasVoidOperand(e))) return null;
+            if (this.voidSequenceForbidden && es.some((e) => this.types.hasVoidOperand(e))) return null;
             return [DeclStmt([ty, [{ ...declElt, init: commaSeparatedExprs([...es, init2]) }]])];
           }
           if (count === 1 && (declElt.init === null || Effects.isPure(declElt.init)) && Effects.isPure(init2)) {
@@ -1250,7 +1117,7 @@ class RewriterImpl {
         const sideEffects = Effects.sideEffects(s.expr);
         if (sideEffects.length === 0) return []; // Remove pure statements.
         if (sideEffects.length === 1) return [ExprStmt(sideEffects[0])];
-        if (this.voidSequenceForbidden && sideEffects.some((e) => this.hasVoidOperand(e))) return sideEffects.map(ExprStmt);
+        if (this.voidSequenceForbidden && sideEffects.some((e) => this.types.hasVoidOperand(e))) return sideEffects.map(ExprStmt);
         return [ExprStmt(commaSeparatedExprs(sideEffects))];
       }
       return [s];
@@ -1386,7 +1253,7 @@ class RewriterImpl {
           const cT = tryCollapseToAssignment(eT);
           const cF = tryCollapseToAssignment(eF);
           // turn if-else of assignments into assignment of ternary
-          if (cT !== null && cF !== null && cT[0].name === cF[0].name && !(this.options.webgl && this.mayBeStruct(Var(cT[0])))) {
+          if (cT !== null && cF !== null && cT[0].name === cF[0].name && !(this.options.webgl && this.types.mayBeStruct(Var(cT[0])))) {
             // if(c)x=y;else x=z;  ->  x=c?y:z;
             return ExprStmt(OpCall("=", [Var(cT[0]), OpCall("?:", [cond, cT[1], cF[1]])]));
           }
@@ -1861,7 +1728,7 @@ export function simplify(options: Options, li: TopLevel[], fileStage: Stage | nu
   code = iterateSimplifyAndInline(options, OptimizationPass.Second, 1, code, context);
   let out = new RewriterImpl(options, OptimizationPass.First, [...context, ...code]).cleanup(code);
   if (options.dropDefaultPrecision) out = dropDefaultPrecision(options, out, fileStage);
-  if (options.webgl) new RewriterImpl(options, OptimizationPass.First, [...context, ...out]).webglCheck(out);
+  if (options.webgl) new TypeInfo([...context, ...out]).webglCheck(out);
   // The finished shader: every use must now name a declaration that is in scope. A rewrite that
   // leaves one behind emits a shader that does not compile, so failing here is the better outcome.
   new Analyzer().checkScopes(out, true);

@@ -323,7 +323,11 @@ fragment-only comparison already is the real pair.
   the same, the two `ShaderMaterial`s have no undecided name. Two minutes
   of browser time, most of it the compile trials. Toggling one name at a
   time would be the exhaustive form; this is the other corner of the space.
-- A multi-file run in the pixel test (`tests/real/mouton` is one).
+- **A multi-file run in the pixel test: covered by the engine pairs.** Each
+  vertex and fragment pair of `test/corpus.test.ts` is minified in one run of
+  two files, which is what the cross-file passes and the renaming of the
+  interface see. `tests/real/mouton` itself is `#version 150` desktop GLSL,
+  which WebGL does not take.
 - More seeds where a shader's branches depend on textures rather than
   uniforms, and a larger canvas for shaders with fine detail.
 - The upstream candidates of `PORTING.md`, filed upstream with their
