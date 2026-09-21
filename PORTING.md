@@ -705,6 +705,22 @@ says so. Every site is ported deliberately:
     harness binds a buffer to every block the linked program reports, so
     the corpus pairs render with the flag on.
 
+42. *A moved declaration's assignment names a copy.* `--move-declarations`
+    groups a declaration into an earlier line of its type and leaves an
+    assignment where it stood. Upstream builds that assignment around the
+    declaration's own identifier object, which every reference to a
+    declaration shares. When `reuseExistingVarDecl` later eliminates the
+    moved variable, it renames its uses one by one; the assignment's target
+    is the declaration itself, so renaming it renames the declaration, and
+    the loop, which matches uses by the declaration's current name, no
+    longer recognises the uses after it. The output then reads a variable it
+    never declares: `many_variables`, `ed-209`, `slisesix`, `endeavour` and
+    `audio-flight-v2` under `--no-remove-unused --aggressive-inlining
+    --move-declarations`, invisible to a compiler test until the scope check
+    (item 10) looked for it. The assignment's target is a copy of the name
+    now, as `reuseExistingVarDecl`'s own output already was (item 9's
+    lesson). No golden changes: none combines the flags.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -752,7 +768,11 @@ shader in this repository:
   `max(x,1e-20)` becomes a real zero (item 39, `decimals.frag`);
 - offering a preserved external's name for reuse by shadowing, which names a
   parameter `spotShadowMap` once the letters run out (item 40, three.js
-  `ShadowMaterial.frag`, Babylon's materials).
+  `ShadowMaterial.frag`, Babylon's materials);
+- `--move-declarations` leaving the declaration's own identifier in the
+  assignment that replaces it, so a later variable reuse renames the
+  declaration and loses its uses (item 42, `many_variables` with
+  `--no-remove-unused --aggressive-inlining --move-declarations`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

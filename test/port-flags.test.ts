@@ -373,7 +373,6 @@ describe("--webgl across files", () => {
 // additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite,
 // once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
-  const losesADeclaration = new Set(["many_variables.frag", "ed-209.frag", "slisesix.frag", "endeavour.frag", "audio-flight-v2.frag"]);
   const portFlags: Partial<Options> = { expandMacros: true, approximateFolds: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
   for (const [label, aggressive] of [["plugin flags", false], ["plus aggressive inlining and moved declarations", true]] as const) {
     for (const argv of loadCommands()) {
@@ -383,16 +382,11 @@ describe("port flags on the upstream corpus", () => {
         // A command's --no-remove-unused and --no-inlining stay: every other command also removes
         // unused declarations, and in the second round inlines aggressively and moves declarations.
         const extra: Partial<Options> = aggressive ? { inlining: options.inlining === "none" ? "none" : "aggressive", moveDeclarations: true } : {};
+        // Five of these (`many_variables`, `ed-209`, `slisesix`, `endeavour`, `audio-flight-v2`)
+        // used to lose a declaration under --move-declarations: the moved declaration's own Ident
+        // stood in the assignment that replaced it, and a later reuse renamed the declaration along
+        // with that use (PORTING.md 5.2 item 42). The scope check is what caught it.
         const run = (): Minifier => new Minifier({ ...options, ...portFlags, removeUnused: options.removeUnused === "none" ? "none" : "declarations", ...extra }, files);
-        // Five shaders lose a declaration under `--no-remove-unused --aggressive-inlining
-        // --move-declarations` and emit a use with nothing to bind to. The bug predates this port
-        // (it reproduces at the first commit) and was invisible until the scope check learned to
-        // look for a missing declaration; TODO.md section 2 records it. Asserting the failure
-        // rather than skipping it means whoever fixes the bug is told to shorten this list.
-        if (label === "plus aggressive inlining and moved declarations" && losesADeclaration.has(path.basename(filenames[0]))) {
-          expect(run).toThrow(/no declaration in scope/);
-          return;
-        }
         expect(run).not.toThrow();
       });
     }

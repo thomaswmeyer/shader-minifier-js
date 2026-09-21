@@ -234,16 +234,15 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
   analysed alone, so a struct declared in one file is unknown in the next.
   Sharing declarations across files in `Minifier` would fix `--webgl` and the
   swizzle-like field handling for that case.
-- **A declaration lost under three flags at once.** Five shaders of the
-  upstream corpus (`many_variables`, `ed-209`, `slisesix`, `endeavour`,
-  `audio-flight-v2`) emit a use with no declaration when
-  `--no-remove-unused`, `--aggressive-inlining` and `--move-declarations` are
-  combined. The bug predates the port: it reproduces at the first commit, and
-  was invisible until the scope check learned to look for a missing
-  declaration on finished code. The minifier now fails instead of emitting
-  the broken shader, and `test/port-flags.test.ts` asserts that failure so
-  the list shrinks when it is fixed. Minimal reproduction has not been found;
-  it seems to need the scale of `many_variables.frag`.
+- **A declaration lost under `--move-declarations`: fixed.** Five shaders
+  of the upstream corpus emitted a use with no declaration under
+  `--no-remove-unused --aggressive-inlining --move-declarations`. The cause
+  was small once the trace named the passes: grouping a declaration into an
+  earlier line replaces it with an assignment whose target was the
+  declaration's own `Ident` object, so when the variable reuse of the next
+  pass renamed that assignment it renamed the declaration with it and lost
+  track of the later uses (`PORTING.md` item 42). It needed the scale of
+  `many_variables` only because a reuse has to happen after the move.
 - **A callee pulled ahead of an `#ifdef` region** now follows every global
   declaration (`reorderFunctions`), which is safe unless the global's own
   initializer depends on a macro defined inside the region.

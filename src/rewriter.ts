@@ -821,8 +821,16 @@ class RewriterImpl {
           return [DeclStmt([ty, existing[1]])];
         }
         if (!skippedDeclarations.includes(s)) {
-          // Replace the declarations (they were already inserted) with assignments.
-          return li.flatMap((d) => (d.init !== null ? [ExprStmt(OpCall("=", [Var(d.name), d.init]))] : []));
+          // Replace the declarations (they were already inserted) with assignments. The target is a
+          // *copy* of the name: the declaration's own Ident in a use position would be renamed along
+          // with that use by reuseExistingVarDecl, whose loop then no longer recognises the later
+          // uses (upstream: `many_variables` under --move-declarations, a use with no declaration).
+          return li.flatMap((d) => {
+            if (d.init === null) return [];
+            const use = new Ident(d.name.name, d.name.loc);
+            use.declaration = d.name.declaration;
+            return [ExprStmt(OpCall("=", [Var(use), d.init]))];
+          });
         }
       }
       return [s];
