@@ -61,7 +61,8 @@
     "corpus:three": "tsx scripts/dump-three-shaders.ts",
     "corpus:babylon": "tsx scripts/dump-babylon-shaders.ts",
     "corpus:playcanvas": "tsx scripts/dump-playcanvas-shaders.ts",
-    "metrics": "tsx scripts/corpus-metrics.ts"
+    "metrics": "tsx scripts/corpus-metrics.ts",
+    "half": "tsx scripts/half-precision.ts"
   },
   "devDependencies": {
     "@shaderfrog/glsl-parser": "^7.0.1",
