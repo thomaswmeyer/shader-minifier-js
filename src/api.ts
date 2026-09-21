@@ -24,17 +24,23 @@ export class Minifier {
     vprint(`Input file size is: ${files.reduce((acc, [, s]) => acc + s.length, 0)}\n`);
 
     // Parsed first, all of them, because --remove-unused-varyings compares the stages against
-    // each other before either is rewritten.
-    const parsed = files.map(([filename, content]) => ({ filename, shader: runParser(options, filename, content) }));
+    // each other before either is rewritten. A file's own `#pragma shader_minifier` line sets the
+    // flags for its rewrites (Options_.applyPragma); the cross-file passes and the renaming below
+    // are the run's.
+    const parsed = files.map(([filename, content]) => {
+      const { source, flags } = Options_.extractPragmas(content);
+      const own = Options_.applyPragma(options, flags, filename);
+      return { filename, options: own, shader: runParser(own, filename, source) };
+    });
     if (options.removeUnusedVaryings || options.removeUnusedUniforms) {
       const staged: StagedCode[] = parsed.map(({ filename, shader }) => ({ stage: options.stage ?? Options_.stageOfFilename(filename), code: shader.code }));
       if (options.removeUnusedVaryings) removeUnusedVaryings(options, staged);
       if (options.removeUnusedUniforms) removeUnusedUniforms(options, staged);
       parsed.forEach(({ shader }, i) => { shader.code = staged[i].code; });
     }
-    this.shaders = parsed.map(({ filename, shader }) => {
-      const code = shader.reorderFunctions ? reorderFunctions(options, shader.code) : shader.code;
-      return { ...shader, code: simplify(options, code, Options_.stageOfFilename(filename)) };
+    this.shaders = parsed.map(({ filename, options: own, shader }) => {
+      const code = shader.reorderFunctions ? reorderFunctions(own, shader.code) : shader.code;
+      return { ...shader, code: simplify(own, code, Options_.stageOfFilename(filename)) };
     });
     vprint("Rewrite tricks applied. "); printSize(this.shaders);
 

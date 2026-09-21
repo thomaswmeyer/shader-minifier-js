@@ -55,7 +55,7 @@ externals consistent across files.
 | renamer.fs        | src/renamer.ts              | Env, RenamerVisitor, context-table naming, shadowing |
 | api.fs, main.fs   | src/api.ts, src/index.ts    | `Minifier` class, `minify()`, library entry |
 | Checker/main.fs   | test/golden.ts              | commands.txt runner |
-| —                 | src/fold-builtins.ts        | `--fold-builtins` |
+| —                 | src/fold-builtins.ts        | `--approximate-folds` |
 | —                 | src/vite.ts                 | Vite plugin |
 
 ## 2. Own parser, not @shaderfrog/glsl-parser
@@ -115,7 +115,7 @@ Excluded: Crinkler compression tests (Windows DLL), the performance test.
 - `src/vite.ts`: a Vite plugin with its own options mirroring the CLI flags
   (not a drop-in for spglsl). Defaults to
   `--webgl --preserve-externals --no-overloading --no-pi-substitution
-  --expand-macros --fold-builtins`.
+  --expand-macros --approximate-folds`.
 
 ## 5. Porting pitfalls
 
@@ -204,7 +204,7 @@ says so. Every site is ported deliberately:
    output; kept macros transitively keep what they reference. Runs of code
    lines between directives are expanded as one text, so a call's arguments
    may span lines (the newlines come back after the expansion). Default off.
-7. *`--fold-builtins`.* Upstream folds operators on literals but not builtin
+7. *`--approximate-folds`.* Upstream folds operators on literals but not builtin
    calls (`radians(45.)`, `sqrt(2.)`, `normalize(vec2(3.,4.))`); ANGLE's
    `FoldExpressions` does, at float32. The flag evaluates pure builtins whose
    arguments are all literals (component-wise on literal vector constructors,
@@ -542,8 +542,11 @@ says so. Every site is ported deliberately:
     expression when the literal would be longer (`4.3+3.4` stays, `.5*.5` is
     `.25`); `--decimal-folds` restores upstream's arithmetic. Division has
     2.5 ulp of latitude in the spec, so its float32 fold stays with
-    `--fold-builtins`, alongside the builtin calls, and without either flag a
-    constant division keeps upstream's rule. The golden runner passes
+    `--approximate-folds`, alongside the builtin calls, and without either flag a
+    constant division keeps upstream's rule. The flag was `--fold-builtins`
+    until the split; it is named for the property now, the folds the spec
+    lets the hardware get a few ulp wrong on, since it no longer carries the
+    exact ones. The golden runner passes
     `--decimal-folds`, so the 14 goldens whose constants differ stay
     byte-identical to upstream; `test/fold-builtins.test.ts` pins the
     default.
@@ -560,6 +563,19 @@ says so. Every site is ported deliberately:
     rewrites" variant from level 0, so the two stay what they claim to be
     by construction. Upstream has no levels; its own switches (inlining,
     renaming, sequences, `--move-declarations`) are outside them.
+
+35. *Per-shader flags.* Every flag of upstream's applies to the whole run.
+    The port takes `#pragma shader_minifier <flags>` from a shader's own
+    text (`Options.extractPragmas`, `applyPragma`): the flags are parsed by
+    the command-line parser on top of the run's options, apply to that
+    file's parse and rewrites, and the line is replaced by an empty one so
+    line numbers hold. A pragma may set the rewrites and the target, not the
+    output, the renaming (which is done once over all files) or the two
+    cross-file removals, whose setting it ignores; anything else is an
+    error naming the field. The Vite plugin also takes `level` and
+    `overrides`, a list of settings for the files a pattern matches, merged
+    in order over the plugin's own before the pragma. GLSL ignores an
+    unknown `#pragma`, so a shader carrying one still compiles unminified.
 
 ### Upstream candidates
 

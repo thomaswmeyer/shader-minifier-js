@@ -27,6 +27,28 @@ describe("vite plugin", () => {
     expect(o.outputFormat).toBe("text");
   });
 
+  it("takes a level, and overrides for the files a pattern matches", () => {
+    expect(toMinifierOptions({ level: 1 }).expandMacros).toBe(false);
+    expect(toMinifierOptions({ level: 1 }).inlineSingleUse).toBe(true);
+    const plugin = { noRenamingList: ["uColor"], overrides: [
+      { include: /noise|hash/, approximateFolds: false, noRenamingList: ["seed"] },
+      { include: /\.vert$/, level: 1 as const, options: { moveDeclarations: true } },
+    ] };
+    expect(toMinifierOptions(plugin).approximateFolds).toBe(true); // no file: the settings above the overrides
+    expect(toMinifierOptions(plugin, "/src/noise.frag").approximateFolds).toBe(false);
+    expect(toMinifierOptions(plugin, "/src/noise.frag").noRenamingList).toEqual(["main", "mainImage", "uColor", "seed"]);
+    expect(toMinifierOptions(plugin, "/src/water.frag").approximateFolds).toBe(true);
+    expect(toMinifierOptions(plugin, "/src/water.vert").expandMacros).toBe(false);
+    expect(toMinifierOptions(plugin, "/src/water.vert").moveDeclarations).toBe(true);
+    expect(toMinifierOptions(plugin, "/src/water.vert").webgl).toBe(true);
+    // The plugin applies them per file: the override keeps radians(45.) in the matching file.
+    writeSample();
+    fs.writeFileSync(path.join(root, "hash.frag"), "void main(){gl_FragColor=vec4(radians(45.));}\n");
+    const load = shaderMinifier({ overrides: [{ include: /hash/, approximateFolds: false }] }).load as (id: string) => { code: string } | null;
+    expect(load(path.join(root, "hash.frag"))?.code).toContain("radians(45.)");
+    expect(load(path.join(root, "a.frag"))?.code).toBe(`export default ${JSON.stringify(expected)};`);
+  });
+
   it("loads matching files as minified default exports", () => {
     writeSample();
     const plugin = shaderMinifier();

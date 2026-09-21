@@ -50,8 +50,8 @@ export interface Options {
   webgl: boolean;
   /** Expand #define macros before parsing instead of keeping them verbatim. */
   expandMacros: boolean;
-  /** Fold pure builtin calls on literals, and constant divisions, at float32 precision, only when shorter. */
-  foldBuiltins: boolean;
+  /** Fold builtin calls on literals, and constant divisions, at float32 precision, only when shorter: the folds the spec lets the hardware get a few ulp wrong on. */
+  approximateFolds: boolean;
   /** Fold float operators with upstream's decimal arithmetic instead of at float32 precision. */
   decimalFolds: boolean;
   /** Drop precision statements that restate the stage's default (vertex: highp float/int; fragment: mediump int; samplers: lowp). */
@@ -93,7 +93,7 @@ export function defaultOptions(): Options {
     noPiSubstitution: false,
     webgl: false,
     expandMacros: false,
-    foldBuiltins: false,
+    approximateFolds: false,
     decimalFolds: false,
     dropDefaultPrecision: false,
     stage: null,
@@ -105,8 +105,8 @@ export function defaultOptions(): Options {
 }
 
 // Optimisation levels: one flag for a coherent group of the port's additions, applied where it
-// stands among the other flags, so a flag after it wins (`-O2 --no-fold-builtins`) and a level
-// after a flag resets the group (`--fold-builtins -O0`). The target flags (--webgl,
+// stands among the other flags, so a flag after it wins (`-O2 --no-approximate-folds`) and a level
+// after a flag resets the group (`--approximate-folds -O0`). The target flags (--webgl,
 // --preserve-externals, --no-overloading, --stage, --preprocess) and upstream's own switches are
 // not part of a level.
 //   -O0  upstream's rewrites only, byte for byte: what the goldens pin.
@@ -120,10 +120,10 @@ export function defaultOptions(): Options {
 export type OptimizationLevel = 0 | 1 | 2 | 3;
 const level0: Partial<Options> = {
   decimalFolds: true, noPiSubstitution: false, dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false,
-  expandMacros: false, foldBuiltins: false, removeUnusedVaryings: false, removeUnusedUniforms: false,
+  expandMacros: false, approximateFolds: false, removeUnusedVaryings: false, removeUnusedUniforms: false,
 };
 const level1: Partial<Options> = { ...level0, decimalFolds: false, noPiSubstitution: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true };
-const level2: Partial<Options> = { ...level1, expandMacros: true, foldBuiltins: true };
+const level2: Partial<Options> = { ...level1, expandMacros: true, approximateFolds: true };
 const level3: Partial<Options> = { ...level2, removeUnusedVaryings: true, removeUnusedUniforms: true };
 export const optimizationLevels: Record<OptimizationLevel, Partial<Options>> = { 0: level0, 1: level1, 2: level2, 3: level3 };
 
@@ -132,7 +132,7 @@ const negations: Record<string, [keyof Options, boolean]> = {
   "--pi-substitution": ["noPiSubstitution", false],
   "--no-decimal-folds": ["decimalFolds", false],
   "--no-expand-macros": ["expandMacros", false],
-  "--no-fold-builtins": ["foldBuiltins", false],
+  "--no-approximate-folds": ["approximateFolds", false],
   "--no-drop-default-precision": ["dropDefaultPrecision", false],
   "--no-inline-single-use": ["inlineSingleUse", false],
   "--no-remove-unused-declarations": ["removeUnusedDeclarations", false],
@@ -170,11 +170,11 @@ const usage: [string, string][] = [
   ["--preprocess", "Evaluate some of the file preprocessor directives"],
   ["--export-kkp-symbol-maps", "Export kkpView symbol maps"],
   ["-O0 | -O1 | -O2 | -O3", "Optimisation level: -O0 upstream's rewrites only; -O1 the port's additions that change neither meaning nor interface; -O2 the Vite plugin's rewrites; -O3 also remove unused varyings and uniforms. Flags after the level override it (port addition)"],
-  ["--no-<flag>", "Turn off a flag a level turned on: --no-expand-macros, --no-fold-builtins, --no-drop-default-precision, --no-inline-single-use, --no-remove-unused-declarations, --no-remove-unused-varyings, --no-remove-unused-uniforms, --no-decimal-folds, --pi-substitution (port addition)"],
+  ["--no-<flag>", "Turn off a flag a level turned on: --no-expand-macros, --no-approximate-folds, --no-drop-default-precision, --no-inline-single-use, --no-remove-unused-declarations, --no-remove-unused-varyings, --no-remove-unused-uniforms, --no-decimal-folds, --pi-substitution (port addition)"],
   ["--no-pi-substitution", "Do not replace pi-like literals with acos(-1.) (port addition)"],
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
-  ["--fold-builtins", "Evaluate builtin calls on literals, and constant divisions, at float32 precision when shorter (port addition)"],
+  ["--approximate-folds", "Fold builtin calls on literals, and constant divisions, at float32 precision when shorter: the spec allows the hardware a few ulp on these, so the fold may differ from a GPU by as much (port addition)"],
   ["--decimal-folds", "Fold + - * on literals with decimal arithmetic as upstream does, instead of at float32 precision (port addition)"],
   ["--drop-default-precision", "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader (port addition)"],
   ["--stage <stage>", "The shader stage for --drop-default-precision: 'vertex' or 'fragment'. Default: from the file extension, else from the code (port addition)"],
@@ -190,16 +190,57 @@ export function flagsHelp(message: string = helpTextMessage): string {
   const lines = [message, "", "USAGE: shader-minifier [options] <filenames>...", "", "OPTIONS:", ""];
   const width = Math.max(...usage.map(([f]) => f.length)) + 2;
   for (const [flag, desc] of usage) lines.push(`    ${flag.padEnd(width)}${desc}`);
+  lines.push("", `A shader may set its own rewrite flags on a line \`#pragma ${PRAGMA} <flags>\`, applied after the`, "command line's and removed from the output. Output, renaming and cross-file flags are the run's.");
   return lines.join("\n") + "\n";
+}
+
+// ---- a shader's own flags --------------------------------------------------
+
+export const PRAGMA = "shader_minifier";
+
+/** What a shader's pragma may set: its own rewrites. Not the output, the renaming, or what needs the whole run. */
+const pragmaFields: ReadonlySet<keyof Options> = new Set<keyof Options>([
+  "noInlining", "aggroInlining", "noSequence", "noRemoveUnused", "moveDeclarations", "preprocess", "webgl", "stage",
+  "noPiSubstitution", "expandMacros", "approximateFolds", "decimalFolds", "dropDefaultPrecision", "inlineSingleUse", "removeUnusedDeclarations",
+]);
+/** Decided for the run, since they need every stage of it: a pragma's setting of them is ignored, so `-O3` in a pragma means `-O2`. */
+const runFields: readonly (keyof Options)[] = ["removeUnusedVaryings", "removeUnusedUniforms"];
+
+/** The `#pragma shader_minifier` lines of a shader, as flags, and the source with each replaced by an empty line so line numbers hold. */
+export function extractPragmas(source: string): { source: string; flags: string[] } {
+  const flags: string[] = [];
+  const re = new RegExp(`^\\s*#\\s*pragma\\s+${PRAGMA}\\b(.*)$`);
+  const lines = source.split("\n").map((line) => {
+    const m = re.exec(line);
+    if (m === null) return line;
+    flags.push(...m[1].trim().split(/\s+/).filter((f) => f !== ""));
+    return "";
+  });
+  return { source: lines.join("\n"), flags };
+}
+
+/** The run's options with a shader's pragma flags applied on top. */
+export function applyPragma(options: Options, flags: readonly string[], filename: string): Options {
+  if (flags.length === 0) return options;
+  const where = `${filename}: #pragma ${PRAGMA}`;
+  let out: Options, filenames: string[];
+  try { ({ options: out, filenames } = parseArgs(flags, { ...options, noRenamingList: [...options.noRenamingList] })); }
+  catch (e) { throw new ArgumentError(`${where}: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`); }
+  if (filenames.length > 0) throw new ArgumentError(`${where} takes flags only, not '${filenames[0]}'`);
+  for (const k of Object.keys(out) as (keyof Options)[]) {
+    if (pragmaFields.has(k)) continue;
+    if (runFields.includes(k)) { (out as unknown as Record<string, unknown>)[k] = options[k]; continue; }
+    if (JSON.stringify(out[k]) !== JSON.stringify(options[k])) throw new ArgumentError(`${where} may only set rewrite flags; '${k}' is decided by the command line`);
+  }
+  return out;
 }
 
 export class ArgumentError extends Error {}
 
-function parseArgs(argv: readonly string[]): { options: Options; filenames: string[] } {
-  const options = defaultOptions();
+function parseArgs(argv: readonly string[], options: Options = defaultOptions()): { options: Options; filenames: string[] } {
   const filenames: string[] = [];
-  let aggro = false;
-  let noInlining = false;
+  let aggro = options.aggroInlining;
+  let noInlining = options.noInlining;
   const next = (flag: string, i: number): string => {
     if (i + 1 >= argv.length) throw new ArgumentError(`Missing argument for ${flag}\n${flagsHelp()}`);
     return argv[i + 1];
@@ -240,7 +281,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--no-pi-substitution": options.noPiSubstitution = true; break;
       case "--webgl": options.webgl = true; break;
       case "--expand-macros": options.expandMacros = true; break;
-      case "--fold-builtins": options.foldBuiltins = true; break;
+      case "--approximate-folds": options.approximateFolds = true; break;
       case "--decimal-folds": options.decimalFolds = true; break;
       case "--drop-default-precision": options.dropDefaultPrecision = true; break;
       case "--stage": {

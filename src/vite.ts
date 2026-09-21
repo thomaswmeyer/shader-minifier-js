@@ -1,11 +1,12 @@
 import * as fs from "node:fs";
 import type { Plugin } from "vite";
 import { minify } from "./api.js";
-import { defaultOptions, optimizationLevels, type Options } from "./options.js";
+import { defaultOptions, optimizationLevels, type OptimizationLevel, type Options } from "./options.js";
 
-export interface ShaderMinifierPluginOptions {
-  /** Which imports to minify. Default: `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` (with or without `?raw`). */
-  include?: RegExp;
+/** The rewrite settings, which apply to every file or, in `overrides`, to the files a pattern matches. */
+export interface ShaderMinifierRewriteOptions {
+  /** The optimisation level the other settings start from (`-O0` to `-O3`). Default 2, the plugin's own rewrites. */
+  level?: OptimizationLevel;
   /** Refuse to emit constructs WebGL rejects (`--webgl`). Default true. */
   webgl?: boolean;
   /** Keep uniform/attribute/varying names (`--preserve-externals`). Default true. */
@@ -16,8 +17,8 @@ export interface ShaderMinifierPluginOptions {
   noPiSubstitution?: boolean;
   /** Expand `#define` macros so they vanish from the output (`--expand-macros`). Default true. */
   expandMacros?: boolean;
-  /** Evaluate builtin calls on literals at float32 precision when shorter (`--fold-builtins`). Default true. */
-  foldBuiltins?: boolean;
+  /** Evaluate builtin calls on literals at float32 precision when shorter (`--approximate-folds`). Default true. */
+  approximateFolds?: boolean;
   /** Drop precision statements that restate the stage's default (`--drop-default-precision`); the stage comes from the file extension. Default true. */
   dropDefaultPrecision?: boolean;
   /** Inline single-use globals and substitute global arguments when not longer (`--inline-single-use`). Default true. */
@@ -46,16 +47,34 @@ export interface ShaderMinifierPluginOptions {
   moveDeclarations?: boolean;
   /** Any other minifier option, applied last. */
   options?: Partial<Options>;
+}
+
+export interface ShaderMinifierPluginOptions extends ShaderMinifierRewriteOptions {
+  /** Which imports to minify. Default: `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` (with or without `?raw`). */
+  include?: RegExp;
   /** Restrict the plugin to `build` or `serve`; default both. */
   apply?: "build" | "serve";
+  /**
+   * Settings for the files a pattern matches, applied in order over the ones above: a shader with a
+   * hash function in it may keep `approximateFolds: false`, a vertex shader may take another
+   * `level`. The pattern is tested against the file path without its query.
+   */
+  overrides?: ({ include: RegExp } & ShaderMinifierRewriteOptions)[];
 }
 
 const defaultInclude = /\.(glsl|frag|vert|vs|fs)$/;
 
-export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options {
+/** The minifier options for one file, or for every file when `file` is not given: the plugin's settings and then each matching override. */
+export function toMinifierOptions(plugin: ShaderMinifierPluginOptions = {}, file?: string): Options {
+  let o: ShaderMinifierRewriteOptions = plugin;
+  for (const ov of plugin.overrides ?? []) {
+    if (file === undefined || !ov.include.test(file)) continue;
+    const { include: _include, ...settings } = ov;
+    o = { ...o, ...settings, noRenamingList: [...(o.noRenamingList ?? []), ...(settings.noRenamingList ?? [])], options: { ...o.options, ...settings.options } };
+  }
   // The plugin is -O2 for a WebGL target: the level's rewrites, with the names an application
   // looks up kept and no new overloads, which ANGLE's linker is strict about.
-  const d: Options = { ...defaultOptions(), ...optimizationLevels[2], outputFormat: "text", webgl: true, preserveExternals: true, noOverloading: true };
+  const d: Options = { ...defaultOptions(), ...optimizationLevels[o.level ?? 2], outputFormat: "text", webgl: true, preserveExternals: true, noOverloading: true };
   return {
     ...d,
     webgl: o.webgl ?? d.webgl,
@@ -63,7 +82,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
     noOverloading: o.noOverloading ?? d.noOverloading,
     noPiSubstitution: o.noPiSubstitution ?? d.noPiSubstitution,
     expandMacros: o.expandMacros ?? d.expandMacros,
-    foldBuiltins: o.foldBuiltins ?? d.foldBuiltins,
+    approximateFolds: o.approximateFolds ?? d.approximateFolds,
     dropDefaultPrecision: o.dropDefaultPrecision ?? d.dropDefaultPrecision,
     inlineSingleUse: o.inlineSingleUse ?? d.inlineSingleUse,
     removeUnusedDeclarations: o.removeUnusedDeclarations ?? d.removeUnusedDeclarations,
@@ -84,6 +103,7 @@ export function toMinifierOptions(o: ShaderMinifierPluginOptions = {}): Options 
 export function shaderMinifier(pluginOptions: ShaderMinifierPluginOptions = {}): Plugin {
   const include = pluginOptions.include ?? defaultInclude;
   const options = toMinifierOptions(pluginOptions);
+  const optionsFor = (file: string): Options => (pluginOptions.overrides?.length ? toMinifierOptions(pluginOptions, file) : options);
   return {
     name: "shader-minifier",
     enforce: "pre",
@@ -92,7 +112,7 @@ export function shaderMinifier(pluginOptions: ShaderMinifierPluginOptions = {}):
       const file = id.split("?")[0];
       if (!include.test(file)) return null;
       const source = fs.readFileSync(file, "utf8");
-      const { code } = minify([{ name: file, content: source }], options);
+      const { code } = minify([{ name: file, content: source }], optionsFor(file));
       return { code: `export default ${JSON.stringify(code)};`, map: null };
     },
   };

@@ -581,7 +581,7 @@ from the command line takes nine of them. What that should become:
   turns on. The target flags stay outside: the plugin is `-O2 --webgl
   --preserve-externals --no-overloading`. `-O3` is where a `mediump`
   reduction would go once it exists (section 7).
-- **Split `--fold-builtins`: done.** It carried two unrelated things:
+- **Split `--approximate-folds`: done.** It carried two unrelated things:
   evaluating builtin calls on literals (a size optimization) and doing the
   operator folds at float32 precision instead of upstream's decimal
   arithmetic (a correctness property). The second is now the default for
@@ -589,7 +589,12 @@ from the command line takes nine of them. What that should become:
   `--decimal-folds` restores upstream's arithmetic and the golden runner
   passes it, so the 14 goldens it would change stay byte-identical. Division
   has 2.5 ulp of latitude and stays with the builtins behind
-  `--fold-builtins` (`PORTING.md` item 33).
+  `--approximate-folds` (`PORTING.md` item 33).
+- **Per-shader flags: done** (`PORTING.md` item 35). A shader's own
+  `#pragma shader_minifier <flags>` line, and the plugin's `overrides` by
+  file pattern, choose the rewrites for one file; the fp16 measurement in
+  section 7 is why it matters, since a `mediump` reduction can only ever be
+  opted into per shader.
 - **Level, not boolean, for inlining and for unused removal.**
   `--inline-single-use` is a middle rung between upstream's default and
   `--aggressive-inlining`, and it also carries a second rewrite (argument

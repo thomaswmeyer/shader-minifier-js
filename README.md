@@ -48,7 +48,7 @@ import frag from "./shader.frag"; // a minified string; `?raw` imports are minif
 
 Files matching `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` are minified at load
 time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
-`noOverloading`, `noPiSubstitution`, `expandMacros`, `foldBuiltins`,
+`noOverloading`, `noPiSubstitution`, `expandMacros`, `approximateFolds`,
 `dropDefaultPrecision`, `inlineSingleUse` and `removeUnusedDeclarations` are
 on, so uniform and attribute names are kept, macros and constant builtin calls
 are folded away, unused globals, structs and precision statements go, and the
@@ -56,7 +56,37 @@ output only uses constructs ANGLE accepts. Every other
 Shader Minifier flag is available as a camelCased option (`noRenaming`,
 `noRenamingList`, `noInlining`, `aggressiveInlining`, `noSequence`,
 `noRemoveUnused`, `preprocess`, `moveDeclarations`), `include` overrides the
-file pattern, and `options` passes any raw minifier option.
+file pattern, and `options` passes any raw minifier option. `level` picks
+the optimisation level the settings start from (`-O0` to `-O3` below;
+default 2).
+
+Two ways to treat some shaders differently. In the config, `overrides`
+lists settings for the files a pattern matches, applied in order over the
+ones above:
+
+```ts
+shaderMinifier({
+  overrides: [
+    { include: /noise|hash/, approximateFolds: false }, // a hash function is not to be folded
+    { include: /\.vert$/, level: 1 },
+  ],
+})
+```
+
+In the shader itself, a `#pragma shader_minifier <flags>` line sets the
+rewrite flags for that file, on top of the run's, and is removed from the
+output. It works on the command line as well as in the plugin, and travels
+with the file, which is where the person who knows the shader has a hash
+function in it can say so:
+
+```glsl
+#pragma shader_minifier -O1 --no-approximate-folds
+```
+
+A pragma may set the rewrites and the target (`--webgl`, `--stage`,
+`--preprocess`), not the output format, the renaming, or the removals that
+need every stage of a run (`--remove-unused-varyings`, `-uniforms`); `-O3`
+in a pragma means `-O2` for that file.
 
 ## Port additions
 
@@ -69,7 +99,7 @@ statements dropped, single-use globals inlined, unused declarations removed.
 folding of builtin calls and divisions. `-O3` also removes unused varyings
 and uniforms, which needs both stages in one run and an application that
 tolerates a null uniform location. Flags after a level override it
-(`-O2 --no-fold-builtins`), and a level after a flag resets its group. The
+(`-O2 --no-approximate-folds`), and a level after a flag resets its group. The
 target flags, `--webgl`, `--preserve-externals`, `--no-overloading`,
 `--stage` and `--preprocess`, are not part of a level: the plugin is
 `-O2 --webgl --preserve-externals --no-overloading`.
@@ -88,8 +118,8 @@ target flags, `--webgl`, `--preserve-externals`, `--no-overloading`,
   Upstream folds in decimal, which can land one ulp off (`4.3+3.4` → `7.7`,
   where the GPU computes `7.7000003`); `--decimal-folds` restores that, and
   the goldens run with it. Division has 2.5 ulp of latitude in the spec, so
-  its float32 fold waits for `--fold-builtins`.
-- `--fold-builtins`: evaluate builtin calls on literals (`radians(45.)` →
+  its float32 fold waits for `--approximate-folds`.
+- `--approximate-folds`: evaluate builtin calls on literals (`radians(45.)` →
   `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) and constant
   divisions at float32 precision, only when the result is shorter. Inputs
   GLSL leaves undefined or implementation-defined (`round(.5)`,

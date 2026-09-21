@@ -16,13 +16,13 @@ describe("optimisation levels", () => {
   it("each level adds to the one below", () => {
     const o1 = parse("-O1"), o2 = parse("-O2"), o3 = parse("-O3");
     expect(o1).toEqual({ ...defaultOptions(), noPiSubstitution: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true });
-    expect(o2).toEqual({ ...o1, expandMacros: true, foldBuiltins: true });
+    expect(o2).toEqual({ ...o1, expandMacros: true, approximateFolds: true });
     expect(o3).toEqual({ ...o2, removeUnusedVaryings: true, removeUnusedUniforms: true });
   });
   it("applies in order: a later flag overrides the level, a later level resets its group", () => {
-    expect(parse("-O2", "--no-fold-builtins").foldBuiltins).toBe(false);
-    expect(parse("-O2", "--no-fold-builtins").expandMacros).toBe(true);
-    expect(parse("--fold-builtins", "-O0").foldBuiltins).toBe(false);
+    expect(parse("-O2", "--no-approximate-folds").approximateFolds).toBe(false);
+    expect(parse("-O2", "--no-approximate-folds").expandMacros).toBe(true);
+    expect(parse("--approximate-folds", "-O0").approximateFolds).toBe(false);
     expect(parse("-O1", "--pi-substitution").noPiSubstitution).toBe(false);
     expect(parse("-O3", "--no-remove-unused-uniforms").removeUnusedVaryings).toBe(true);
     expect(parse("-O3", "--no-remove-unused-uniforms").removeUnusedUniforms).toBe(false);

@@ -1,5 +1,5 @@
 #version 300 es
-// Builtin calls on literals that --fold-builtins evaluates, mixed into per-pixel math so a
+// Builtin calls on literals that --approximate-folds evaluates, mixed into per-pixel math so a
 // wrong constant shows up in the image.
 precision highp float;
 uniform float u;

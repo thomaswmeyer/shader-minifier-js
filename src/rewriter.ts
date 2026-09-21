@@ -460,9 +460,9 @@ class RewriterImpl {
       // double holds the exact sum, difference, product or quotient of two float32s). For +, - and
       // * that is the only answer a conformant implementation may give, so it is the default;
       // upstream's decimal arithmetic (`4.3+3.4` to `7.7`, one ulp off) is --decimal-folds. Division
-      // has 2.5 ulp of latitude in the spec, so its float32 fold rides with --fold-builtins. Kept
+      // has 2.5 ulp of latitude in the spec, so its float32 fold rides with --approximate-folds. Kept
       // only when the literal is not longer than the expression, as upstream does for division.
-      const float32 = !this.options.decimalFolds && (op !== "/" || this.options.foldBuiltins);
+      const float32 = !this.options.decimalFolds && (op !== "/" || this.options.approximateFolds);
       if (float32) {
         const i1 = Math.fround(a0.value);
         const i2 = Math.fround(a1.value);
@@ -699,7 +699,7 @@ class RewriterImpl {
 
     if (e.kind === "FunCall" && e.fn.kind === "Op") return this.simplifyOperator(env, e);
 
-    if (this.options.foldBuiltins && e.kind === "FunCall" && e.fn.kind === "Var" && e.fn.ident.declaration.kind === "BuiltinFunction") {
+    if (this.options.approximateFolds && e.kind === "FunCall" && e.fn.kind === "Var" && e.fn.ident.declaration.kind === "BuiltinFunction") {
       const folded = foldBuiltinCall(e);
       if (folded !== null) return folded;
     }

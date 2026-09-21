@@ -357,7 +357,7 @@ describe("--webgl across files", () => {
 // once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
   const losesADeclaration = new Set(["many_variables.frag", "ed-209.frag", "slisesix.frag", "endeavour.frag", "audio-flight-v2.frag"]);
-  const portFlags: Partial<Options> = { expandMacros: true, foldBuiltins: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true, noPiSubstitution: true };
+  const portFlags: Partial<Options> = { expandMacros: true, approximateFolds: true, dropDefaultPrecision: true, inlineSingleUse: true, removeUnusedDeclarations: true, noPiSubstitution: true };
   for (const [label, extra] of [["plugin flags", {}], ["plus aggressive inlining and moved declarations", { aggroInlining: true, moveDeclarations: true }]] as const) {
     for (const argv of loadCommands()) {
       const { options, filenames } = Minifier.parseOptionsWithFiles(argv);

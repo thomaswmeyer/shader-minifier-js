@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { minify } from "../src/api.js";
 
 const body = (expr: string, extra: object = {}): string =>
-  minify(`uniform float a;void main(){gl_FragColor=vec4(${expr});}`, { noRenaming: true, noPiSubstitution: true, foldBuiltins: true, ...extra })
+  minify(`uniform float a;void main(){gl_FragColor=vec4(${expr});}`, { noRenaming: true, noPiSubstitution: true, approximateFolds: true, ...extra })
     .code.replace(/^.*gl_FragColor=vec4\(/, "").replace(/\);}$/, "");
 
-describe("--fold-builtins", () => {
+describe("--approximate-folds", () => {
   const cases: [string, string][] = [
     ["radians(45.)", ".7853982"],
     ["pow(2.,3.)", "8"],
@@ -68,13 +68,13 @@ describe("--fold-builtins", () => {
       expect(body(".1*.05", { decimalFolds: true })).toBe(".005");
     });
     it("rounds + - * at float32 by default; division and builtins wait for the flag", () => {
-      const plain = (e: string): string => body(e, { foldBuiltins: false });
+      const plain = (e: string): string => body(e, { approximateFolds: false });
       expect(plain("4.3+3.4")).toBe("4.3+3.4"); // 7.7000003 in float32; `7.7` is one ulp off and no shorter
       expect(plain(".5*.5")).toBe(".25");
       expect(plain("2.*3.141592653589793")).toBe("6.2831855");
       expect(plain("125.663704/180.")).toBe("125.663704/180.");
       expect(plain("radians(45.)")).toBe("radians(45.)");
-      expect(body("4.3+3.4", { decimalFolds: true, foldBuiltins: false })).toBe("7.7"); // upstream's arithmetic
+      expect(body("4.3+3.4", { decimalFolds: true, approximateFolds: false })).toBe("7.7"); // upstream's arithmetic
     });
   });
   it("leaves domain errors, non-literals, and ints where GLSL needs floats", () => {
@@ -84,10 +84,10 @@ describe("--fold-builtins", () => {
   });
   it("does not fold a user function that shadows a builtin", () => {
     const src = "float radians(float x){return x*2.;}uniform float a;void main(){gl_FragColor=vec4(radians(45.)*a);}";
-    const out = minify(src, { noRenaming: true, foldBuiltins: true, noInlining: true }).code;
+    const out = minify(src, { noRenaming: true, approximateFolds: true, noInlining: true }).code;
     expect(out).toContain("radians(45.)");
   });
   it("is off by default", () => {
-    expect(body("radians(45.)", { foldBuiltins: false })).toBe("radians(45.)");
+    expect(body("radians(45.)", { approximateFolds: false })).toBe("radians(45.)");
   });
 });
