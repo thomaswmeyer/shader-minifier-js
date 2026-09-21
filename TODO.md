@@ -553,12 +553,15 @@ from the command line takes nine of them. What that should become:
   safe port additions, `-O2` the plugin's current defaults, `-O3` the
   lossy ones a shader must be checked for. Individual flags stay, applied
   after the level, so `-O2 --no-fold-builtins` works.
-- **Split `--fold-builtins`.** It carries two unrelated things: evaluating
-  builtin calls on literals (a size optimization) and doing the operator
-  folds at float32 precision instead of upstream's decimal arithmetic (a
-  correctness property). The second should be its own flag, or the default,
-  since a minifier that shifts a float32 value is wrong for everyone; the
-  cost is a handful of recorded golden deviations.
+- **Split `--fold-builtins`: done.** It carried two unrelated things:
+  evaluating builtin calls on literals (a size optimization) and doing the
+  operator folds at float32 precision instead of upstream's decimal
+  arithmetic (a correctness property). The second is now the default for
+  `+`, `-` and `*`, where the spec leaves the GPU one answer;
+  `--decimal-folds` restores upstream's arithmetic and the golden runner
+  passes it, so the 14 goldens it would change stay byte-identical. Division
+  has 2.5 ulp of latitude and stays with the builtins behind
+  `--fold-builtins` (`PORTING.md` item 33).
 - **Level, not boolean, for inlining and for unused removal.**
   `--inline-single-use` is a middle rung between upstream's default and
   `--aggressive-inlining`, and it also carries a second rewrite (argument

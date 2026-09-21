@@ -65,7 +65,16 @@ describe("--fold-builtins", () => {
     it("keeps the expression when the faithful literal would be longer", () => {
       // fround(.1)*fround(.05) is .0050000004, one ulp above fround(.005)
       expect(body(".1*.05")).toBe(".1*.05");
-      expect(body(".1*.05", { foldBuiltins: false })).toBe(".005");
+      expect(body(".1*.05", { decimalFolds: true })).toBe(".005");
+    });
+    it("rounds + - * at float32 by default; division and builtins wait for the flag", () => {
+      const plain = (e: string): string => body(e, { foldBuiltins: false });
+      expect(plain("4.3+3.4")).toBe("4.3+3.4"); // 7.7000003 in float32; `7.7` is one ulp off and no shorter
+      expect(plain(".5*.5")).toBe(".25");
+      expect(plain("2.*3.141592653589793")).toBe("6.2831855");
+      expect(plain("125.663704/180.")).toBe("125.663704/180.");
+      expect(plain("radians(45.)")).toBe("radians(45.)");
+      expect(body("4.3+3.4", { decimalFolds: true, foldBuiltins: false })).toBe("7.7"); // upstream's arithmetic
     });
   });
   it("leaves domain errors, non-literals, and ints where GLSL needs floats", () => {

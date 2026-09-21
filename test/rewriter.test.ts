@@ -160,12 +160,15 @@ describe("--move-declarations", () => {
   });
 });
 
-describe("float constant folding", () => {
+// Upstream's decimal arithmetic, kept behind --decimal-folds for the goldens; the default rounds
+// at float32 (test/fold-builtins.test.ts).
+describe("float constant folding with --decimal-folds", () => {
+  const decimal = (src: string): string => minify(src, { decimalFolds: true });
   it("rounds away double artefacts", () => {
-    expect(minify("void main(){gl_FragColor=vec4(1.1+2.2);}")).toBe("void main(){gl_FragColor=vec4(3.3);}");
+    expect(decimal("void main(){gl_FragColor=vec4(1.1+2.2);}")).toBe("void main(){gl_FragColor=vec4(3.3);}");
   });
   it("keeps 15 significant digits on full-precision constants", () => {
-    expect(minify("void main(){gl_FragColor=vec4(2.*3.141592653589793);}")).toBe(
+    expect(decimal("void main(){gl_FragColor=vec4(2.*3.141592653589793);}")).toBe(
       "void main(){gl_FragColor=vec4(6.28318530717959);}",
     );
   });

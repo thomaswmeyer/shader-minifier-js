@@ -35,3 +35,9 @@ in `PORTING.md` section 5.2.
    instead of two. `ed-209`'s loops around them open under `#ifdef AA` and
    close under another, so the port also stops reusing outer names by
    shadowing inside them, which renames the loop variables.
+
+Not an edit to the corpus, but a flag the runner adds: `test/golden.ts` passes
+`--decimal-folds` to every command, because the port folds float operators
+at float32 by default (`PORTING.md` 5.2 item 33) and upstream in decimal.
+Fourteen goldens would otherwise differ in their constants. `tests/commands.txt`
+is unchanged.

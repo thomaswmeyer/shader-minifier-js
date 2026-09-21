@@ -68,12 +68,16 @@ file pattern, and `options` passes any raw minifier option.
 - `--expand-macros`: expand `#define`s so neither the definitions nor the
   long macro names reach the output (Shader Minifier keeps them as feature switches).
   Macros used in `#if` conditions or defined inside `#if` blocks are left alone.
+- Operators on literals fold the way the GPU's compiler folds them: float32
+  operands and one rounding per operation, printed with the shortest float32
+  digits (`2.*3.141592653589793` → `6.2831855`) and only when not longer.
+  Upstream folds in decimal, which can land one ulp off (`4.3+3.4` → `7.7`,
+  where the GPU computes `7.7000003`); `--decimal-folds` restores that, and
+  the goldens run with it. Division has 2.5 ulp of latitude in the spec, so
+  its float32 fold waits for `--fold-builtins`.
 - `--fold-builtins`: evaluate builtin calls on literals (`radians(45.)` →
-  `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) at float32 precision,
-  only when the result is shorter. Under the flag, operators on literals fold
-  the way the GPU's compiler folds them too, float32 operands and one
-  rounding per operation, printed with the shortest float32 digits
-  (`2.*3.141592653589793` → `6.2831855`) and only when not longer. Inputs
+  `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) and constant
+  divisions at float32 precision, only when the result is shorter. Inputs
   GLSL leaves undefined or implementation-defined (`round(.5)`,
   `pow(0.,0.)`, `atan(0.,0.)`) are not folded.
 - `--no-pi-substitution`: keep literals like `3.14159265` instead of

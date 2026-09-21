@@ -33,7 +33,7 @@ export interface CorpusShader {
 export const pluginOptions = (): Options => toMinifierOptions();
 /** Upstream's rewrites alone, externals kept: what the goldens pin. */
 export const upstreamOptions = (): Options => toMinifierOptions({
-  noPiSubstitution: false, expandMacros: false, foldBuiltins: false,
+  noPiSubstitution: false, expandMacros: false, foldBuiltins: false, options: { decimalFolds: true },
   dropDefaultPrecision: false, inlineSingleUse: false, removeUnusedDeclarations: false,
 });
 export const variants = (): [string, Options][] => [["plugin", pluginOptions()], ["upstream", upstreamOptions()]];

@@ -143,10 +143,11 @@ says so. Every site is ported deliberately:
   formatting, so a shortest-round-trip printer (fixed form vs exponent form,
   pick the shorter, fixed wins ties, fixed limited to 16 fraction digits)
   reproduces all 41 + 30 literals in `decimals.frag` and `float.frag`.
-  Constant folds are rounded to 15 significant digits so `1.1+2.2` prints
-  `3.3`; an exact .NET-decimal emulation passes the same goldens and only
-  differs on 16-digit results (e.g. `2.*3.141592653589793`), where both round
-  to the same float32.
+  Under `--decimal-folds`, upstream's arithmetic, constant folds are rounded
+  to 15 significant digits so `1.1+2.2` prints `3.3`; an exact .NET-decimal
+  emulation passes the same goldens and only differs on 16-digit results
+  (e.g. `2.*3.141592653589793`), where both round to the same float32. The
+  default rounds at float32 instead (item 33).
 - `Int`: JS number with `Number.isSafeInteger` guard on folds (skip the fold
   when unsafe). `/` truncates toward zero, `%` follows the dividend.
   `useInts` int32 range check -> keep float.
@@ -531,6 +532,22 @@ says so. Every site is ported deliberately:
     goldens change, two of them because upstream's output was wrong
     (`tests/DEVIATIONS.md` item 4).
 
+33. *Float operators fold at float32 by default.* Upstream folds `a+b`,
+    `a-b`, `a*b` on float literals with decimal arithmetic and prints the
+    result to 15 digits, so `4.3+3.4` becomes `7.7`. The GPU's compiler
+    computes with float32 operands and one float32 rounding, which for these
+    three operators is the only answer a conformant implementation may give:
+    `7.7000003`, and `7.7` is one ulp off. The port now folds that way by
+    default, printing the shortest float32 literal and keeping the
+    expression when the literal would be longer (`4.3+3.4` stays, `.5*.5` is
+    `.25`); `--decimal-folds` restores upstream's arithmetic. Division has
+    2.5 ulp of latitude in the spec, so its float32 fold stays with
+    `--fold-builtins`, alongside the builtin calls, and without either flag a
+    constant division keeps upstream's rule. The golden runner passes
+    `--decimal-folds`, so the 14 goldens whose constants differ stay
+    byte-identical to upstream; `test/fold-builtins.test.ts` pins the
+    default.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -565,7 +582,9 @@ shader in this repository:
 - a name declared in both branches of a `#if` bound to the last declaration
   alone, so `controllable-machinery`'s `naa` is inlined as `3.` under
   `#define AA 0` and `orchard` loses one of its two `lookat` values (item
-  32, `test/directive-alternatives.test.ts`).
+  32, `test/directive-alternatives.test.ts`);
+- decimal folding of float operators, which lands one ulp from what the GPU
+  computes (`4.3+3.4` to `7.7`; item 33, `test/fold-builtins.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

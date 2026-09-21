@@ -456,10 +456,14 @@ class RewriterImpl {
     }
     if (n === 2 && a0.kind === "Float" && a1.kind === "Float") {
       const su = a0.suffix;
-      if (this.options.foldBuiltins) {
-        // What the GPU's compiler computes: float32 operands, one float32 rounding per operation
-        // (a double holds the exact sum, difference, product or quotient of two float32s). Kept
-        // only when the literal is not longer than the expression, as upstream does for division.
+      // What the GPU's compiler computes: float32 operands, one float32 rounding per operation (a
+      // double holds the exact sum, difference, product or quotient of two float32s). For +, - and
+      // * that is the only answer a conformant implementation may give, so it is the default;
+      // upstream's decimal arithmetic (`4.3+3.4` to `7.7`, one ulp off) is --decimal-folds. Division
+      // has 2.5 ulp of latitude in the spec, so its float32 fold rides with --fold-builtins. Kept
+      // only when the literal is not longer than the expression, as upstream does for division.
+      const float32 = !this.options.decimalFolds && (op !== "/" || this.options.foldBuiltins);
+      if (float32) {
         const i1 = Math.fround(a0.value);
         const i2 = Math.fround(a1.value);
         const r = op === "-" ? i1 - i2 : op === "+" ? i1 + i2 : op === "*" ? i1 * i2 : op === "/" && i2 !== 0 ? i1 / i2 : null;

@@ -16,9 +16,10 @@
 //
 // The result is that folding a builtin can shift the last bits, always within the latitude the
 // spec already gives the hardware, and never more than one implementation differs from another.
-// That is the same bargain `--fold-builtins` makes everywhere, and it is why the flag is a port
-// addition rather than a default, and why the pixel test (test/pixels.test.ts) renders every
-// folded shader against its source instead of trusting the arithmetic.
+// That is the bargain `--fold-builtins` makes, for builtin calls and for constant division (2.5
+// ULP in the spec), and it is why those are opt-in while the float32 folds of +, - and * are the
+// default; and why the pixel test (test/pixels.test.ts) renders every folded shader against its
+// source instead of trusting the arithmetic.
 import { Float, FunCall, Ident, Int, Var, type Expr } from "./ast.js";
 import * as Printer from "./printer.js";
 

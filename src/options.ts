@@ -50,8 +50,10 @@ export interface Options {
   webgl: boolean;
   /** Expand #define macros before parsing instead of keeping them verbatim. */
   expandMacros: boolean;
-  /** Fold pure builtin calls on literals (float32 precision, only when shorter). */
+  /** Fold pure builtin calls on literals, and constant divisions, at float32 precision, only when shorter. */
   foldBuiltins: boolean;
+  /** Fold float operators with upstream's decimal arithmetic instead of at float32 precision. */
+  decimalFolds: boolean;
   /** Drop precision statements that restate the stage's default (vertex: highp float/int; fragment: mediump int; samplers: lowp). */
   dropDefaultPrecision: boolean;
   /** The shader stage, for dropDefaultPrecision. null: from the file extension, else from the code, else unknown (samplers only). */
@@ -92,6 +94,7 @@ export function defaultOptions(): Options {
     webgl: false,
     expandMacros: false,
     foldBuiltins: false,
+    decimalFolds: false,
     dropDefaultPrecision: false,
     stage: null,
     inlineSingleUse: false,
@@ -133,7 +136,8 @@ const usage: [string, string][] = [
   ["--no-pi-substitution", "Do not replace pi-like literals with acos(-1.) (port addition)"],
   ["--webgl", "Skip rewrites WebGL rejects: ?: on structs, void calls in comma sequences (port addition)"],
   ["--expand-macros", "Expand #define macros instead of keeping them (port addition)"],
-  ["--fold-builtins", "Evaluate builtin calls on literals at float32 precision when shorter (port addition)"],
+  ["--fold-builtins", "Evaluate builtin calls on literals, and constant divisions, at float32 precision when shorter (port addition)"],
+  ["--decimal-folds", "Fold + - * on literals with decimal arithmetic as upstream does, instead of at float32 precision (port addition)"],
   ["--drop-default-precision", "Drop precision statements that restate the stage's default, e.g. highp float in a vertex shader (port addition)"],
   ["--stage <stage>", "The shader stage for --drop-default-precision: 'vertex' or 'fragment'. Default: from the file extension, else from the code (port addition)"],
   ["--inline-single-use", "Inline a never-written global used once, and substitute a global passed as an always-identical argument when that is not longer (port addition)"],
@@ -199,6 +203,7 @@ function parseArgs(argv: readonly string[]): { options: Options; filenames: stri
       case "--webgl": options.webgl = true; break;
       case "--expand-macros": options.expandMacros = true; break;
       case "--fold-builtins": options.foldBuiltins = true; break;
+      case "--decimal-folds": options.decimalFolds = true; break;
       case "--drop-default-precision": options.dropDefaultPrecision = true; break;
       case "--stage": {
         const s = next(arg, i++).toLowerCase();
