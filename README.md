@@ -145,110 +145,37 @@ file pattern, and `options` passes any raw minifier option.
 
 ## Results
 
-`test/tomto/` holds six GLSL ES 3.00 shaders from tom.to's ink mark, a WebGL2
-particle engine (transform-feedback sim, instanced stroke quads, composite),
-5,381 bytes of source. Output bytes from upstream Shader Minifier 1.5.1
-(.NET), spglsl (Google ANGLE, C++ built to wasm) and the port with the Vite
-plugin's defaults, externals preserved in all three:
-
-| Shader | Source | Upstream (.NET) | spglsl (ANGLE) | Port |
-|---|--:|--:|--:|--:|
-| sim.vert | 2,094 | 1,034 | 1,034 | 986 |
-| sim.frag | 80 | 74 | 74 | 74 |
-| stroke.vert | 1,666 | 564 | 576 | 564 |
-| stroke.frag | 897 | 375 | 389 | 375 |
-| comp.vert | 166 | 136 | 136 | 136 |
-| comp.frag | 478 | 255 | 275 | 243 |
-| **total** | **5,381** | **2,438** | **2,484** | **2,378** |
-
-The port is 2.5% under upstream and 4.3% under spglsl. Where no port addition
-applies (the stroke shaders) it matches upstream byte for byte. Upstream beats
-spglsl by inlining single-use locals into expressions; spglsl's two wins over
-upstream, a vertex shader's default precision statement and a `const` used
-once, are `--drop-default-precision` and `--inline-single-use` here. The three
-bytes comp.frag gives back are `1.-.34` kept as written: upstream's `.66` is
-one float32 ulp off what the GPU computes from the source. Every output
-compiles under ANGLE (`test/angle-compile.test.ts`) and renders the same
-pixels as its source (`test/pixels.test.ts`).
-
-## Running the browser tests
-
-The pixel test and the corpus test render in headless Chromium and skip
-without one. They need Playwright's browser once:
-
-```sh
-npx playwright install chromium   # downloads Chromium for the installed Playwright
-npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about six minutes
-npm test                          # runs them too when the browser is there
-```
-
-On a machine with a Chromium of its own, `CHROMIUM_EXECUTABLE=/path/to/chrome
-npm run pixels` uses that binary instead. Skipping is what keeps these tests
-optional for a contributor without Chromium, and it would also make a CI run
-green while testing nothing, so `REQUIRE_BROWSER=1` turns a missing browser
-into a failure. `.github/workflows/ci.yml` sets it, installs Chromium through
-Playwright and runs the whole suite on every push and pull request. Every case renders with three sets
-of inputs; a failure message carries the seed, the pixel counts, the
-shader's own one-ulp noise and the minified source. A skip carries its
-reason: the source WebGL rejects, a shader the minifier refuses, or one so
-chaotic that a pixel comparison cannot judge it. The ANGLE compile test and
-the spglsl column of `npm run metrics` need `npm install --no-save spglsl`.
-
-## Development
-
-```sh
-npm test                 # goldens, round-trip, re-parse validity, unit tests, vite build
-npm run golden [filter]  # golden commands with diffs; --update-golden to regenerate
-npm run webgl-page       # writes tests/out/webgl-compile.html; open in Chrome to compile every corpus shader
-scripts/sync-tests.sh    # re-vendor tests/ from ../shader-minifier and re-apply tests/DEVIATIONS.md
-```
-
-The spglsl corpus test and the WebGL page look for spglsl's shaders in
-`../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
-`PORTING.md` has the module map and the porting notes.
-
-Three tests guard real output rather than upstream parity:
-
-- `test/pixels.test.ts` is the semantic oracle: every shader is rendered in
-  headless Chromium (ANGLE on SwiftShader, Chrome's own WebGL compiler) both
-  as written and as minified, with the same deterministic uniforms, textures
-  and inputs, and the results must match. Fragment shaders are compared by
-  pixels, vertex shaders by transform-feedback output. It covers `test/tomto`,
-  the semantic fixtures in `test/pixels/` (one per class of bug found), and
-  the WebGL-compatible shaders of upstream's corpus, each under the plugin's
-  defaults and under upstream's rewrites alone. A shader that flips pixels on
-  a one-ulp change of its own literals (a raymarcher at a hit threshold) is
-  allowed as many again, since constant folding rounds like that, and a
-  difference of at most 8 levels on at most 2% of the pixels counts as
-  rounding too (a PMREM convolution drifts that much with every rewrite
-  disabled). Needs a
-  browser: `npx playwright install chromium`, or set `CHROMIUM_EXECUTABLE`;
-  otherwise the test skips. `npm run pixels` runs just this test.
-- `test/corpus.test.ts` runs the same comparison over shaders from open
-  source projects that ship on the web, vendored under `test/corpus/` with
-  their licenses: the 125 gl-transitions (MIT, two BSD), wrapped for WebGL1
-  with each transition's default parameters, and the programs three.js (MIT)
-  assembles for its materials, dumped from a real renderer in the harness's
-  browser so the chunk expansion and the runtime `#define`s are the ones a
-  game ships. `npm run corpus:gl-transitions` and `npm run corpus:three`
-  refresh them from the npm packages; the version is recorded next to each.
-
-- `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
-  plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`
-  rewrites them.
-- `test/angle-compile.test.ts` compiles every minified output with ANGLE, the
-  compiler behind Chrome's WebGL, through the `spglsl` package: `test/tomto`,
-  the spglsl corpus, and the GLSL ES files among upstream's unit tests. Sources
-  ANGLE rejects (desktop GLSL, most of the demoscene corpus) and libraries
-  without `main()` are skipped. `spglsl` is prebuilt wasm and not a
-  dependency; the test skips unless you `npm install --no-save spglsl` first.
-
-### Results on the open source corpus
-
 `npm run metrics` minifies every corpus three ways and, when spglsl is
-installed, a fourth: the port with upstream's rewrites only (what the goldens
-pin), the Vite plugin's defaults, and Google ANGLE's minifier. Output bytes,
-externals kept in all of them; three.js runs with `--preprocess`:
+installed, a fourth. The columns, and the two words this README uses for them
+throughout:
+
+- **upstream rewrites**: this port limited to the rewrites upstream Shader
+  Minifier 1.5.1 itself performs. It is what the goldens pin, and on the tom.to
+  shaders it matches upstream's .NET binary byte for byte. "Upstream" always
+  means Shader Minifier, the F# original this repository ports.
+- **plugin defaults**: this port with the Vite plugin's defaults, so the port
+  additions above are on. "Plugin" and "port" always mean this repository.
+- **spglsl (ANGLE)**: Google ANGLE's minifier, C++ built to wasm, through the
+  `spglsl` package.
+- **plugin vs upstream**, **plugin vs spglsl**: how much smaller the plugin
+  column is than that column.
+
+The corpora: tom.to is six GLSL ES 3.00 shaders from tom.to's ink mark, a
+WebGL2 particle engine, under `test/tomto`; gl-transitions, three.js,
+Babylon.js and PlayCanvas are vendored under `test/corpus`; "upstream
+shadertoy" is the eight Shadertoy shaders in upstream's own test corpus under
+`tests/real`, each wrapped in a Shadertoy header and `main()`.
+
+A shader a minifier refuses is left out of that minifier's total and noted as
+`(n refused)`. The totals in that row then cover different shaders, so the
+comparison cell is left blank rather than comparing unlike sums: PlayCanvas
+declares a function parameter through a macro that the upstream rewrites
+cannot parse without `--expand-macros`, and ANGLE rejects two of the
+Shadertoy shaders, one for the byte order mark its file starts with and one
+for a `texture` overload it does not have.
+
+Output bytes, externals kept in all of them; three.js runs with
+`--preprocess`:
 
 | corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
@@ -327,6 +254,78 @@ margin than brotli, so brotli is the conservative choice.
 The engine corpora compress 17 to 58 fold as blobs, and most of that is one
 program against another rather than anything inside a program. That is what
 makes them excellent for finding bugs and poor for judging size.
+
+## Running the browser tests
+
+The pixel test and the corpus test render in headless Chromium and skip
+without one. They need Playwright's browser once:
+
+```sh
+npx playwright install chromium   # downloads Chromium for the installed Playwright
+npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about six minutes
+npm test                          # runs them too when the browser is there
+```
+
+On a machine with a Chromium of its own, `CHROMIUM_EXECUTABLE=/path/to/chrome
+npm run pixels` uses that binary instead. Skipping is what keeps these tests
+optional for a contributor without Chromium, and it would also make a CI run
+green while testing nothing, so `REQUIRE_BROWSER=1` turns a missing browser
+into a failure. `.github/workflows/ci.yml` sets it, installs Chromium through
+Playwright and runs the whole suite on every push and pull request. Every case renders with three sets
+of inputs; a failure message carries the seed, the pixel counts, the
+shader's own one-ulp noise and the minified source. A skip carries its
+reason: the source WebGL rejects, a shader the minifier refuses, or one so
+chaotic that a pixel comparison cannot judge it. The ANGLE compile test and
+the spglsl column of `npm run metrics` need `npm install --no-save spglsl`.
+
+## Development
+
+```sh
+npm test                 # goldens, round-trip, re-parse validity, unit tests, vite build
+npm run golden [filter]  # golden commands with diffs; --update-golden to regenerate
+npm run webgl-page       # writes tests/out/webgl-compile.html; open in Chrome to compile every corpus shader
+scripts/sync-tests.sh    # re-vendor tests/ from ../shader-minifier and re-apply tests/DEVIATIONS.md
+```
+
+The spglsl corpus test and the WebGL page look for spglsl's shaders in
+`../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
+`PORTING.md` has the module map and the porting notes.
+
+Three tests guard real output rather than upstream parity:
+
+- `test/pixels.test.ts` is the semantic oracle: every shader is rendered in
+  headless Chromium (ANGLE on SwiftShader, Chrome's own WebGL compiler) both
+  as written and as minified, with the same deterministic uniforms, textures
+  and inputs, and the results must match. Fragment shaders are compared by
+  pixels, vertex shaders by transform-feedback output. It covers `test/tomto`,
+  the semantic fixtures in `test/pixels/` (one per class of bug found), and
+  the WebGL-compatible shaders of upstream's corpus, each under the plugin's
+  defaults and under upstream's rewrites alone. A shader that flips pixels on
+  a one-ulp change of its own literals (a raymarcher at a hit threshold) is
+  allowed as many again, since constant folding rounds like that, and a
+  difference of at most 8 levels on at most 2% of the pixels counts as
+  rounding too (a PMREM convolution drifts that much with every rewrite
+  disabled). Needs a
+  browser: `npx playwright install chromium`, or set `CHROMIUM_EXECUTABLE`;
+  otherwise the test skips. `npm run pixels` runs just this test.
+- `test/corpus.test.ts` runs the same comparison over shaders from open
+  source projects that ship on the web, vendored under `test/corpus/` with
+  their licenses: the 125 gl-transitions (MIT, two BSD), wrapped for WebGL1
+  with each transition's default parameters, and the programs three.js (MIT)
+  assembles for its materials, dumped from a real renderer in the harness's
+  browser so the chunk expansion and the runtime `#define`s are the ones a
+  game ships. `npm run corpus:gl-transitions` and `npm run corpus:three`
+  refresh them from the npm packages; the version is recorded next to each.
+
+- `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
+  plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`
+  rewrites them.
+- `test/angle-compile.test.ts` compiles every minified output with ANGLE, the
+  compiler behind Chrome's WebGL, through the `spglsl` package: `test/tomto`,
+  the spglsl corpus, and the GLSL ES files among upstream's unit tests. Sources
+  ANGLE rejects (desktop GLSL, most of the demoscene corpus) and libraries
+  without `main()` are skipped. `spglsl` is prebuilt wasm and not a
+  dependency; the test skips unless you `npm install --no-save spglsl` first.
 
 ### Reproducing the comparison
 
