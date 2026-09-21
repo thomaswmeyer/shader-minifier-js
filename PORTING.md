@@ -667,6 +667,26 @@ says so. Every site is ported deliberately:
     (`tests/DEVIATIONS.md` item 6); the corpora never printed one, Babylon's
     `SMALLEST_ABOVE_ZERO` (`1.1754943508e-38`) being an unused macro.
 
+40. *A kept name is not reused by shadowing.* On entering a function, the
+    renamer offers every name in scope that the body does not use as a
+    candidate for the function's own declarations, ahead of the fresh names,
+    so that a local can shadow an outer variable and take its short name.
+    Under `--preserve-externals` the kept externals are in that list too, and
+    `chooseIdent` looks at the first 26 candidates only: with the single
+    letters taken and only two-letter names left, a long kept name whose
+    first and last letters are frequent wins on adjacency, and three.js's
+    ShadowMaterial gets a parameter called `spotShadowMap`, Babylon's
+    materials dozens of locals called after their uniforms. The bet was that
+    the compressor already had the string; measured per shader compressed
+    it does not pay. Only a name as short as a generated one (one or two
+    letters) is offered for reuse now. Babylon.js: -18.4% raw, -3.2% per
+    shader after brotli; CesiumJS -2.0% and -0.5%; three.js -0.9% and
+    -0.3%; the others within a few bytes either way (`TODO.md` section 7 has
+    the table). No golden changes: the three that keep externals never run
+    out of letters. The `Shader Minifier (.NET)` column of the README's
+    tables, the port limited to upstream's rewrites with externals kept,
+    moves with it, since renaming is not a rewrite a level governs.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -711,7 +731,10 @@ shader in this repository:
 - reassociating floating-point addition to drop parentheses (item 38,
   Cesium's `polyline.vert`);
 - printing a literal below 5e-17 as `0.`, so an epsilon guard such as
-  `max(x,1e-20)` becomes a real zero (item 39, `decimals.frag`).
+  `max(x,1e-20)` becomes a real zero (item 39, `decimals.frag`);
+- offering a preserved external's name for reuse by shadowing, which names a
+  parameter `spotShadowMap` once the letters run out (item 40, three.js
+  `ShadowMaterial.frag`, Babylon's materials).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

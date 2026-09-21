@@ -525,17 +525,32 @@ under every unit and codec.
   item). Found on the way: a literal below 5e-17 printed as `0.`, in
   upstream too, which turns an epsilon guard into a real zero; fixed, and
   recorded as `tests/DEVIATIONS.md` item 6.
-- **Name reuse against externals: re-measure per shader.** The renamer
-  gives locals and parameters names that already occur in the file, external
-  names included, so a shadow helper in three.js's ShadowMaterial.frag has
-  parameters called `spotShadowMap` and `vDirectionalShadowCoord`. This is
-  upstream's behaviour and it is meant to pay after compression, since the
-  compressor already has the string: on that shader the gap to spglsl is
-  19.4% raw and 3.5% brotli. On Babylon's StandardMaterial.frag it is 21.5%
-  raw and 0.0% brotli. Whether it still pays when each shader is compressed
-  on its own, rather than as a blob, is the open question. Measure a variant
-  that never reuses an external's name, per shader compressed, before
-  changing anything.
+- **Name reuse against externals: measured, and it did not pay; changed.**
+  The renamer let a local take the name of any variable in scope the
+  function did not use, kept externals included, so a shadow helper in
+  three.js's ShadowMaterial.frag had a parameter called `spotShadowMap` and
+  Babylon's materials dozens of locals named after their uniforms
+  (`PORTING.md` item 40). The bet was that the compressor already had the
+  string. Per shader, plugin output before and after offering only one- and
+  two-letter names for reuse:
+
+  | corpus | raw before | raw after | per shader brotli before | after |
+  |---|--:|--:|--:|--:|
+  | tom.to | 2,377 | 2,377 | 1,590 | 1,593 |
+  | gl-transitions | 67,711 | 67,711 | 35,790 | 35,790 |
+  | three.js | 131,100 | 129,932 | 43,228 | 43,101 |
+  | Babylon.js | 57,715 | 47,117 | 16,049 | 15,529 |
+  | PlayCanvas | 48,662 | 48,662 | 17,957 | 17,957 |
+  | CesiumJS | 70,571 | 69,143 | 22,965 | 22,860 |
+
+  Babylon.js loses 18% raw and 3.2% compressed, its largest material 27%
+  raw; 34 of 257 shaders change, and the five that grow do so by 3 to 10
+  bytes from a different draw of short names. It was most of the gap to
+  spglsl on Babylon, where the port's lead goes from 3.7% to 21.4% raw and
+  from 7.9% to 10.8% per shader compressed, and the whole of the
+  ShadowMaterial one named here before. The rule that decided it is the one
+  section 6 states: unique text, which a long name in a new place is, is
+  what compression does not remove.
 - **Unused uniform blocks.** `--remove-unused-uniforms` leaves a uniform
   block alone even when nothing reads any member, because an application
   finds the block by name. ANGLE drops such a block: Babylon's

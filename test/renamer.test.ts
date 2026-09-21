@@ -116,6 +116,23 @@ describe("rename", () => {
     expect(out.match(/\bo\b/g)!.length).toBe(2); // the declaration and the one use
   });
 
+  it("does not give a local a preserved external's name by shadowing", () => {
+    // Fifty-three globals take every single letter and the function reads them all, so at its body
+    // the names left are two-letter ones and whatever is in scope unused: the kept uniform. Its
+    // `zz` pairs outscore any two-letter name in the chooser's window, so upstream names the
+    // parameter `zzzz...`, forty characters where two would do. Only names as short as the
+    // generated ones are offered for reuse. (`f` is kept so that its own name is not the unused
+    // one in scope.)
+    const n = 53;
+    const z = "z".repeat(40);
+    const globals = Array.from({ length: n }, (_, i) => `float g${i}=1.;`).join("");
+    const uses = Array.from({ length: n }, (_, i) => `g${i}`).join("+");
+    const src = `uniform float ${z};${globals}float f(float p){return p+${uses};}void main(){gl_FragColor=vec4(f(${z}),${z},${z},1.);}`;
+    const { text } = minify(src, { preserveExternals: true, noRenamingList: ["f"] });
+    expect(text).toMatch(/float f\(float [A-Za-z_]{1,2}\)\{return /);
+    expect(text.match(new RegExp(z, "g"))!.length).toBe(4); // the declaration and the three uses
+  });
+
   it("honours --no-renaming-list", () => {
     const { text } = minify("float keep(float x){return x;} void main(){gl_FragColor=vec4(keep(1.));}", { noRenamingList: ["main", "keep"] });
     expect(text).toMatch(/^float keep\(float [a-zA-Z_]\)/);
