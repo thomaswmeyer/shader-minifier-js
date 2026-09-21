@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Plugin } from "vite";
 import { minify } from "./api.js";
 import { defaultOptions, optimizationLevels, type Inlining, type OptimizationLevel, type Options, type RemoveUnused } from "./options.js";
@@ -65,6 +66,24 @@ export interface ShaderMinifierPluginOptions extends ShaderMinifierRewriteOption
 
 const defaultInclude = /\.(glsl|frag|vert|vs|fs)$/;
 
+/**
+ * `#include "file"` (or `<file>`) lines replaced by the file's text, relative to the including
+ * file, recursively. WebGL has no `#include`; an engine resolves it before the shader reaches the
+ * compiler, so the plugin does the same before the shader reaches the minifier. `watch` is told
+ * every file read, so a change to an included file rebuilds the importer.
+ */
+export function resolveIncludes(file: string, source: string, watch: (file: string) => void = () => {}, stack: string[] = []): string {
+  return source.split("\n").map((line, i) => {
+    const m = /^\s*#\s*include\s+["<]([^">]+)[">]\s*$/.exec(line);
+    if (m === null) return line;
+    const target = path.resolve(path.dirname(file), m[1]);
+    if (stack.includes(target) || target === file) throw new Error(`${file}:${i + 1}: #include cycle through ${target}`);
+    if (!fs.existsSync(target)) throw new Error(`${file}:${i + 1}: #include "${m[1]}": no such file (${target})`);
+    watch(target);
+    return resolveIncludes(target, fs.readFileSync(target, "utf8"), watch, [...stack, file]);
+  }).join("\n");
+}
+
 /** The minifier options for one file, or for every file when `file` is not given: the plugin's settings and then each matching override. */
 export function toMinifierOptions(plugin: ShaderMinifierPluginOptions = {}, file?: string): Options {
   let o: ShaderMinifierRewriteOptions = plugin;
@@ -99,7 +118,7 @@ export function shaderMinifier(pluginOptions: ShaderMinifierPluginOptions = {}):
     load(id) {
       const file = id.split("?")[0];
       if (!include.test(file)) return null;
-      const source = fs.readFileSync(file, "utf8");
+      const source = resolveIncludes(file, fs.readFileSync(file, "utf8"), (f) => this?.addWatchFile?.(f));
       const { code } = minify([{ name: file, content: source }], optionsFor(file));
       return { code: `export default ${JSON.stringify(code)};`, map: null };
     },

@@ -734,6 +734,16 @@ says so. Every site is ported deliberately:
     minimum, and evaluating at a higher precision is what the spec allows an
     implementation anyway.
 
+44. *`#include` in the Vite plugin.* WebGL has no `#include`; engines that
+    write it resolve it before the compiler sees the shader. The plugin's
+    load hook does the same before the minifier does: an `#include "file"`
+    (or `<file>`) line becomes the file's text, relative to the including
+    file, recursively, with a cycle and a missing file reported by file and
+    line, and every file read registered with Vite's watcher so a change to
+    an include rebuilds its importers. Upstream, the CLI and the library
+    keep the directive as text, which the compiler then rejects; only the
+    plugin has a file system to resolve against.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

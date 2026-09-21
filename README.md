@@ -47,7 +47,10 @@ import frag from "./shader.frag"; // a minified string; `?raw` imports are minif
 ```
 
 Files matching `.glsl`, `.frag`, `.vert`, `.vs`, `.fs` are minified at load
-time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
+time. An `#include "file"` line is replaced by that file's text first,
+relative to the including file and recursively, and the included files are
+watched, since WebGL has no `#include` and an engine resolves it before the
+compiler sees the shader. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
 `noOverloading`, `noPiSubstitution`, `expandMacros`, `approximateFolds`,
 `dropDefaultPrecision` and `inlineSingleUse` are on and `removeUnused` is
 `"declarations"`, so uniform and attribute names are kept, macros and

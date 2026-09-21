@@ -227,8 +227,12 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
   a whole parameter. The parser cannot represent it, so those five shaders
   need `--expand-macros`; without it they are refused. Section 1's plan
   covers the general case.
-- **`#include`.** Not supported; engines resolve it before the shader reaches
-  the minifier, so the plugin could too, from the importing file's directory.
+- **`#include`: done in the plugin.** The load hook replaces an `#include
+  "file"` line with the file's text, relative to the including file and
+  recursively, and registers each file with Vite's watcher (`PORTING.md`
+  item 44). The CLI and the library still see the directive as text they
+  keep, since they have no file to resolve it against by design; a
+  resolver option there is the obvious extension if anyone asks.
 - **`precision` inside a function body: done.** It parses as a statement,
   sets nothing the passes track, and gates the block it stands in the way a
   directive does, since a declaration grouped above it or a variable reused
