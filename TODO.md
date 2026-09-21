@@ -16,10 +16,11 @@ its output.
 request: typecheck, build and the whole suite with Chromium, about eight and
 a half minutes, the browser tests included (`REQUIRE_BROWSER` turns a
 missing browser into a failure, and the totals match a local full run).
-The `test` check is required on `master`, so a pull request cannot merge
-while it is red; a direct push still lands and is reported after the fact.
-Left: splitting the browser tests into a second job if the run time starts
-to matter.
+The `test` check is required on `master` through a repository ruleset, and
+that applies to pushes too: a commit reaches `master` only once the check
+has passed on it, which with this workflow (it runs on pull requests and on
+`master`) means through a pull request. Left: splitting the browser tests
+into a second job if the run time starts to matter.
 
 ## 0b. WebGPU, aimed at TensorFlow.js: measured, and the answer is no
 
