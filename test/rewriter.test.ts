@@ -55,12 +55,13 @@ describe("--webgl", () => {
     const src = "float g;float f(float x){g=x;return x;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
     expect(minify(src, { webgl: true })).toContain("f(a),a+=1.;");
   });
-  describe("overloaded user functions, which the analyzer cannot resolve", () => {
+  describe("overloaded user functions the analyzer cannot resolve", () => {
+    // The argument is a kept macro's call, whose type nothing can tell, so the call stays unresolved.
     it("are typed when every overload returns the same type", () => {
-      const src = "float f(float x){return x*2.;}float f(int x){return float(x);}float pick(float c){for(int i=0;i<1;i++){if(c<0.)return f(1.);return f(2);}return 0.;}void main(){gl_FragColor=vec4(pick(gl_FragCoord.x));}";
-      expect(minify(src, { webgl: true })).toContain("return c<0.?f(1.):f(2);");
-      const seq = "float g;float f(float x){g=x;return x;}float f(int x){g=float(x);return 0.;}void main(){float a=1.;for(int i=0;i<2;i++){f(a);a+=1.;}gl_FragColor=vec4(a+g);}";
-      expect(minify(seq, { webgl: true })).toContain("f(a),a+=1.;");
+      const src = "#define M(v) v\nfloat f(float x){return x*2.;}float f(int x){return float(x);}float pick(float c){for(int i=0;i<1;i++){if(c<0.)return f(M(1.));return f(M(2));}return 0.;}void main(){gl_FragColor=vec4(pick(gl_FragCoord.x));}";
+      expect(minify(src, { webgl: true })).toContain("return c<0.?f(M(1.)):f(M(2));");
+      const seq = "#define M(v) v\nfloat g;float f(float x){g=x;return x;}float f(int x){g=float(x);return 0.;}void main(){float a=1.;for(int i=0;i<2;i++){f(M(a));a+=1.;}gl_FragColor=vec4(a+g);}";
+      expect(minify(seq, { webgl: true })).toContain("f(M(a)),a+=1.;");
     });
     it("stay unknown when the overloads disagree, so the rewrites are skipped", () => {
       const src = "struct S{float d;};S f(float x){S s;s.d=x;return s;}float f(int x){return float(x);}void main(){S a;for(int i=0;i<1;i++){if(gl_FragCoord.x<0.)a=f(1.);else a=f(2.);}gl_FragColor=vec4(a.d);}";
@@ -164,6 +165,16 @@ describe("--move-declarations", () => {
     expect(minify(src, opts)).toBe("uniform vec2 t;void main(){float a=1.,b=t.x*a;a+=b;float t=0.;for(int i=0;i<2;i++)t+=b;gl_FragColor=vec4(t,a,0,1);}");
     const control = "uniform vec2 t;void main(){float a=1.;float b=a*2.;a+=b;float c=0.;for(int i=0;i<2;i++)c+=b;gl_FragColor=vec4(c,a,b,1);}";
     expect(minify(control, opts)).toBe("uniform vec2 t;void main(){float a=1.,b=a*2.,c;a+=b;c=0.;for(int i=0;i<2;i++)c+=b;gl_FragColor=vec4(c,a,b,1);}");
+  });
+});
+
+// A local's initializer merged into the assignment that follows may not land in an lvalue position.
+describe("merging a declaration into the assignment that follows", () => {
+  it("does not substitute the initializer into an inout argument, even of a callee that never writes it", () => {
+    const src = "vec3 f(inout vec3 x,vec3 y){return y*2.;}uniform vec3 u;void main(){vec3 v=vec3(0);v=f(v,u);gl_FragColor=vec4(v,1);}";
+    expect(minify(src, { inlining: "none" })).toContain("vec3 v=vec3(0);v=f(v,u);");
+    // A value use merges as before.
+    expect(minify("vec3 g(vec3 x){return x*2.;}uniform vec3 u;void main(){vec3 v=u;v=g(v);gl_FragColor=vec4(v,1);}", { inlining: "none" })).toContain("vec3 v=g(u);");
   });
 });
 

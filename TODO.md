@@ -222,11 +222,19 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
 
 ## 2. Upstream limits still in place
 
-- **Overload resolution by type.** The analyzer resolves calls by name and
-  arity; two overloads with the same arity are "unknown", which keeps
-  inlining and `--webgl` conservative around them. The rewriter's best-effort
-  `typeOf` could grow into a typer for expressions, at which point call sites
-  resolve exactly and `--webgl`'s output check no longer has to pass unknowns.
+- **Overload resolution by type: done** (`PORTING.md` item 48). An
+  expression typer gives arguments their types and a call among overloads
+  of one arity binds to the one overload whose parameters fit, so the unused
+  overload goes and the single-use one inlines; `--webgl` sees the resolved
+  return type. Left unresolved on purpose: an `int` argument to a `float`
+  parameter (ES 3.00's implicit conversion), and any argument the typer does
+  not know, which is anything past the rules the spec states plainly:
+  `transpose`, `inverse`, the comparison vectors, matrix-by-matrix shapes
+  other than square, calls into other files. Each is a rule away if a corpus
+  wants it. Measured with `npm run metrics`, the plugin's output: CesiumJS
+  -3.0% raw and -1.2% per shader compressed (-5.7% and -3.2% preprocessed),
+  Babylon.js -2.3% and -1.6%, three.js -0.9% and -0.3%, PlayCanvas -0.9% and
+  -0.4%, the Shadertoy set -0.9% and -0.5%.
 - **A macro in declaration position.** PlayCanvas writes
   `float f(SHADOWMAP_ACCEPT(shadowMap), vec3 c)`, where the macro expands to
   a whole parameter. The parser cannot represent it, so those five shaders

@@ -30,20 +30,6 @@ vec2 NoisePrecise(vec3 x)
   vec4 rg=mix(mix(textureLod(iChannel0,(uv+.5)/256.,0.),textureLod(iChannel0,(uv+vec2(1,0)+.5)/256.,0.),f.x),mix(textureLod(iChannel0,(uv+vec2(0,1)+.5)/256.,0.),textureLod(iChannel0,(uv+1.5)/256.,0.),f.x),f.y);
   return mix(rg.yw,rg.xz,f.z);
 }
-vec4 Noise(vec2 x)
-{
-  vec2 f=fract(x.xy);
-  f=floor(x.xy).xy+(f*f*(3.-2.*f)).xy;
-  return textureLod(iChannel0,(f+.5)/256.,0.);
-}
-vec4 Noise(ivec2 x)
-{
-  return textureLod(iChannel0,(vec2(x)+.5)/256.,0.);
-}
-vec2 Noise(ivec3 x)
-{
-  return textureLod(iChannel0,(vec2(x)+vec2(37,17)*float(x.z)+.5)/256.,0.).xz;
-}
 float Waves(vec3 pos)
 {
   pos*=.2*vec3(1);
@@ -86,8 +72,7 @@ float WaveCrests(vec3 ipos,vec2 fragCoord)
   ipos.y=-.05*iTime;
   for(int i=6;i<16;i++)
     ipos=(ipos.yzx+ipos.zyx*vec3(1,-1,1))/sqrt(2.),f=f*1.5+abs(Noise(ipos).x-.5)*2.,ipos*=2.;
-  f/=15e2;
-  f-=Noise(ivec2(fragCoord.xy)).x*.01;
+  f=f/15e2-textureLod(iChannel0,(vec2(ivec2(fragCoord.xy))+.5)/256.,0.).x*.01;
   return pow(smoothstep(.4,-.1,f),6.);
 }
 vec3 Sky(vec3 ray)

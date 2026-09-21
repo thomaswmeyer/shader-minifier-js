@@ -57,6 +57,15 @@ in `PORTING.md` section 5.2.
    prints the exponent form (`124e-29`, `8e-46`), so an epsilon such as
    `1e-20` survives minification (`PORTING.md` 5.2 item 39).
 
+7. `tests/unit/overload.expected`, `tests/real/kinder_painter.expected`,
+   `tests/real/audio-flight-v2.frag.expected`, `tests/real/buoy.frag.expected`,
+   `tests/real/robin.frag.expected` — overloads resolved by argument type
+   (`PORTING.md` 5.2 item 48). Upstream resolves a call by name and arity
+   only, so overloads of one arity are all kept and none is inlined. The
+   port types the arguments: `buoy`'s two unused `Noise` overloads and
+   `audio-flight-v2`'s `pMod(vec2,float)` go, `robin`'s `TweetVolume` and
+   several single-use overloads inline, and the renaming shifts with them.
+
 Not an edit to the corpus, but a flag the runner adds: `test/golden.ts` passes
 `--decimal-folds` to every command, because the port folds float operators
 at float32 by default (`PORTING.md` 5.2 item 33) and upstream in decimal.

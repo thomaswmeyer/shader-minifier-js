@@ -24,12 +24,6 @@ float pMod(inout float p,float size)
   p=mod(p+size*.5,size)-size*.5;
   return c;
 }
-vec2 pMod(inout vec2 p,float size)
-{
-  vec2 c=floor((p+size*.5)/size);
-  p=mod(p+size*.5,size)-size*.5;
-  return c;
-}
 vec3 pMod(inout vec3 p,float size)
 {
   vec3 c=floor((p+size*.5)/size);
@@ -252,14 +246,11 @@ void mainImage(out vec4 O,vec2 F)
       C=mix(C,FC,1.-exp(-75e-6*t.x*t.x*t.x))+abs(beams*.65)*hsv2rgb(vec3(s_hp.z*.025,.8,.6))+abs(flight*.75)*vec3(.5,1,.2);
     }
   crop=1./R.x;
-  float d1=fBox2(uv+vec2(-.485,.2675),vec2(.005))-.002;
-  d1=smoothstep(crop,-crop,d1);
+  float d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.485,.2675),vec2(.005))-.002);
   C=mix(C,vec3(.212,.671,.576),d1);
-  d1=fBox2(uv+vec2(-.465,.2675),vec2(.005))-.002;
-  d1=smoothstep(crop,-crop,d1);
+  d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.465,.2675),vec2(.005))-.002);
   C=mix(C,vec3(.757,.686,.341),d1);
-  d1=fBox2(uv+vec2(-.445,.2675),vec2(.005))-.002;
-  d1=smoothstep(crop,-crop,d1);
+  d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.445,.2675),vec2(.005))-.002);
   C=pow(mix(C,vec3(.882,.459,.867),d1),vec3(.4545));
   O=vec4(C,1);
 }

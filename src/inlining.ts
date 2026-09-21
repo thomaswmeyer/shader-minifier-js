@@ -431,12 +431,15 @@ export class FunctionInlining {
     const funcInfos = new Analyzer().findFuncInfos(code);
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
-      if (canBeRenamed && funcInfo.isResolvable) {
+      // Its calls: the ones resolved to it (by name and arity, or among same-arity overloads by
+      // argument types), provided no call to its prototype is left ambiguous, since such a call
+      // might be this function's too.
+      const prototype = Ast.funPrototype(funcInfo.funcType);
+      const sites = funcInfos.flatMap((n) => n.callSites).filter((callSite) => callSite.prototype === prototype);
+      const resolvable = funcInfo.isResolvable || sites.every((c) => c.resolved !== null);
+      if (canBeRenamed && resolvable) {
         if (!Ast.funHasOutOrInoutParams(funcInfo.funcType)) { // [F]
-          // Find calls to this function. This works because we checked that the function is not overloaded ambiguously.
-          const prototype = Ast.funPrototype(funcInfo.funcType);
-          const callSites = funcInfos.flatMap((n) => n.callSites)
-            .filter((callSite) => callSite.prototype === prototype);
+          const callSites = sites.filter((c) => funcInfo.isResolvable || c.resolved === funcInfo.funcType);
           if (callSites.length > 0) { // Unused function elimination is not handled here
             const stmts = Ast.asStmtList(funcInfo.body);
             if (stmts.length === 1 && stmts[0].kind === "Jump" && stmts[0].keyword === "return" && stmts[0].expr !== null) { // [C]

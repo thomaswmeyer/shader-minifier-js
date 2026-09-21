@@ -272,13 +272,13 @@ Output bytes, externals kept in all of them; three.js runs with
 
 | corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 6 | 5,381 | 2,438 | 2,377 | 2.5% | 2,377 | 2,484 | 4.3% |
-| gl-transitions | 125 | 169,066 | 69,608 | 67,711 | 2.7% | 67,645 | 79,689 | 15.1% |
-| three.js | 56 | 1,337,454 | 217,909 | 129,932 | 40.4% | 129,932 | 143,890 | 9.7% |
-| Babylon.js | 18 | 276,701 | 97,016 | 47,117 | 51.4% | 47,117 | 59,928 | 21.4% |
-| PlayCanvas | 20 | 191,012 | 5 refused | 48,662 |  | 48,662 | 60,037 | 18.9% |
-| CesiumJS | 32 | 174,106 | 72,874 | 69,143 | 5.1% | 40,414 | 43,750 | 7.6% |
-| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,904 | 44,203 | 1.6% | 42,648 | 2 refused |  |
+| tom.to | 6 | 5,381 | 2,438 | 2,377 | 2.5% | 2,377 | n/a |  |
+| gl-transitions | 125 | 169,066 | 69,437 | 67,540 | 2.7% | 67,474 | n/a |  |
+| three.js | 56 | 1,337,454 | 216,862 | 128,805 | 40.6% | 128,805 | n/a |  |
+| Babylon.js | 18 | 276,701 | 96,080 | 46,033 | 52.1% | 46,033 | n/a |  |
+| PlayCanvas | 20 | 191,012 | 5 refused | 48,217 |  | 48,217 | n/a |  |
+| CesiumJS | 32 | 174,106 | 70,825 | 67,094 | 5.3% | 38,102 | n/a |  |
+| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,521 | 43,820 | 1.6% | 42,265 | n/a |  |
 
 Shaders ship compressed, so the same corpora after compression. Two
 variables: the codec (brotli -q 11 is what a CDN serves, gzip -9 what an
@@ -292,51 +292,51 @@ bound.
 | corpus | minified raw | each alone | as one blob | of the compression, cross-shader |
 |---|--:|--:|--:|--:|
 | tom.to | 2,377 | 1,593 | 1,090 | 32% |
-| gl-transitions | 67,711 | 35,790 | 14,016 | 61% |
-| three.js | 129,932 | 43,101 | 12,453 | 71% |
-| Babylon.js | 47,117 | 15,529 | 6,065 | 61% |
-| PlayCanvas | 48,662 | 17,957 | 5,278 | 71% |
-| CesiumJS | 69,143 | 22,860 | 11,359 | 50% |
+| gl-transitions | 67,540 | 35,746 | 13,988 | 61% |
+| three.js | 128,805 | 42,976 | 12,413 | 71% |
+| Babylon.js | 46,033 | 15,277 | 5,941 | 61% |
+| PlayCanvas | 48,217 | 17,883 | 5,131 | 71% |
+| CesiumJS | 67,094 | 22,594 | 11,172 | 51% |
 
 **brotli -q 11, each shader on its own**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,755 | 1,620 | 1,593 | 1.7% | 1,593 | 1,621 | 1.7% |
-| gl-transitions | 67,081 | 36,710 | 35,790 | 2.5% | 35,677 | 39,307 | 9.2% |
-| three.js | 269,870 | 68,734 | 43,101 | 37.3% | 43,101 | 46,531 | 7.4% |
-| Babylon.js | 67,148 | 30,152 | 15,529 | 48.5% | 15,529 | 17,418 | 10.8% |
-| PlayCanvas | 47,336 | 5 refused | 17,957 |  | 17,957 | 20,615 | 12.9% |
-| CesiumJS | 38,439 | 24,080 | 22,860 | 5.1% | 15,196 | 16,507 | 7.9% |
-| Shadertoy (Shader Minifier tests) | 30,115 | 17,407 | 17,039 | 2.1% | 16,498 | 2 refused |  |
+| tom.to | 2,755 | 1,620 | 1,593 | 1.7% | 1,593 | n/a |  |
+| gl-transitions | 67,081 | 36,674 | 35,746 | 2.5% | 35,633 | n/a |  |
+| three.js | 269,870 | 68,561 | 42,976 | 37.3% | 42,976 | n/a |  |
+| Babylon.js | 67,148 | 29,953 | 15,277 | 49.0% | 15,277 | n/a |  |
+| PlayCanvas | 47,336 | 5 refused | 17,883 |  | 17,883 | n/a |  |
+| CesiumJS | 38,439 | 23,800 | 22,594 | 5.1% | 14,709 | n/a |  |
+| Shadertoy (Shader Minifier tests) | 30,115 | 17,330 | 16,955 | 2.2% | 16,414 | n/a |  |
 
 **brotli -q 11, whole corpus as one blob**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,167 | 1,114 | 1,090 | 2.2% | 1,090 | 1,132 | 3.7% |
-| gl-transitions | 29,088 | 14,389 | 14,016 | 2.6% | 14,036 | 15,188 | 7.6% |
-| three.js | 22,926 | 14,620 | 12,453 | 14.8% | 12,453 | 13,713 | 9.2% |
-| Babylon.js | 15,744 | 9,552 | 6,065 | 36.5% | 6,065 | 7,192 | 15.7% |
-| PlayCanvas | 8,444 | 5 refused | 5,278 |  | 5,278 | 5,254 | -0.5% |
-| CesiumJS | 17,592 | 11,648 | 11,359 | 2.5% | 6,925 | 7,484 | 7.5% |
-| Shadertoy (Shader Minifier tests) | 25,952 | 14,281 | 13,965 | 2.2% | 13,507 | 2 refused |  |
+| tom.to | 2,167 | 1,114 | 1,090 | 2.2% | 1,090 | n/a |  |
+| gl-transitions | 29,088 | 14,350 | 13,988 | 2.5% | 13,982 | n/a |  |
+| three.js | 22,926 | 14,760 | 12,413 | 15.9% | 12,413 | n/a |  |
+| Babylon.js | 15,744 | 9,415 | 5,941 | 36.9% | 5,941 | n/a |  |
+| PlayCanvas | 8,444 | 5 refused | 5,131 |  | 5,131 | n/a |  |
+| CesiumJS | 17,592 | 11,467 | 11,172 | 2.6% | 6,644 | n/a |  |
+| Shadertoy (Shader Minifier tests) | 25,952 | 14,221 | 13,908 | 2.2% | 13,431 | n/a |  |
 
 **gzip -9**
 
 | corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | js +preprocess | spglsl (ANGLE) | preprocessed vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| tom.to | 2,458 | 1,179 | 1,158 | 1.8% | 1,158 | 1,213 | 4.5% |
-| gl-transitions | 35,330 | 16,508 | 16,031 | 2.9% | 16,001 | 17,470 | 8.4% |
-| three.js | 196,245 | 20,948 | 16,774 | 19.9% | 16,774 | 19,536 | 14.1% |
-| Babylon.js | 40,713 | 11,930 | 7,204 | 39.6% | 7,204 | 8,901 | 19.1% |
-| PlayCanvas | 24,421 | 5 refused | 7,072 |  | 7,072 | 7,276 | 2.8% |
-| CesiumJS | 25,813 | 14,153 | 13,843 | 2.2% | 8,149 | 8,747 | 6.8% |
-| Shadertoy (Shader Minifier tests) | 29,728 | 16,149 | 15,796 | 2.2% | 15,252 | 2 refused |  |
+| tom.to | 2,458 | 1,179 | 1,158 | 1.8% | 1,158 | n/a |  |
+| gl-transitions | 35,330 | 16,460 | 15,978 | 2.9% | 15,950 | n/a |  |
+| three.js | 196,245 | 21,300 | 16,797 | 21.1% | 16,797 | n/a |  |
+| Babylon.js | 40,713 | 11,772 | 7,050 | 40.1% | 7,050 | n/a |  |
+| PlayCanvas | 24,421 | 5 refused | 6,758 |  | 6,758 | n/a |  |
+| CesiumJS | 25,813 | 13,863 | 13,504 | 2.6% | 7,741 | n/a |  |
+| Shadertoy (Shader Minifier tests) | 29,728 | 16,042 | 15,701 | 2.1% | 15,158 | n/a |  |
 
 The order of the three minifiers is the same under every codec and unit.
 The unit changes the margin: shader-minifier-js's win over Shader Minifier
-on three.js is 37.3% per shader and 14.8% as a blob, since the blob already
+on three.js is 37.3% per shader and 15.9% as a blob, since the blob already
 compresses the repeated chunk text. gzip gives slightly larger margins than
 brotli. As blobs the engine corpora compress 10 to 58 fold, mostly one
 program against another, which makes them useful for finding bugs and a poor
@@ -345,8 +345,8 @@ measure of size.
 Compared like with like, through the preprocessed column, shader-minifier-js
 is smaller than spglsl on every corpus, at every codec and unit, except
 PlayCanvas as one blob by 0.5%. On CesiumJS the difference between the two
-shader-minifier-js columns is the point: with every `#if` kept it is 69,143
-bytes, with the file's own defines decided 40,414 and the whole of that is
+shader-minifier-js columns is the point: with every `#if` kept it is 67,094
+bytes, with the file's own defines decided 38,102 and the whole of that is
 dead preprocessor branches, not rewriting. One caveat about the spglsl
 column, which counts against this table rather than against spglsl: the
 pixel harness checks shader-minifier-js's output, never spglsl's, so its

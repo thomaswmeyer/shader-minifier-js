@@ -218,11 +218,6 @@ vec3 CameraPath(float t)
   t+=5.;
   return vec3(1.4+sin(t)*3.5,-.2,5.-sin(t)*2.5);
 }
-float TweetVolume(float t)
-{
-  float n=NoiseSlope(t*11.,.1)*abs(sin(t*14.))*.5;
-  return n*smoothstep(.4,.9,NoiseSlope(t*.5+4.,.1));
-}
 void mainImage(out vec4 fragColor,vec2 fragCoord)
 {
   float gTime=iTime;
@@ -231,12 +226,12 @@ void mainImage(out vec4 fragColor,vec2 fragCoord)
   zoomTurn.y=smoothstep(6.,0.,t)+smoothstep(39.,40.,t);
   vec3 cameraPos=CameraPath(gTime*.2);
   cameraPos.z+=zoomTurn.y*8.;
-  vec3 camTarget=vec3(Noise(gTime*1.9-30.)*.5-.25,Noise(gTime*2.)*.5-.3,0),cw=normalize(camTarget-cameraPos),cu=normalize(cross(cw,vec3(0,1,0)));
-  camTarget=normalize(uv.x*cu+uv.y*cross(cu,cw)+(1.-zoomTurn.y*.4)*cw);
+  vec3 cw=normalize(vec3(Noise(gTime*1.9-30.)*.5-.25,Noise(gTime*2.)*.5-.3,0)-cameraPos),cu=normalize(cross(cw,vec3(0,1,0)));
+  cw=normalize(uv.x*cu+uv.y*cross(cu,cw)+(1.-zoomTurn.y*.4)*cw);
   animParts.x=Noise(gTime*2.)+1.;
   animParts.y=(NoiseSlope(gTime*1.2+sin(gTime*.3)*.7+.7,.05)-.5)*1.5;
   animParts.z=NoiseSlope(gTime*.4-33.,.05)*.5;
-  animParts.w=TweetVolume(gTime)*.8+.02;
+  animParts.w=NoiseSlope(gTime*11.,.1)*abs(sin(gTime*14.))*.5*smoothstep(.4,.9,NoiseSlope(gTime*.5+4.,.1))*.8+.02;
   body.x=sin(NoiseSlope(gTime*.5,.3)*4.14)*.25+.25;
   body.y=NoiseSlope(gTime*.73,.3);
   t=mod(gTime*2.,15.);
@@ -249,22 +244,22 @@ void mainImage(out vec4 fragColor,vec2 fragCoord)
   zoomTurn.x=smoothstep(.4,.8,t);
   if(mod(gTime*2.,30.)>=15.)
     zoomTurn.x=1.-zoomTurn.x;
-  cw=vec3(0);
+  cu=vec3(0);
   for(int i=0;i<2;i++)
     dStack[i]=vec4(-20),aStack[i]=vec4(0);
-  jump=Scene(cameraPos,camTarget,fragCoord);
+  jump=Scene(cameraPos,cw,fragCoord);
   for(int s=0;s<2;s++)
     for(int i=0;i<4;i++)
       {
         float specular=0.,d=dStack[s][i];
         if(d<0.)
           continue;
-        vec3 pos=cameraPos+camTarget*d,normal=normalize(vec3(Map(pos+vec3(.01,0,0))-Map(pos-vec3(.01,0,0)),Map(pos+vec3(0,.01,0))-Map(pos-vec3(0,.01,0)),Map(pos+vec3(0,0,.01))-Map(pos-vec3(0,0,.01)))),alb=Colour(pos,normal,specular);
-        cw+=DoLighting(alb,pos,normal,camTarget,d,specular)*aStack[s][i];
+        vec3 pos=cameraPos+cw*d,normal=normalize(vec3(Map(pos+vec3(.01,0,0))-Map(pos-vec3(.01,0,0)),Map(pos+vec3(0,.01,0))-Map(pos-vec3(0,.01,0)),Map(pos+vec3(0,0,.01))-Map(pos-vec3(0,0,.01)))),alb=Colour(pos,normal,specular);
+        cu+=DoLighting(alb,pos,normal,cw,d,specular)*aStack[s][i];
       }
   t=smoothstep(1.9,0.,zoomTurn.y);
-  camTarget=mix(CubeMap(iChannel2,camTarget,128.),CubeMap(iChannel3,camTarget,64.)*.7,t);
-  cw+=camTarget*camTarget*SUN_COLOUR*(1.-jump);
-  cw=PostEffects(cw,xy)*smoothstep(0.,2.,iTime);
-  fragColor=vec4(cw,1);
+  cw=mix(CubeMap(iChannel2,cw,128.),CubeMap(iChannel3,cw,64.)*.7,t);
+  cu+=cw*cw*SUN_COLOUR*(1.-jump);
+  cu=PostEffects(cu,xy)*smoothstep(0.,2.,iTime);
+  fragColor=vec4(cu,1);
 }

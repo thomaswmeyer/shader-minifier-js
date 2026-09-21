@@ -777,6 +777,55 @@ says so. Every site is ported deliberately:
     conditional expressions and the regions kept as text. Only one- and
     two-letter macro names could ever collide, so no golden changes.
 
+48. *Overloads resolved by argument type.* Upstream resolves a call by name
+    and arity ("TODO: support type-based disambiguation"), so two overloads
+    of one arity, `pow2(float)` and `pow2(vec2)`, leave every call to them
+    unresolved: neither is inlined, neither is removed when unused, and
+    `--webgl` treats the call as of unknown type. Engine shaders are full of
+    them (three.js has 103 such groups, Cesium 23). The port has an
+    expression typer (`src/typer.ts`) that gives an argument its type from
+    literals, declared variables, swizzles, struct fields, array elements,
+    constructors, the operators' promotion rules, the genType builtins,
+    `length`/`dot`/`distance`, the texture functions and the `gl_` variables,
+    and answers null for anything else. A call among overloads of one arity
+    binds to the overload whose parameter types equal the argument types,
+    when every argument type is known and exactly one overload fits; an
+    `int` argument to a `float` parameter, which ES 3.00 would convert, is
+    left unresolved on purpose, since the exact rule is the safe one. Inlining
+    and unused-function removal then work per overload: a function is called
+    when a call resolves to it, or when a call to its prototype resolves to
+    nothing. Function nodes are rebuilt between passes, so an overload is
+    matched by its signature, never by identity. Five goldens move
+    (`tests/DEVIATIONS.md` item 7); `test/typer.test.ts` pins the typer.
+
+    Alternatives are the hazard, and the corpus found it at once: three.js
+    declares `pointShadowMap` as a `samplerCubeShadow` under
+    `SHADOWMAP_TYPE_PCF` and a `samplerCube` otherwise, with a `getPointShadow`
+    overload in each branch. A variable declared in alternative branches
+    (item 32's unified locals, and a global inside a top-level region) has no
+    type to the typer, and an overload group with a member inside a region
+    is never resolved, since the other setting may need the other member.
+    Underneath, the analysis environment merged two branches' functions by
+    prototype and kept the last branch's list alone, so a call after the
+    `#endif` saw one `getPointShadow` and bound to it as if unique; both
+    branches' functions are in scope after the region now. The three.js
+    renders without `--preprocess`, under both settings of the defines, are
+    what checks all of this.
+
+49. *An initializer is not merged into an lvalue.* Two upstream rules fold a
+    local's value into the statement that follows: `float m=14.;m=58.-m;`
+    becomes `float m=58.-14.;`, and `m=14.;m=58.-m;` becomes `m=58.-14.;`,
+    when the value is pure and used once. Neither asked where the use is.
+    PlayCanvas passes a local to an `inout` parameter its callee never
+    writes (`getShadowSampleCoord0`), which leaves the call pure, and the
+    rule produced `vec3 v=getShadowSampleCoord0(vec3(0),...)`: a constant
+    for an `inout` argument, which does not compile. Upstream reaches the
+    same line with a non-overloaded callee; the port reached it once item 48
+    resolved `saturate` and made the callee pure. Both rules now require
+    every use to be a value: not an `out`/`inout` argument, not the target
+    of an assignment or `++`, and not an argument of a call whose parameters
+    are unknown. The PlayCanvas renders caught it the same hour.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -830,7 +879,13 @@ shader in this repository:
   declaration and loses its uses (item 42, `many_variables` with
   `--no-remove-unused --aggressive-inlining --move-declarations`);
 - a macro name the shader tests but never defines given out as a generated
-  identifier (item 47, `test/directive-alternatives.test.ts`).
+  identifier (item 47, `test/directive-alternatives.test.ts`);
+- resolving a call among overloads of one arity by argument type, which
+  removes the unused overload and inlines the single-use one (item 48,
+  `buoy`'s `Noise`, `robin`'s `TweetVolume`);
+- merging a local's initializer into an `inout` argument of the assignment
+  that follows, a constant where an lvalue is needed (item 49, PlayCanvas
+  `StandardMaterial-4.frag`, `test/rewriter.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

@@ -14,6 +14,7 @@ import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining
 import { renameField, trace, type Options, type Stage } from "./options.js";
 import * as Printer from "./printer.js";
 import { TypeInfo, nonStructType } from "./typing.js";
+import { sameSignature } from "./typer.js";
 
 
 const commaSeparatedExprs = (li: Expr[]): Expr => li.reduce((a, b) => OpCall(",", [a, b]));
@@ -553,8 +554,11 @@ class RewriterImpl {
       const passedArgs = e.args;
       const found = env.fns.get(prototypeKey(v.name, passedArgs.length));
       if (found === undefined) throw new Error(`Cannot inline function ${v.name} because it's a builtin`);
-      if (found.length !== 1) throw new Error(`Cannot inline function ${v.name} because type-based disambiguation of user-defined function overloading is not supported`);
-      const [{ args: declArgs }, body] = found[0];
+      // Among overloads of one arity, the one the call resolved to by argument types.
+      const d = v.declaration;
+      const own = found.length === 1 ? found[0] : found.find(([ft]) => d.kind === "UserFunction" && sameSignature(ft, d.decl.funcType));
+      if (own === undefined) throw new Error(`Cannot inline function ${v.name}: the call does not resolve among its overloads`);
+      const [{ args: declArgs }, body] = own;
       if (declArgs.length !== passedArgs.length) {
         throw new Error(`Cannot inline function ${v.name} since it doesn't have the right number of arguments`);
       }
@@ -1073,7 +1077,7 @@ class RewriterImpl {
             // Remove unused assignment immediately followed by re-assignment:  m=14.;m=58.;  ->  14.;m=58.;
             if (count === 0) return [ExprStmt(init1), s2]; // Transform is safe even if the var is an out parameter.
             // Inline this single use of a used-once assignment into the immediately following re-assignment:  m=14.;m=58.-m;  ->  m=58.-14.;
-            if (count === 1 && Effects.isPure(init1) && Effects.isPure(init2)) { // This is ok only if init1 is pure and the part of init2 before using m is pure.
+            if (count === 1 && Effects.isPure(init1) && Effects.isPure(init2) && usedAsValueOnly(init2, name.name)) { // This is ok only if init1 is pure and the part of init2 before using m is pure.
               const newInit2 = replaceUsesOfIdentByExpr(init2, name.name, init1);
               trace(this.options, `${locToS(name.loc)}: merge consecutive pure assignments to the same local '${name}'`);
               return [ExprStmt(OpCall("=", [Var(a2.name), newInit2]))];
@@ -1098,7 +1102,7 @@ class RewriterImpl {
             if (this.voidSequenceForbidden && es.some((e) => this.types.hasVoidOperand(e))) return null;
             return [DeclStmt([ty, [{ ...declElt, init: commaSeparatedExprs([...es, init2]) }]])];
           }
-          if (count === 1 && (declElt.init === null || Effects.isPure(declElt.init)) && Effects.isPure(init2)) {
+          if (count === 1 && (declElt.init === null || Effects.isPure(declElt.init)) && Effects.isPure(init2) && usedAsValueOnly(init2, declElt.name.name)) {
             if (declElt.init === null) return null; // can't replace  float a;a=f(a);  by  float a=f(a);
             const init1 = declElt.init; // float m=14.;m=58.-m;  ->  float m=58.-14.;
             trace(this.options, `${locToS(declElt.name.loc)}: merge assignment with preceding local declaration '${Printer.debugDecl(declElt)}'`);
@@ -1356,7 +1360,9 @@ class RewriterImpl {
     const isUnused = (funcInfo: FuncInfo): boolean => {
       const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.hiddenUses; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
-      const isCalled = globalCalls.has(proto) || funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto)); // when in doubt wrt overload resolution, keep the function.
+      // Called by prototype from a global initializer, resolved to by a call in a function, or
+      // possibly meant by a call to its prototype that no argument types could resolve.
+      const isCalled = globalCalls.has(proto) || funcInfos.some((n) => n.callSites.some((c) => c.prototype === proto && (c.resolved === null || c.resolved === funcInfo.funcType)));
       return canBeRenamed && !isCalled;
     };
     const unused = funcInfos.filter(isUnused);
@@ -1767,6 +1773,39 @@ const hasQualifier = (tl: TopLevel, qs: string[]): boolean => tl.kind === "TLDec
 const opaqueText = (code: readonly TopLevel[]): string[] =>
   code.flatMap((tl) => (tl.kind === "TLVerbatim" ? [tl.text] : tl.kind === "TLDirective" ? [tl.parts.join(" ")] : []));
 const namedInText = (texts: string[], name: string): boolean => texts.some((t) => new RegExp(`\\b${name}\\b`).test(t));
+/**
+ * Whether every use of `name` in `e` is as a value, so that an expression may stand in for it. A use
+ * as an `out` or `inout` argument, or as the target of an assignment or `++`, needs the variable
+ * itself: PlayCanvas passes a local to an `inout` parameter the callee never writes, which leaves the
+ * call pure and would otherwise turn `vec3 v=vec3(0);v=f(v)` into `f(vec3(0))`, which does not compile.
+ */
+function usedAsValueOnly(e: Expr, name: string): boolean {
+  const isTheVar = (x: Expr): boolean => {
+    let t = x;
+    for (;;) {
+      if (t.kind === "Dot") t = t.expr;
+      else if (t.kind === "Subscript") t = t.arr;
+      else break;
+    }
+    return t.kind === "Var" && t.ident.name === name;
+  };
+  let ok = true;
+  const check = (_env: MapEnv, x: Expr): Expr => {
+    if (x.kind !== "FunCall") return x;
+    if (x.fn.kind === "Op") {
+      const op = x.fn.op;
+      if ((Builtin.assignOps.has(op) || /^[_$]?(\+\+|--)$/.test(op)) && x.args.length > 0 && isTheVar(x.args[0])) ok = false;
+    } else if (x.fn.kind === "Var") {
+      const d = x.fn.ident.declaration;
+      if (d.kind === "UserFunction") d.decl.funcType.args.forEach(([ty], i) => { if (i < x.args.length && typeIsOutOrInout(ty) && isTheVar(x.args[i])) ok = false; });
+      else if (d.kind !== "BuiltinFunction" && x.args.some(isTheVar)) ok = false; // unknown parameters: any of them may be out
+    }
+    return x;
+  };
+  Ast.visitor(check).iterStmt(Ast.UnknownLevel, ExprStmt(e));
+  return ok;
+}
+
 /** Whether a declaration is needed by what this code reads, by a use the minifier cannot see, or by a mention in its opaque text. */
 const isNamed = (d: DeclElt, used: ReadonlySet<string>, texts: string[]): boolean => d.name.hiddenUses || used.has(d.name.name) || namedInText(texts, d.name.name);
 /** A declaration after a removal: gone, unchanged, or shortened to the elements kept. */

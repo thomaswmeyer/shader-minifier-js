@@ -1,3 +1,73 @@
+diff --git a/tests/real/audio-flight-v2.frag.expected b/tests/real/audio-flight-v2.frag.expected
+index b59e967..91c41b8 100644
+--- a/tests/real/audio-flight-v2.frag.expected
++++ b/tests/real/audio-flight-v2.frag.expected
+@@ -24,12 +24,6 @@ float pMod(inout float p,float size)
+   p=mod(p+size*.5,size)-size*.5;
+   return c;
+ }
+-vec2 pMod(inout vec2 p,float size)
+-{
+-  vec2 c=floor((p+size*.5)/size);
+-  p=mod(p+size*.5,size)-size*.5;
+-  return c;
+-}
+ vec3 pMod(inout vec3 p,float size)
+ {
+   vec3 c=floor((p+size*.5)/size);
+@@ -252,14 +246,11 @@ void mainImage(out vec4 O,vec2 F)
+       C=mix(C,FC,1.-exp(-75e-6*t.x*t.x*t.x))+abs(beams*.65)*hsv2rgb(vec3(s_hp.z*.025,.8,.6))+abs(flight*.75)*vec3(.5,1,.2);
+     }
+   crop=1./R.x;
+-  float d1=fBox2(uv+vec2(-.485,.2675),vec2(.005))-.002;
+-  d1=smoothstep(crop,-crop,d1);
++  float d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.485,.2675),vec2(.005))-.002);
+   C=mix(C,vec3(.212,.671,.576),d1);
+-  d1=fBox2(uv+vec2(-.465,.2675),vec2(.005))-.002;
+-  d1=smoothstep(crop,-crop,d1);
++  d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.465,.2675),vec2(.005))-.002);
+   C=mix(C,vec3(.757,.686,.341),d1);
+-  d1=fBox2(uv+vec2(-.445,.2675),vec2(.005))-.002;
+-  d1=smoothstep(crop,-crop,d1);
++  d1=smoothstep(crop,-crop,fBox2(uv+vec2(-.445,.2675),vec2(.005))-.002);
+   C=pow(mix(C,vec3(.882,.459,.867),d1),vec3(.4545));
+   O=vec4(C,1);
+ }
+diff --git a/tests/real/buoy.frag.expected b/tests/real/buoy.frag.expected
+index da5293c..9fb2ead 100644
+--- a/tests/real/buoy.frag.expected
++++ b/tests/real/buoy.frag.expected
+@@ -30,20 +30,6 @@ vec2 NoisePrecise(vec3 x)
+   vec4 rg=mix(mix(textureLod(iChannel0,(uv+.5)/256.,0.),textureLod(iChannel0,(uv+vec2(1,0)+.5)/256.,0.),f.x),mix(textureLod(iChannel0,(uv+vec2(0,1)+.5)/256.,0.),textureLod(iChannel0,(uv+1.5)/256.,0.),f.x),f.y);
+   return mix(rg.yw,rg.xz,f.z);
+ }
+-vec4 Noise(vec2 x)
+-{
+-  vec2 f=fract(x.xy);
+-  f=floor(x.xy).xy+(f*f*(3.-2.*f)).xy;
+-  return textureLod(iChannel0,(f+.5)/256.,0.);
+-}
+-vec4 Noise(ivec2 x)
+-{
+-  return textureLod(iChannel0,(vec2(x)+.5)/256.,0.);
+-}
+-vec2 Noise(ivec3 x)
+-{
+-  return textureLod(iChannel0,(vec2(x)+vec2(37,17)*float(x.z)+.5)/256.,0.).xz;
+-}
+ float Waves(vec3 pos)
+ {
+   pos*=.2*vec3(1);
+@@ -86,8 +72,7 @@ float WaveCrests(vec3 ipos,vec2 fragCoord)
+   ipos.y=-.05*iTime;
+   for(int i=6;i<16;i++)
+     ipos=(ipos.yzx+ipos.zyx*vec3(1,-1,1))/sqrt(2.),f=f*1.5+abs(Noise(ipos).x-.5)*2.,ipos*=2.;
+-  f/=15e2;
+-  f-=Noise(ivec2(fragCoord.xy)).x*.01;
++  f=f/15e2-textureLod(iChannel0,(vec2(ivec2(fragCoord.xy))+.5)/256.,0.).x*.01;
+   return pow(smoothstep(.4,-.1,f),6.);
+ }
+ vec3 Sky(vec3 ray)
 diff --git a/tests/real/controllable-machinery.frag.expected b/tests/real/controllable-machinery.frag.expected
 index ab7baf1..004af87 100644
 --- a/tests/real/controllable-machinery.frag.expected
@@ -88,7 +158,7 @@ index 208f603..5a2f8c5 100644
              c*=1.-smoothstep(42,43,time);
            c.xyz=c.xyz/(c.xyz+.4)*1.3;
 diff --git a/tests/real/kinder_painter.expected b/tests/real/kinder_painter.expected
-index fd74642..aa145c6 100644
+index fd74642..4a6521b 100644
 --- a/tests/real/kinder_painter.expected
 +++ b/tests/real/kinder_painter.expected
 @@ -4,10 +4,10 @@
@@ -104,7 +174,7 @@ index fd74642..aa145c6 100644
  # define VAR_time "z"
  #endif
  
-@@ -17,146 +17,146 @@
+@@ -17,177 +17,171 @@
   "uniform vec2 v;"
   "uniform float z;"
   "uniform vec4 s;"
@@ -119,11 +189,11 @@ index fd74642..aa145c6 100644
 -   "if(y>0.)"
 -     "y=(-d-sqrt(y))/w;"
 -   "return y-.001;"
-+   "vec3 i=v-z.xyz;"
-+   "float w=dot(r.xz,r.xz),s=dot(r.xz,i.xz),d=s*s-w*(dot(i.xz,i.xz)-z.w*z.w);"
-+   "if(d>0.)"
-+     "d=(-s-sqrt(d))/w;"
-+   "return d-.001;"
++   "vec3 d=v-z.xyz;"
++   "float w=dot(r.xz,r.xz),s=dot(r.xz,d.xz),f=s*s-w*(dot(d.xz,d.xz)-z.w*z.w);"
++   "if(f>0.)"
++     "f=(-s-sqrt(f))/w;"
++   "return f-.001;"
   "}"
 - "float d(vec4 z,vec3 v,vec3 y)"
 + "float n(vec4 z,vec3 v,vec3 r)"
@@ -133,25 +203,27 @@ index fd74642..aa145c6 100644
 -   "if(b>0.)"
 -     "b=-d-sqrt(b);"
 -   "return b-.001;"
-+   "vec3 d=v-z.xyz;"
-+   "float s=dot(r,d),w=s*s-(dot(d,d)-z.w*z.w);"
-+   "if(w>0.)"
-+     "w=-s-sqrt(w);"
-+   "return w-.001;"
++   "vec3 w=v-z.xyz;"
++   "float s=dot(r,w),f=s*s-(dot(w,w)-z.w*z.w);"
++   "if(f>0.)"
++     "f=-s-sqrt(f);"
++   "return f-.001;"
   "}"
 - "bool d(vec4 z,vec3 v,vec3 r,float w)"
 + "bool n(vec4 z,vec3 v,vec3 r,float w)"
   "{"
 -   "vec3 y=v-z.xyz;"
 -   "float d=dot(r,y),b=d*d-dot(y,y)+z.w*z.w;"
-+   "vec3 d=v-z.xyz;"
-+   "float s=dot(r,d),i=s*s-(dot(d,d)-z.w*z.w);"
-    "bool f=false;"
+-   "bool f=false;"
 -   "if(b>0.)"
 -     "b=-d-sqrt(b),f=b>0.&&b<w;"
-+   "if(i>0.)"
-+     "i=-s-sqrt(i),f=i>0.&&i<w;"
-    "return f;"
+-   "return f;"
++   "vec3 f=v-z.xyz;"
++   "float s=dot(r,f),d=s*s-(dot(f,f)-z.w*z.w);"
++   "bool i=false;"
++   "if(d>0.)"
++     "d=-s-sqrt(d),i=d>0.&&d<w;"
++   "return i;"
   "}"
   "bool t(vec4 z,vec3 v,vec3 r,float w)"
   "{"
@@ -161,29 +233,29 @@ index fd74642..aa145c6 100644
 -   "if(y>0.)"
 -     "y=-s-sqrt(y),f=y>0.&&y<w*d;"
 -   "return f;"
-+   "vec3 d=v-z.xyz;"
-+   "float s=dot(r.xz,r.xz),i=dot(r.xz,d.xz),f=i*i-s*(dot(d.xz,d.xz)-z.w*z.w);"
-+   "bool b=false;"
-+   "if(f>0.)"
-+     "f=-i-sqrt(f),b=f>0.&&f<w*s;"
-+   "return b;"
++   "vec3 f=v-z.xyz;"
++   "float s=dot(r.xz,r.xz),d=dot(r.xz,f.xz),i=d*d-s*(dot(f.xz,f.xz)-z.w*z.w);"
++   "bool o=false;"
++   "if(i>0.)"
++     "i=-d-sqrt(i),o=i>0.&&i<w*s;"
++   "return o;"
   "}"
 - "float n(vec4 z,vec3 v,vec3 b)"
-+ "float m(vec4 z,vec3 v,vec3 d)"
++ "float m(vec4 z,vec3 v,vec3 f)"
   "{"
 -   "float r=dot(z.xyz,b);"
-+   "float r=dot(z.xyz,d);"
++   "float r=dot(z.xyz,f);"
     "r=(-dot(z.xyz,v)-z.w)/(sign(r)*max(abs(r),.001));"
     "return r-.001;"
   "}"
 - "vec3 d(vec4 z,vec4 v,vec3 r,out vec2 b)"
-+ "vec3 m(vec4 z,vec4 v,vec3 r,out vec2 w)"
++ "vec3 m(vec4 z,vec4 v,vec3 r,out vec2 f)"
   "{"
 -   "vec3 y;"
 -   "b=v.w>2.5?"
 -     "y.xz=r.xz-z.xz,y.y=0.,y/=z.w,vec2(y.x,r.y):"
 +   "vec3 d;"
-+   "w=v.w>2.5?"
++   "f=v.w>2.5?"
 +     "d.xz=r.xz-z.xz,d.y=0.,d/=z.w,vec2(d.x,r.y):"
       "v.w>1.5?"
 -       "y=z.xyz,r.xz*.2:"
@@ -210,21 +282,17 @@ index fd74642..aa145c6 100644
       "z;"
   "}"
 - "int d(int z,int v,bool y)"
-+ "int m(int z,int v,bool w)"
++ "float m(vec3 v,vec3 z,out vec4 f,out vec4 d)"
   "{"
 -   "return y?"
-+   "return w?"
-      "v:"
-      "z;"
-  "}"
+-     "v:"
+-     "z;"
+- "}"
 - "float d(vec3 v,vec3 z,out vec4 y,out vec4 f)"
-+ "float m(vec3 v,vec3 z,out vec4 d,out vec4 w)"
-  "{"
+- "{"
 -   "float w=1e4,i;"
 -   "f.w=-1.;"
-+   "float f=1e4,b;"
-+   "w.w=-1.;"
-    "bool s;"
+-   "bool s;"
 -   "i=d(r[0],v,z);"
 -   "s=i>0.&&i<w;"
 -   "y=d(y,r[0],s);"
@@ -255,39 +323,42 @@ index fd74642..aa145c6 100644
 -   "y=d(y,r[5],s);"
 -   "f=d(f,b[5],s);"
 -   "return d(w,i,s);"
-+   "b=n(r[0],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[0],s);"
-+   "w=m(w,i[0],s);"
-+   "f=m(f,b,s);"
-+   "b=n(r[1],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[1],s);"
-+   "w=m(w,i[1],s);"
-+   "f=m(f,b,s);"
-+   "b=t(r[2],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[2],s);"
-+   "w=m(w,i[2],s);"
-+   "f=m(f,b,s);"
-+   "b=t(r[3],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[3],s);"
-+   "w=m(w,i[3],s);"
-+   "f=m(f,b,s);"
-+   "b=m(r[4],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[4],s);"
-+   "w=m(w,i[4],s);"
-+   "f=m(f,b,s);"
-+   "b=m(r[5],v,z);"
-+   "s=b>0.&&b<f;"
-+   "d=m(d,r[5],s);"
-+   "w=m(w,i[5],s);"
-+   "return m(f,b,s);"
++   "float w=1e4,s;"
++   "d.w=-1.;"
++   "bool o;"
++   "s=n(r[0],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[0],o);"
++   "d=m(d,i[0],o);"
++   "w=m(w,s,o);"
++   "s=n(r[1],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[1],o);"
++   "d=m(d,i[1],o);"
++   "w=m(w,s,o);"
++   "s=t(r[2],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[2],o);"
++   "d=m(d,i[2],o);"
++   "w=m(w,s,o);"
++   "s=t(r[3],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[3],o);"
++   "d=m(d,i[3],o);"
++   "w=m(w,s,o);"
++   "s=m(r[4],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[4],o);"
++   "d=m(d,i[4],o);"
++   "w=m(w,s,o);"
++   "s=m(r[5],v,z);"
++   "o=s>0.&&s<w;"
++   "f=m(f,r[5],o);"
++   "d=m(d,i[5],o);"
++   "return m(w,s,o);"
   "}"
 - "bool d(vec3 v,vec3 z,float s)"
-+ "bool m(vec3 v,vec3 z,float s)"
++ "bool m(vec3 v,vec3 z,float o)"
   "{"
 -   "bvec4 y;"
 -   "y.x=d(r[0],v,z,s);"
@@ -295,55 +366,60 @@ index fd74642..aa145c6 100644
 -   "y.z=t(r[2],v,z,s);"
 -   "y.w=t(r[3],v,z,s);"
 -   "return any(y);"
-+   "bvec4 d;"
-+   "d.x=n(r[0],v,z,s);"
-+   "d.y=n(r[1],v,z,s);"
-+   "d.z=t(r[2],v,z,s);"
-+   "d.w=t(r[3],v,z,s);"
-+   "return any(d);"
++   "bvec4 f;"
++   "f.x=n(r[0],v,z,o);"
++   "f.y=n(r[1],v,z,o);"
++   "f.z=t(r[2],v,z,o);"
++   "f.w=t(r[3],v,z,o);"
++   "return any(f);"
   "}"
 - "vec4 d(vec3 v,vec4 z,vec4 r,vec3 s,vec4 b,out vec4 f)"
-+ "vec4 m(vec3 v,vec4 z,vec4 s,vec3 w,vec4 r,out vec4 f)"
++ "vec4 m(vec3 v,vec4 z,vec4 f,vec3 w,vec4 o,out vec4 r)"
   "{"
 -   "vec3 w;"
-+   "vec3 b;"
-    "float i,o;"
+-   "float i,o;"
 -   "vec2 e;"
 -   "w=d(z,r,v,e);"
 -   "i=dot(w,b.xyz);"
 -   "f.xyz=reflect(s,w);"
 -   "o=max(dot(f.xyz,b.xyz),0.);"
-+   "vec2 y;"
-+   "b=m(z,s,v,y);"
-+   "i=dot(b,r.xyz);"
-+   "f.xyz=reflect(w,b);"
-+   "o=max(dot(f.xyz,r.xyz),0.);"
-    "o*=o;"
-    "o*=o;"
+-   "o*=o;"
+-   "o*=o;"
 -   "if(d(v,b.xyz,b.w))"
-+   "if(m(v,r.xyz,r.w))"
++   "vec3 s;"
++   "float i,b;"
++   "vec2 y;"
++   "s=m(z,f,v,y);"
++   "i=dot(s,o.xyz);"
++   "r.xyz=reflect(w,s);"
++   "b=max(dot(r.xyz,o.xyz),0.);"
++   "b*=b;"
++   "b*=b;"
++   "if(m(v,o.xyz,o.w))"
       "i=0.;"
 -   "r*=texture2D(y,e);"
-+   "s*=texture2D(d,y);"
++   "f*=texture2D(d,y);"
     "i=max(i,0.);"
 -   "r=r*(vec4(.3,.34,.38,1)+.5*vec4(1,.95,.8,1)*i)+.5*o;"
 -   "i=dot(w,-s);"
-+   "s=s*(vec4(.3,.34,.38,1)+.5*vec4(1,.95,.8,1)*i)+.5*o;"
-+   "i=dot(b,-w);"
-    "f.w=i;"
+-   "f.w=i;"
++   "f=f*(vec4(.3,.34,.38,1)+.5*vec4(1,.95,.8,1)*i)+.5*b;"
++   "i=dot(s,-w);"
++   "r.w=i;"
     "i=1.-i*i;"
     "i*=i;"
 -   "return r+.35*vec4(i);"
-+   "return s+.35*vec4(i);"
++   "return f+.35*vec4(i);"
   "}"
   "void main()"
   "{"
 -   "vec4 y,i,w,f;"
-+   "vec4 d,b,w,f;"
-    "vec2 o=(-1.+2.*gl_FragCoord.xy/v.xy)*vec2(v.x/v.y,1);"
+-   "vec2 o=(-1.+2.*gl_FragCoord.xy/v.xy)*vec2(v.x/v.y,1);"
++   "vec4 f,o,d,w;"
++   "vec2 b=(-1.+2.*gl_FragCoord.xy/v.xy)*vec2(v.x/v.y,1);"
     "r[0]=vec4(1.2*sin(2.073423*z),0,1.8*sin(2.450409*z+1.),1);"
     "r[1]=vec4(1.5*sin(1.947761*z+4.),sin(1.822099*z+1.9),1.8*sin(1.822099*z),1);"
-@@ -164,29 +164,29 @@
+    "r[2]=vec4(-1.2,0,0,.4);"
     "r[3]=vec4(1.2,0,0,.4);"
     "r[4]=vec4(0,1,0,2);"
     "r[5]=vec4(0,-1,0,2);"
@@ -370,6 +446,7 @@ index fd74642..aa145c6 100644
 -   "y.xyz=y.xyz/y.w;"
 -   "a=d(u,i,a,f.xyz,y,C);"
 -   "w=mix(w,a,.5-.5*f.w);"
+-   "gl_FragColor=w;"
 +   "i[0]=vec4(.9,.8,.6,1);"
 +   "i[1]=vec4(1,.6,.4,1);"
 +   "i[2]=vec4(.8,.6,.5,3);"
@@ -378,24 +455,25 @@ index fd74642..aa145c6 100644
 +   "i[5]=vec4(1,.9,.9,2);"
 +   "float y=.15*z-6.2831*s.x/v.x,x=2.+3.*s.y/v.y;"
 +   "vec2 a=vec2(cos(y),sin(y));"
-+   "vec3 n=normalize(vec3(o.x*a.x-a.y,o.y,a.x+o.x*a.y)),u=vec3(x*a.y,0,-x*a.x);"
-+   "y=m(u,n,b,w);"
++   "vec3 n=normalize(vec3(b.x*a.x-a.y,b.y,a.x+b.x*a.y)),u=vec3(x*a.y,0,-x*a.x);"
++   "y=m(u,n,o,d);"
 +   "u+=n*y;"
-+   "d.xyz=vec3(0,1.5,-3)-u;"
-+   "d.w=length(d.xyz);"
-+   "d.xyz=d.xyz/d.w;"
-+   "w=m(u,b,w,n,d,f);"
++   "f.xyz=vec3(0,1.5,-3)-u;"
++   "f.w=length(f.xyz);"
++   "f.xyz=f.xyz/f.w;"
++   "d=m(u,o,d,n,f,w);"
 +   "vec4 g,e;"
-+   "y=m(u,f.xyz,b,g);"
-+   "u+=f.xyz*y;"
-+   "d.xyz=vec3(0,1.5,-1)-u;"
-+   "d.w=length(d.xyz);"
-+   "d.xyz=d.xyz/d.w;"
-+   "g=m(u,b,g,f.xyz,d,e);"
-+   "w=mix(w,g,.5-.5*f.w);"
-    "gl_FragColor=w;"
++   "y=m(u,w.xyz,o,g);"
++   "u+=w.xyz*y;"
++   "f.xyz=vec3(0,1.5,-1)-u;"
++   "f.w=length(f.xyz);"
++   "f.xyz=f.xyz/f.w;"
++   "g=m(u,o,g,w.xyz,f,e);"
++   "d=mix(d,g,.5-.5*w.w);"
++   "gl_FragColor=d;"
   "}",
  
+ #endif
 diff --git a/tests/real/lunaquatic.frag.expected b/tests/real/lunaquatic.frag.expected
 index e0f9c69..6b37d92 100644
 --- a/tests/real/lunaquatic.frag.expected
@@ -546,6 +624,69 @@ index 8209ded..7192ce0 100644
    
  #endif
  
+diff --git a/tests/real/robin.frag.expected b/tests/real/robin.frag.expected
+index 9b30eb0..0c4ab27 100644
+--- a/tests/real/robin.frag.expected
++++ b/tests/real/robin.frag.expected
+@@ -218,11 +218,6 @@ vec3 CameraPath(float t)
+   t+=5.;
+   return vec3(1.4+sin(t)*3.5,-.2,5.-sin(t)*2.5);
+ }
+-float TweetVolume(float t)
+-{
+-  float n=NoiseSlope(t*11.,.1)*abs(sin(t*14.))*.5;
+-  return n*smoothstep(.4,.9,NoiseSlope(t*.5+4.,.1));
+-}
+ void mainImage(out vec4 fragColor,vec2 fragCoord)
+ {
+   float gTime=iTime;
+@@ -231,12 +226,12 @@ void mainImage(out vec4 fragColor,vec2 fragCoord)
+   zoomTurn.y=smoothstep(6.,0.,t)+smoothstep(39.,40.,t);
+   vec3 cameraPos=CameraPath(gTime*.2);
+   cameraPos.z+=zoomTurn.y*8.;
+-  vec3 camTarget=vec3(Noise(gTime*1.9-30.)*.5-.25,Noise(gTime*2.)*.5-.3,0),cw=normalize(camTarget-cameraPos),cu=normalize(cross(cw,vec3(0,1,0)));
+-  camTarget=normalize(uv.x*cu+uv.y*cross(cu,cw)+(1.-zoomTurn.y*.4)*cw);
++  vec3 cw=normalize(vec3(Noise(gTime*1.9-30.)*.5-.25,Noise(gTime*2.)*.5-.3,0)-cameraPos),cu=normalize(cross(cw,vec3(0,1,0)));
++  cw=normalize(uv.x*cu+uv.y*cross(cu,cw)+(1.-zoomTurn.y*.4)*cw);
+   animParts.x=Noise(gTime*2.)+1.;
+   animParts.y=(NoiseSlope(gTime*1.2+sin(gTime*.3)*.7+.7,.05)-.5)*1.5;
+   animParts.z=NoiseSlope(gTime*.4-33.,.05)*.5;
+-  animParts.w=TweetVolume(gTime)*.8+.02;
++  animParts.w=NoiseSlope(gTime*11.,.1)*abs(sin(gTime*14.))*.5*smoothstep(.4,.9,NoiseSlope(gTime*.5+4.,.1))*.8+.02;
+   body.x=sin(NoiseSlope(gTime*.5,.3)*4.14)*.25+.25;
+   body.y=NoiseSlope(gTime*.73,.3);
+   t=mod(gTime*2.,15.);
+@@ -249,22 +244,22 @@ void mainImage(out vec4 fragColor,vec2 fragCoord)
+   zoomTurn.x=smoothstep(.4,.8,t);
+   if(mod(gTime*2.,30.)>=15.)
+     zoomTurn.x=1.-zoomTurn.x;
+-  cw=vec3(0);
++  cu=vec3(0);
+   for(int i=0;i<2;i++)
+     dStack[i]=vec4(-20),aStack[i]=vec4(0);
+-  jump=Scene(cameraPos,camTarget,fragCoord);
++  jump=Scene(cameraPos,cw,fragCoord);
+   for(int s=0;s<2;s++)
+     for(int i=0;i<4;i++)
+       {
+         float specular=0.,d=dStack[s][i];
+         if(d<0.)
+           continue;
+-        vec3 pos=cameraPos+camTarget*d,normal=normalize(vec3(Map(pos+vec3(.01,0,0))-Map(pos-vec3(.01,0,0)),Map(pos+vec3(0,.01,0))-Map(pos-vec3(0,.01,0)),Map(pos+vec3(0,0,.01))-Map(pos-vec3(0,0,.01)))),alb=Colour(pos,normal,specular);
+-        cw+=DoLighting(alb,pos,normal,camTarget,d,specular)*aStack[s][i];
++        vec3 pos=cameraPos+cw*d,normal=normalize(vec3(Map(pos+vec3(.01,0,0))-Map(pos-vec3(.01,0,0)),Map(pos+vec3(0,.01,0))-Map(pos-vec3(0,.01,0)),Map(pos+vec3(0,0,.01))-Map(pos-vec3(0,0,.01)))),alb=Colour(pos,normal,specular);
++        cu+=DoLighting(alb,pos,normal,cw,d,specular)*aStack[s][i];
+       }
+   t=smoothstep(1.9,0.,zoomTurn.y);
+-  camTarget=mix(CubeMap(iChannel2,camTarget,128.),CubeMap(iChannel3,camTarget,64.)*.7,t);
+-  cw+=camTarget*camTarget*SUN_COLOUR*(1.-jump);
+-  cw=PostEffects(cw,xy)*smoothstep(0.,2.,iTime);
+-  fragColor=vec4(cw,1);
++  cw=mix(CubeMap(iChannel2,cw,128.),CubeMap(iChannel3,cw,64.)*.7,t);
++  cu+=cw*cw*SUN_COLOUR*(1.-jump);
++  cu=PostEffects(cu,xy)*smoothstep(0.,2.,iTime);
++  fragColor=vec4(cu,1);
+ }
 diff --git a/tests/real/the_real_party_is_in_your_pocket.frag.expected b/tests/real/the_real_party_is_in_your_pocket.frag.expected
 index d5e899c..9a5284a 100644
 --- a/tests/real/the_real_party_is_in_your_pocket.frag.expected
@@ -848,6 +989,100 @@ index 6c782b2..390fbd9 100644
   "}"
   "float swap_op_order(float g)"
   "{"
+diff --git a/tests/unit/overload.expected b/tests/unit/overload.expected
+index e4dec9a..406e8b9 100644
+--- a/tests/unit/overload.expected
++++ b/tests/unit/overload.expected
+@@ -1,63 +1,51 @@
+ // Generated with  (https://github.com/laurentlb/Shader_Minifier/)
+ #ifndef OVERLOAD_EXPECTED_
+ # define OVERLOAD_EXPECTED_
+-# define VAR_ZH "t"
+-# define VAR__V "s"
+-# define VAR_a_ "i"
+-# define VAR_outputvar "x"
+-# define VAR_stopinlining "v"
++# define VAR_ZH "f"
++# define VAR__V "i"
++# define VAR_a_ "v"
++# define VAR_outputvar "o"
++# define VAR_stopinlining "m"
+ 
+ const char *overload_frag =
+  "#version 330\n"
+- "uniform sampler2D s;"
+- "uniform vec2 i;"
+- "in vec2 t;"
+- "out float v;"
+- "out vec4 x;"
+- "float h()"
+- "{"
+-   "return v+.1;"
+- "}"
+- "float f()"
+- "{"
+-   "return v+.2;"
+- "}"
+- "float h(int t)"
+- "{"
+-   "return v+.3;"
+- "}"
+- "float f(float t)"
++ "uniform sampler2D i;"
++ "uniform vec2 v;"
++ "in vec2 f;"
++ "out float m;"
++ "out vec4 o;"
++ "float b()"
+  "{"
+-   "return v+.4;"
++   "return m+.1;"
+  "}"
+- "float f(bool t)"
++ "float h()"
+  "{"
+-   "return v+.5;"
++   "return m+.2;"
+  "}"
+- "float f(int t,int f)"
++ "float b(int v)"
+  "{"
+-   "return v+.6;"
++   "return m+.3;"
+  "}"
+- "float f(int t,int f,int s,int h)"
++ "float h(float v)"
+  "{"
+-   "return v+.7;"
++   "return m+.4;"
+  "}"
+- "float f(sampler2D t,float v)"
++ "float b(bool v)"
+  "{"
+-   "return texelFetch(t,ivec2(255.*v)%256,0).x;"
++   "return m+.5;"
+  "}"
+- "float f(sampler2D t,vec2 v)"
++ "float b(int v,int b)"
+  "{"
+-   "return texelFetch(t,ivec2(255.*v)%256,0).x;"
++   "return m+.6;"
+  "}"
+- "float f(sampler2D t,vec3 v)"
++ "float b(int v,int b,int f,int h)"
+  "{"
+-   "return texelFetch(t,ivec2(255.*v.x,255.*texelFetch(t,ivec2(255.*v.yz)%256,0).x)%256,0).x;"
++   "return m+.7;"
+  "}"
+  "void main()"
+  "{"
+-   "float v=0.,D=f(true)+f(0,1)-f(0,1,2,3),F=f(s,i*t);"
+-   "x=vec4(h()+2.*h(0),2.*f(1.2)-f(),D,F+v++);"
++   "float m=0.,t=b(true)+b(0,1)-b(0,1,2,3);"
++   "o=vec4(b()+2.*b(0),2.*h(1.2)-h(),t,texelFetch(i,ivec2(v*f*255.)%256,0).x+m++);"
+  "}";
+ 
+ #endif // OVERLOAD_EXPECTED_
 diff --git a/tests/unit/precedence.frag.expected b/tests/unit/precedence.frag.expected
 index b12ac5a..bc48c1d 100644
 --- a/tests/unit/precedence.frag.expected

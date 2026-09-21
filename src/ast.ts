@@ -270,10 +270,24 @@ export function hasConditionalBraces(stmt: Stmt): boolean {
 }
 
 /**
- * The global declarations inside a `#if` region at top level, which exist only under some setting
- * of the defines. Anything that moves such a name into unconditional code (argument inlining moves
- * a call site's expression into the callee's body) would leave a use with no declaration there.
+ * The global declarations, and the functions, inside a `#if` region at top level, which exist only
+ * under some setting of the defines. Anything that moves such a name into unconditional code
+ * (argument inlining moves a call site's expression into the callee's body) would leave a use with
+ * no declaration there, and a call among overloads one of which is conditional cannot be bound to
+ * one of them: the other setting may need the other.
  */
+export function conditionalFunctions(code: readonly TopLevel[]): Set<FunctionType> {
+  const out = new Set<FunctionType>();
+  let depth = 0;
+  for (const tl of code) {
+    const kind = directiveKind(directiveLine(tl));
+    if (kind === "open") depth++;
+    else if (kind === "close") depth = Math.max(0, depth - 1);
+    else if (tl.kind === "Function" && depth > 0) out.add(tl.funcType);
+  }
+  return out;
+}
+
 export function conditionalGlobals(code: readonly TopLevel[]): Set<DeclElt> {
   const out = new Set<DeclElt>();
   let depth = 0;
@@ -443,7 +457,15 @@ export class MapEnv {
   // The declarations of two alternative branches seen together: after `#endif` either of them may
   // be the one the compiler kept.
   private withAlternative(other: MapEnv): MapEnv {
-    return this.with({ vars: new Map([...this.vars, ...other.vars]), fns: new Map([...this.fns, ...other.fns]) });
+    // Functions of one prototype declared in both branches (three.js: `getPointShadow` over a
+    // `samplerCubeShadow` under PCF, over a `samplerCube` otherwise) are all in scope afterwards,
+    // not the last branch's alone, or a call would resolve to one of them as if it were unique.
+    const fns = new Map(this.fns);
+    for (const [key, list] of other.fns) {
+      const mine = fns.get(key);
+      fns.set(key, mine === undefined ? list : [...mine, ...list.filter((f) => !mine.includes(f))]);
+    }
+    return this.with({ vars: new Map([...this.vars, ...other.vars]), fns });
   }
 
   // `#if`/`#else` branches are alternatives: the compiler keeps one, so a declaration in one

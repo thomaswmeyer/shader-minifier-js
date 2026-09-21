@@ -3,6 +3,7 @@ import * as Ast from "./ast.js";
 import type { Access, Decl, Expr, FunctionType, Ident, Stmt, TopLevel, VarDecl } from "./ast.js";
 import { asOpCall, resolvedVariableUse } from "./ast.js";
 import * as Builtin from "./builtin.js";
+import { ExprTyper, sameSignature, sameType } from "./typer.js";
 
 // We can visit Var uses in evaluation order (sometimes twice: read then write),
 // and we know if they're read and/or written (by assignment operators or by in/out),
@@ -205,6 +206,8 @@ export interface CallSite {
   varsInScope: string[];
   prototype: string;
   argExprs: Expr[];
+  /** The function the call resolved to, by name and arity or, among overloads of one arity, by argument types; null when ambiguous. */
+  resolved: FunctionType | null;
 }
 
 export interface FuncInfo {
@@ -236,18 +239,31 @@ export class Analyzer {
 
   // findFuncInfos finds the call graph, and other related information for function inlining.
   findFuncInfos(code: readonly TopLevel[]): FuncInfo[] {
+    const functions = code.filter((tl): tl is Extract<TopLevel, { kind: "Function" }> => tl.kind === "Function");
+    // The function of this code a call resolved to. The call's declaration may be from an earlier
+    // pass, whose function nodes were rebuilt since, so it is matched by signature (prototype and
+    // parameter types), never by identity; a call that was not resolved, or whose overload is
+    // gone, is null, which every caller reads as "possibly any of them".
+    const resolvedFunction = (ident: Ident): FunctionType | null => {
+      const d = ident.declaration;
+      if (d.kind !== "UserFunction") return null;
+      const proto = Ast.funPrototype(d.decl.funcType);
+      const same = functions.filter((g) => Ast.funPrototype(g.funcType) === proto);
+      if (same.length === 1) return same[0].funcType;
+      const matching = same.filter((g) => sameSignature(g.funcType, d.decl.funcType));
+      return matching.length === 1 ? matching[0].funcType : null;
+    };
     const findCallSites = (block: Stmt): CallSite[] => { // Gets the list of call sites in this function
       const callSites: CallSite[] = [];
       const collect = (mEnv: Ast.MapEnv, e: Expr): Expr => {
         if (e.kind === "FunCall" && e.fn.kind === "Var") {
-          callSites.push({ ident: e.fn.ident, varsInScope: [...mEnv.vars.keys()], prototype: Ast.prototypeKey(e.fn.ident.name, e.args.length), argExprs: e.args });
+          callSites.push({ ident: e.fn.ident, varsInScope: [...mEnv.vars.keys()], prototype: Ast.prototypeKey(e.fn.ident.name, e.args.length), argExprs: e.args, resolved: resolvedFunction(e.fn.ident) });
         }
         return e;
       };
       Ast.visitor(collect).iterStmt(Ast.UnknownLevel, block);
       return callSites;
     };
-    const functions = code.filter((tl): tl is Extract<TopLevel, { kind: "Function" }> => tl.kind === "Function");
     return functions.map((f) => {
       const funcType = f.funcType;
       const proto = Ast.funPrototype(funcType);
@@ -334,13 +350,35 @@ export class Analyzer {
   // Create an ident.Declaration for each declaration in the file.
   // Give each Ident a reference to that Declaration.
   resolve(topLevel: readonly TopLevel[]): void {
+    const structs = new Map<string, Ast.StructOrInterfaceBlock>();
+    for (const tl of topLevel) if (tl.kind === "TypeDecl" && tl.block.name !== null) structs.set(tl.block.name.name, tl.block);
+    // A declaration in alternative `#if` branches (a local unified below, marked doNotInline, or a
+    // global in a top-level region) may have another type under the other setting of the define,
+    // so such a variable has no type here; and an overload group with a member inside a region is
+    // never resolved, since the other setting may need the other member.
+    const conditionalGlobals = Ast.conditionalGlobals(topLevel);
+    const conditionalFunctions = Ast.conditionalFunctions(topLevel);
+    const typer = new ExprTyper(structs, (elt) => elt.name.doNotInline || conditionalGlobals.has(elt));
+    // Among overloads of one arity, the one whose every parameter has the argument's type, when
+    // every argument's type is known and exactly one overload takes them; else the call stays
+    // unresolved and every pass treats the whole group as possibly called. Exact types only: an
+    // `int` argument to a `float` parameter, which ES 3.00 converts, is left unresolved.
+    const byTypes = (candidates: [FunctionType, Stmt][], args: readonly Expr[]): FunctionType | null => {
+      if (candidates.some(([ft]) => conditionalFunctions.has(ft))) return null;
+      const types = args.map((a) => typer.typeOf(a));
+      if (types.some((t) => t === null)) return null;
+      const matching = candidates.filter(([ft]) => ft.args.every(([ty, elts], i) => sameType(ExprTyper.declaredType(ty, elts[0]), types[i]!)));
+      return matching.length === 1 ? matching[0][0] : null;
+    };
     const resolveExpr = (env: Ast.MapEnv, e: Expr): Expr => {
       if (e.kind === "FunCall" && e.fn.kind === "Var") {
         const v = e.fn.ident;
         const found = env.fns.get(Ast.prototypeKey(v.name, e.args.length));
+        const typed = found !== undefined && found.length > 1 ? byTypes(found, e.args) : null;
         if (found !== undefined && found.length === 1) v.declaration = found[0][0].fName.declaration;
+        else if (typed !== null) v.declaration = typed.fName.declaration;
         else if (found === undefined && Builtin.builtinFunctions.has(v.name)) v.declaration = Ast.BuiltinFunctionDeclaration;
-        else v.declaration = Ast.UnknownFunctionDeclaration; // TODO: support type-based disambiguation of user-defined function overloading
+        else v.declaration = Ast.UnknownFunctionDeclaration;
       } else if (e.kind === "Var") {
         const found = env.vars.get(e.ident.name);
         if (found !== undefined) e.ident.declaration = found[1].name.declaration;
