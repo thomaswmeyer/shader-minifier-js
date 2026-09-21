@@ -49,7 +49,7 @@ export class Minifier {
     } else {
       this.exportedNames = rename(options, this.shaders);
       // Renaming only changes names, so every use must still name the declaration it resolved to.
-      for (const shader of this.shaders) new Analyzer(options).checkScopes(shader.code, true);
+      for (const shader of this.shaders) new Analyzer().checkScopes(shader.code, true);
       vprint("Identifiers renamed. "); printSize(this.shaders);
     }
   }

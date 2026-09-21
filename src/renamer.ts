@@ -16,10 +16,9 @@ function renList<T>(env: Env, fct: (env: Env, item: T) => Env, li: readonly T[])
   return env;
 }
 
-const directiveOf = (s: Stmt): string => (s.kind === "Directive" ? s.parts[0] : "");
-const opensRegion = (s: Stmt): boolean => /^#\s*(if|ifdef|ifndef)\b/.test(directiveOf(s));
-const isAlternative = (s: Stmt): boolean => /^#\s*(else|elif)\b/.test(directiveOf(s));
-const closesRegion = (s: Stmt): boolean => /^#\s*endif\b/.test(directiveOf(s));
+const opensRegion = (s: Stmt): boolean => Ast.directiveKind(Ast.directiveLine(s)) === "open";
+const isAlternative = (s: Stmt): boolean => Ast.directiveKind(Ast.directiveLine(s)) === "alternative";
+const closesRegion = (s: Stmt): boolean => Ast.directiveKind(Ast.directiveLine(s)) === "close";
 
 const ordinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const sortedKeys = <V>(m: ReadonlyMap<string, V>): string[] => [...m.keys()].sort(ordinal); // F# Map iterates in key order
@@ -167,7 +166,7 @@ class RenamerVisitor {
       }
       return e;
     };
-    Ast.visitor(this.options, mapper).iterExpr(expr);
+    Ast.visitor(mapper).iterExpr(expr);
   }
 
   private renNamedStruct(env: Env, structName: Ident): Env {
@@ -396,7 +395,8 @@ class RenamerVisitor {
       case "Switch": {
         const renCase = (env: Env, c: Ast.SwitchCase): Env => {
           if (c.label.kind === "Case") this.renExpr(env, c.label.expr);
-          return this.renStmts(env, c.stmts);
+          this.directiveBlocks.push(c.stmts.some(Ast.isConditionalDirective)); // a case's list is a block for renDecl's purposes
+          try { return this.renStmts(env, c.stmts); } finally { this.directiveBlocks.pop(); }
         };
         this.renExpr(env, stmt.expr);
         renList(env, renCase, stmt.cases);
@@ -659,7 +659,7 @@ class RenamerImpl {
   private shadowVariables: OnEnterScopeFn = (env, block) => {
     // Find all the already assigned identifiers in identRenames that are used in the block.
     // They should be preserved in the renaming environment.
-    const usedIdents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var | IdentKind.Type, block);
+    const usedIdents = new Analyzer().identUsesInStmt(IdentKind.Var | IdentKind.Type, block);
     const usedNames = usedIdents.map((ident) => ident.name);
     const stillUsedSet = new Set(usedNames.map((name) => {
       const n = env.identRenames.get(name);

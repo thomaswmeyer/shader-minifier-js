@@ -7,7 +7,7 @@ import {
   asOpCall, exprListEquals, funParameters, funPrototype, prototypeKey, resolvedVariableUse,
   typeEquals, typeIsConst, typeIsOutOrInout, typeIsScalar, typeIsScalarOrVector, makeType, asStmtList,
 } from "./ast.js";
-import { Analyzer, Effects, IdentKind, VarVisitor, type FuncInfo, type VarUse } from "./analyzer.js";
+import { Analyzer, Effects, IdentKind, VarVisitor, callPrototypes, type FuncInfo, type VarUse } from "./analyzer.js";
 import * as Builtin from "./builtin.js";
 import { float32Literal, foldBuiltinCall } from "./fold-builtins.js";
 import { ArgumentInlining, FunctionInlining, VariableInlining } from "./inlining.js";
@@ -209,7 +209,7 @@ class RewriterImpl {
       }
       return e;
     };
-    Ast.visitor(this.options, check).iterTopLevel(code);
+    Ast.visitor(check).iterTopLevel(code);
   }
 
   private hasVoidOperand(e: Expr): boolean {
@@ -293,7 +293,7 @@ class RewriterImpl {
       }
       return e;
     };
-    return Ast.visitor(this.options, mapInline).mapExpr(bodyExpr);
+    return Ast.visitor(mapInline).mapExpr(bodyExpr);
   }
 
   // Expression that doesn't need parentheses around it.
@@ -773,7 +773,7 @@ class RewriterImpl {
     // rather than rescanned from the top of the block for every declaration that could move.
     const usedBefore = new Set<string>();
     for (const [index, stmt] of stmts.entries()) {
-      if (index > 0) for (const i of new Analyzer(this.options).identUsesInStmt(IdentKind.Var, stmts[index - 1])) usedBefore.add(i.name);
+      if (index > 0) for (const i of new Analyzer().identUsesInStmt(IdentKind.Var, stmts[index - 1])) usedBefore.add(i.name);
       if (stmt.kind === "Decl" && !stmt.decl[0].typeQ.includes("const")) {
         const [ty, li] = stmt.decl;
         const existing = findDecl(ty);
@@ -785,7 +785,7 @@ class RewriterImpl {
           // Nor can it move above an earlier use of its name in the block, which refers to an outer variable
           // (not in upstream: `vec2 t` global, `... t.xy ...; float t=0.;` in a block).
           const shadowingPreventsTheMove = li.some((d) =>
-            (d.init !== null && new Analyzer(this.options).identUsesInStmt(IdentKind.Var, ExprStmt(d.init)).some((i) => i.name === d.name.name)) ||
+            (d.init !== null && new Analyzer().identUsesInStmt(IdentKind.Var, ExprStmt(d.init)).some((i) => i.name === d.name.name)) ||
             usedBefore.has(d.name.name));
           if (shadowingPreventsTheMove) {
             skippedDeclarations.push(stmt);
@@ -945,7 +945,7 @@ class RewriterImpl {
           if (opCall !== null && opCall.op === "?:") anyTernaryOp = true;
           return e;
         };
-        Ast.visitor(this.options, findTernary).iterStmt(blockLevel, Block(ss));
+        Ast.visitor(findTernary).iterStmt(blockLevel, Block(ss));
         return !anyTernaryOp;
       };
       return stmtsAreSingleFlow(stmts) && exprsAreSingleFlow(stmts);
@@ -1055,7 +1055,7 @@ class RewriterImpl {
       }
       return s;
     };
-    const [, block] = Ast.visitor(this.options, removeAssignments, removeAssignmentsToDecl).mapStmt(blockLevel, Block(blockStmts));
+    const [, block] = Ast.visitor(removeAssignments, removeAssignmentsToDecl).mapStmt(blockLevel, Block(blockStmts));
     return asStmtList(block);
   }
 
@@ -1094,12 +1094,12 @@ class RewriterImpl {
           !declElt1.name.hiddenUses &&
           exprListEquals(declElt1.sizes, declElt2.sizes) &&
           // The first variable must not be used after the second is declared.
-          new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2])).every((i) => i.name !== declElt1.name.name));
+          new Analyzer().identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2])).every((i) => i.name !== declElt1.name.name));
 
         if (compatibleDeclElt === undefined) return null;
         const declElt1 = compatibleDeclElt;
         trace(this.options, `${locToS(declElt2.name.loc)}: eliminating local variable '${declElt2.name}' by reusing existing local variable '${declElt1.name}'`);
-        for (const v of new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2]))) { // Rename all uses of var2 to use var1 instead.
+        for (const v of new Analyzer().identUsesInStmt(IdentKind.Var, Block([...declAfter2, ...following2]))) { // Rename all uses of var2 to use var1 instead.
           if (v.name === declElt2.name.name) { v.rename(declElt1.name.name); v.declaration = declElt1.name.declaration; }
         }
         if (declElt2.init !== null) {
@@ -1147,11 +1147,11 @@ class RewriterImpl {
     b = b.filter((s) => !(s.kind === "Decl" && s.decl[1].length === 0));
 
     const countUsesOfIdentName = (expr: Expr, identName: string): number =>
-      new Analyzer(this.options).identUsesInStmt(IdentKind.Var, ExprStmt(expr)).filter((i) => i.name === identName).length;
+      new Analyzer().identUsesInStmt(IdentKind.Var, ExprStmt(expr)).filter((i) => i.name === identName).length;
 
     const replaceUsesOfIdentByExpr = (expr: Expr, identName: string, replacement: Expr): Expr => {
       const visitAndReplace = (_env: MapEnv, e: Expr): Expr => (e.kind === "Var" && e.ident.name === identName ? replacement : e);
-      return Ast.visitor(this.options, visitAndReplace).mapExpr(expr);
+      return Ast.visitor(visitAndReplace).mapExpr(expr);
     };
 
     // Merge two consecutive items into one, everywhere possible in a list.
@@ -1416,7 +1416,7 @@ class RewriterImpl {
   // initializer has an effect (desktop GLSL allows a call there) stays. Anything named in verbatim
   // text is kept, since that text cannot be read. --remove-unused-declarations; the plugin's default.
   static removeUnusedDeclarations(options: Options, code: TopLevel[], changed: { value: boolean } = { value: false }): TopLevel[] {
-    const analyzer = new Analyzer(options);
+    const analyzer = new Analyzer();
     const used = new Set<string>();
     const usedTypes = new Set<string>();
     // Everything a declaration names: its type, the types inside it, and the variables its array
@@ -1449,7 +1449,7 @@ class RewriterImpl {
     }
     const verbatimExpr = (_: MapEnv, e: Expr): Expr => { if (e.kind === "VerbatimExp") verbatim.push(e.text); return e; };
     const verbatimStmt = (_: MapEnv, s: Stmt): Stmt => { if (s.kind === "Verbatim") verbatim.push(s.text); return s; };
-    Ast.visitor(options, verbatimExpr, verbatimStmt).iterTopLevel(code); // text inside function bodies too
+    Ast.visitor(verbatimExpr, verbatimStmt).iterTopLevel(code); // text inside function bodies too
     const inVerbatim = (name: string): boolean => verbatim.some((t) => new RegExp(`\\b${name}\\b`).test(t));
     const isUsed = (name: string): boolean => used.has(name) || usedTypes.has(name) || inVerbatim(name);
     let edited = false;
@@ -1482,17 +1482,14 @@ class RewriterImpl {
   // The prototypes called from a global declaration's initializers and array sizes. Desktop GLSL
   // allows `float g = f();`; upstream only counts calls from function bodies, and so removes f
   // as unused and moves g above f when squeezing declarations.
-  static globalCalls(options: Options, tl: TopLevel): Set<string> {
-    const calls = new Set<string>();
-    if (tl.kind !== "TLDecl") return calls;
-    const collect = (_: MapEnv, e: Expr): Expr => { if (e.kind === "FunCall" && e.fn.kind === "Var") calls.add(Ast.prototypeKey(e.fn.ident.name, e.args.length)); return e; };
-    for (const d of tl.decl[1]) for (const e of [...d.sizes, ...(d.init === null ? [] : [d.init])]) Ast.visitor(options, collect).iterExpr(e);
-    return calls;
+  static globalCalls(tl: TopLevel): Set<string> {
+    if (tl.kind !== "TLDecl") return new Set();
+    return new Set(tl.decl[1].flatMap((d) => [...d.sizes, ...(d.init === null ? [] : [d.init])].flatMap((e) => callPrototypes(ExprStmt(e)))));
   }
 
   static removeUnusedFunctions(options: Options, code: TopLevel[], changed: { value: boolean } = { value: false }): TopLevel[] {
-    const funcInfos = new Analyzer(options).findFuncInfos(code);
-    const globalCalls = new Set(code.flatMap((tl) => [...RewriterImpl.globalCalls(options, tl)]));
+    const funcInfos = new Analyzer().findFuncInfos(code);
+    const globalCalls = new Set(code.flatMap((tl) => [...RewriterImpl.globalCalls(tl)]));
     const isUnused = (funcInfo: FuncInfo): boolean => {
       const canBeRenamed = !options.noRenamingList.includes(funcInfo.name) && !funcInfo.funcType.fName.hiddenUses; // noRenamingList includes "main"
       const proto = funPrototype(funcInfo.funcType);
@@ -1535,7 +1532,7 @@ class RewriterImpl {
         case "TLVerbatim": return false; // we don't know what this is. assume the worst
       }
     };
-    const calledByDecl = new Map<TopLevel, Set<string>>(tls.map((t) => [t, RewriterImpl.globalCalls(this.options, t)]));
+    const calledByDecl = new Map<TopLevel, Set<string>>(tls.map((t) => [t, RewriterImpl.globalCalls(t)]));
     const moveDeclarationsUp = (list: TopLevel[]): TopLevel[] => {
       const [swappables, rest1] = splitWhile(canBeSwappedWithFollowingDeclaration, list);
       const [decls, rest] = splitWhile((t) => t.kind === "TLDecl", rest1);
@@ -1606,33 +1603,27 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   // preceded by the functions outside any region that it calls (in dependency order); every
   // other function follows at the end, in upstream's order. Without regions this is upstream's
   // layout exactly.
-  const directive = (tl: TopLevel): string => (tl.kind === "TLDirective" ? tl.parts[0] : "");
-  const isConditional = (tl: TopLevel): boolean => /^#\s*(if|ifdef|ifndef|elif|else|endif)\b/.test(directive(tl));
   type Segment = { region: false; tl: TopLevel } | { region: true; items: TopLevel[] };
   const segments: Segment[] = [];
   let depth = 0;
   for (const tl of code) {
-    if (isConditional(tl) && /^#\s*(if|ifdef|ifndef)\b/.test(directive(tl))) {
+    const kind = Ast.directiveKind(Ast.directiveLine(tl));
+    if (kind === "open") {
       if (depth === 0) segments.push({ region: true, items: [] });
       depth++;
     }
     if (depth > 0) (segments[segments.length - 1] as { items: TopLevel[] }).items.push(tl);
     else segments.push({ region: false, tl });
-    if (isConditional(tl) && /^#\s*endif\b/.test(directive(tl))) depth = Math.max(0, depth - 1);
+    if (kind === "close") depth = Math.max(0, depth - 1);
   }
   const regionFunctions = new Set<TopLevel>(segments.flatMap((s) => (s.region ? s.items.filter((t) => t.kind === "Function") : [])));
-  const infos = new Analyzer(options).findFuncInfos(code);
+  const infos = new Analyzer().findFuncInfos(code);
   const free = infos.filter((n) => !regionFunctions.has(n.func));
   const freeByProto = new Map(free.map((n) => [funPrototype(n.funcType), n]));
   const freeNodes = free.map((n) => ({ ...n, callSites: n.callSites.filter((c) => freeByProto.has(c.prototype)) }));
   // Calls are read from the bodies rather than from the analysis's call sites, which leave out a
   // call to a function it cannot see, such as one kept as text.
-  const callsIn = (body: Stmt): string[] => {
-    const calls: string[] = [];
-    const collect = (_: MapEnv, e: Expr): Expr => { if (e.kind === "FunCall" && e.fn.kind === "Var") calls.push(Ast.prototypeKey(e.fn.ident.name, e.args.length)); return e; };
-    Ast.visitor(options, collect).iterStmt(Ast.UnknownLevel, body);
-    return calls;
-  };
+  const callsIn = callPrototypes;
   // A function kept as text (a conditional in its parameter list, see the parser's opaque regions)
   // is a unit too, as far as its text can be read: it calls every function whose name it mentions,
   // and defines every prototype called from a function that no parsed function defines and whose
@@ -1705,8 +1696,8 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
     }
   }
   code = code.filter((t) => !(t.kind === "TypeDecl" && t.block.blockType.kind === "Struct" && t.block.name === null)); // e.g. `struct {int A;};`
-  new Analyzer(options).resolve(code);
-  new Analyzer(options).markWrites(code);
+  new Analyzer().resolve(code);
+  new Analyzer().markWrites(code);
   if (options.inlining !== "none") {
     new FunctionInlining(options).markInlinableFunctions(code);
     new VariableInlining(options).markInlinableVariables(code);
@@ -1714,14 +1705,14 @@ function iterateSimplifyAndInline(options: Options, optimizationPass: Optimizati
   const didInline = { value: false };
   const before = Printer.print(code);
   const rewriter = new RewriterImpl(options, optimizationPass, code);
-  code = Ast.visitor(options, rewriter.simplifyExpr(didInline), rewriter.simplifyStmt).mapTopLevel(code);
+  code = Ast.visitor(rewriter.simplifyExpr(didInline), rewriter.simplifyStmt).mapTopLevel(code);
 
   // now that the functions were inlined, we can remove them
   code = code.filter((t) => !(t.kind === "Function" && t.funcType.fName.toBeInlined && !t.funcType.fName.name.startsWith("i_")));
 
-  new Analyzer(options).checkScopes(code); // before argument inlining's resolve() hides a capture
+  new Analyzer().checkScopes(code); // before argument inlining's resolve() hides a capture
   code = options.inlining === "none" ? code : new ArgumentInlining(options).apply(didInline, code);
-  new Analyzer(options).checkScopes(code);
+  new Analyzer().checkScopes(code);
 
   if (passCount > 20) {
     trace(options, "! possible unstable loop in change detection. stopping analysis.");
@@ -1788,7 +1779,7 @@ const vertexOnlyBuiltins = new Set(["gl_Position", "gl_PointSize", "gl_VertexID"
 const fragmentOnlyBuiltins = new Set(["gl_FragCoord", "gl_FrontFacing", "gl_PointCoord", "gl_FragColor", "gl_FragData", "gl_FragDepth"]);
 
 /** The stage the code proves by using a builtin only one stage has, or by `discard`; null when it proves neither or both. */
-export function detectStage(options: Options, code: readonly TopLevel[]): Stage | null {
+export function detectStage(code: readonly TopLevel[]): Stage | null {
   let vertex = false;
   let fragment = false;
   const spotExpr = (_env: Ast.MapEnv, e: Expr): Expr => {
@@ -1802,7 +1793,7 @@ export function detectStage(options: Options, code: readonly TopLevel[]): Stage 
     if (s.kind === "Jump" && s.keyword === "discard") fragment = true;
     return s;
   };
-  Ast.visitor(options, spotExpr, spotStmt).iterTopLevel(code);
+  Ast.visitor(spotExpr, spotStmt).iterTopLevel(code);
   if (vertex === fragment) return null;
   return vertex ? "vertex" : "fragment";
 }
@@ -1821,7 +1812,7 @@ const precisionBase = (name: string): string | null => {
 };
 
 export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: Stage | null = null): TopLevel[] {
-  stage = options.stage ?? stage ?? detectStage(options, code);
+  stage = options.stage ?? stage ?? detectStage(code);
   const defaults = new Map<string, string>(lowpSamplers.map((s) => [s, "lowp"]));
   if (stage === "vertex") { defaults.set("float", "highp"); defaults.set("int", "highp"); }
   else if (stage === "fragment") defaults.set("int", "mediump");
@@ -1851,7 +1842,7 @@ export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: 
           else if (s.kind === "ForD") stripDecl(s.init);
           return s;
         };
-        Ast.visitor(options, undefined, inBody).iterStmt(Ast.UnknownLevel, tl.body);
+        Ast.visitor(undefined, inBody).iterStmt(Ast.UnknownLevel, tl.body);
         break;
       }
       default: break;
@@ -1887,7 +1878,7 @@ export function simplify(options: Options, li: TopLevel[], fileStage: Stage | nu
   if (options.webgl) new RewriterImpl(options, OptimizationPass.First, out).webglCheck(out);
   // The finished shader: every use must now name a declaration that is in scope. A rewrite that
   // leaves one behind emits a shader that does not compile, so failing here is the better outcome.
-  new Analyzer(options).checkScopes(out, true);
+  new Analyzer().checkScopes(out, true);
   return out;
 }
 
@@ -1910,7 +1901,7 @@ export interface StagedCode { stage: Stage | null; code: TopLevel[] }
 // three.js writes `vDisplacementMapUv` and then samples the displacement map with it in the same
 // shader, so removing it on the strength of the fragment shader alone does not compile.
 const namesReadBy = (options: Options, code: readonly TopLevel[]): Set<string> => {
-  const analyzer = new Analyzer(options);
+  const analyzer = new Analyzer();
   const used = new Set<string>();
   for (const tl of code) {
     if (tl.kind === "Function") for (const i of analyzer.identUsesInStmt(IdentKind.Var, tl.body)) used.add(i.name);
@@ -2008,7 +1999,7 @@ export function removeUnusedVaryings(options: Options, files: StagedCode[]): voi
       }
       return e;
     };
-    Ast.visitor(options, collect).iterTopLevel(v.code);
+    Ast.visitor(collect).iterTopLevel(v.code);
     const isReadHere = (name: string): boolean => (mentions.get(name) ?? 0) > (writeTargets.get(name) ?? 0);
 
     const remove = new Set<string>();
@@ -2027,7 +2018,7 @@ export function removeUnusedVaryings(options: Options, files: StagedCode[]): voi
       const a = assignedRoot(s.expr);
       return a !== null && remove.has(a.name) ? Ast.Block([]) : s;
     };
-    v.code = Ast.visitor(options, undefined, dropWrites).mapTopLevel(v.code)
+    v.code = Ast.visitor(undefined, dropWrites).mapTopLevel(v.code)
       .flatMap((tl) => {
         if (!hasQualifier(tl, ["out", "varying"]) || tl.kind !== "TLDecl") return [tl];
         const keep = tl.decl[1].filter((d) => !remove.has(d.name.name));

@@ -345,12 +345,11 @@ class ParserImpl {
       this.ws();
       return line;
     };
-    const opens = /^#\s*(if|ifdef|ifndef)\b/;
-    if (this.peek() !== "#" || !opens.test(this.src.slice(this.pos, this.pos + 16))) this.fail("'#if'");
+    if (this.peek() !== "#" || Ast.directiveKind(this.src.slice(this.pos, this.pos + 16)) !== "open") this.fail("'#if'");
     const branches: { directive: string; expr: Ast.Expr }[] = [];
     for (;;) {
       const directive = directiveLine();
-      if (/^#\s*endif\b/.test(directive)) {
+      if (Ast.directiveKind(directive) === "close") {
         if (branches.length === 0) this.fail("a branch before #endif");
         return Ast.Conditional(branches);
       }
@@ -486,14 +485,12 @@ class ParserImpl {
     for (const f of fields) this.pinnedFields.add(f);
   }
 
-  private static readonly opensRegion = /^\s*#\s*(if|ifdef|ifndef)\b/;
-
   /**
    * From a `#if`/`#ifdef`/`#ifndef` line to its `#endif`, nesting included; the raw text. Inside a
    * struct a brace means the region ran out of the member list, so `allowBraces` is off there.
    */
   private conditionalRegion(allowBraces: boolean): string {
-    if (this.peek() !== "#" || !ParserImpl.opensRegion.test(this.src.slice(this.pos, this.pos + 16))) this.fail("'#if'");
+    if (this.peek() !== "#" || Ast.directiveKind(this.src.slice(this.pos, this.pos + 16)) !== "open") this.fail("'#if'");
     const start = this.pos;
     let depth = 0;
     for (;;) {
@@ -501,8 +498,9 @@ class ParserImpl {
       const end = this.src.indexOf("\n", this.pos);
       const line = this.src.slice(this.pos, end < 0 ? this.src.length : end);
       this.pos = end < 0 ? this.src.length : end + 1;
-      if (ParserImpl.opensRegion.test(line)) depth++;
-      else if (/^\s*#\s*endif\b/.test(line)) { if (--depth === 0) break; }
+      const kind = Ast.directiveKind(line);
+      if (kind === "open") depth++;
+      else if (kind === "close") { if (--depth === 0) break; }
       else if (!allowBraces && !/^\s*#/.test(line) && /[{}]/.test(line)) this.fail("'#endif'"); // ran out of the list
     }
     const raw = this.src.slice(start, this.pos);
@@ -904,7 +902,7 @@ export function runParser(options: Options, streamName: string, content: string)
   let src = options.preprocess ? preprocess(streamName, content) : content;
   if (options.expandMacros) src = expandMacros(src);
   const shader = new ParserImpl(options, src, streamName).run();
-  pinMacroNames(options, shader);
+  pinMacroNames(shader);
   if (options.preserveExternals || options.preserveAllGlobals) pinExternalStructFields(shader);
   return shader;
 }
@@ -989,7 +987,7 @@ export function macroBodyIdents(rest: string): { names: string[]; fields: string
 // An opaque region (a conditional around struct members, a function whose parameter list holds
 // one) pins the same way, except that its text can only reach top-level declarations and fields,
 // so a local or parameter of another function that happens to share a name is left alone.
-function pinMacroNames(options: Options, shader: Ast.Shader): void {
+function pinMacroNames(shader: Ast.Shader): void {
   const names = new Set(shader.pinnedNames);
   const fields = new Set(shader.pinnedFields);
   const globals = new Set([...shader.pinnedGlobalNames, ...names]);
@@ -1011,6 +1009,6 @@ function pinMacroNames(options: Options, shader: Ast.Shader): void {
     else if (s.kind === "ForD") pinDecl(s.init);
     return s;
   };
-  Ast.visitor(options, undefined, pinStmt).iterTopLevel(shader.code);
+  Ast.visitor(undefined, pinStmt).iterTopLevel(shader.code);
   shader.forbiddenNames = [...used, ...shader.forbiddenNames];
 }

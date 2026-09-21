@@ -9,13 +9,13 @@ describe("Analyzer.checkScopes", () => {
   const options = defaultOptions();
   const parse = (src: string): Ast.TopLevel[] => {
     const code = runParser(options, "t.frag", src).code;
-    new Analyzer(options).resolve(code);
+    new Analyzer().resolve(code);
     return code;
   };
 
   it("accepts resolved code, shadowing included", () => {
     const code = parse("uniform float a;float f(float a){return a;}void main(){float a=1.;{float a=2.;gl_FragColor=vec4(a);}gl_FragColor+=vec4(f(a));}");
-    expect(() => new Analyzer(options).checkScopes(code)).not.toThrow();
+    expect(() => new Analyzer().checkScopes(code)).not.toThrow();
   });
 
   it("rejects a use whose declaration is not the one its name finds in scope", () => {
@@ -28,17 +28,17 @@ describe("Analyzer.checkScopes", () => {
       if (e.kind === "Var" && e.ident.name === "a") e.ident.declaration = globalA.declaration;
       return e;
     };
-    Ast.visitor(options, capture).iterTopLevel(code);
-    expect(() => new Analyzer(options).checkScopes(code)).toThrow(/captured 'a' at 1:58: it referred to the global declared at 1:15 but now names the local declared at 1:35/);
+    Ast.visitor(capture).iterTopLevel(code);
+    expect(() => new Analyzer().checkScopes(code)).toThrow(/captured 'a' at 1:58: it referred to the global declared at 1:15 but now names the local declared at 1:35/);
   });
 
   it("rejects a global read above its own declaration", () => {
     // What a reordering or a declaration squeeze leaves behind: `main` moved above the global it
     // reads. Nothing of that name is in scope at the use, so the capture check cannot see it.
     const code = parse("uniform float a;void main(){gl_FragColor=vec4(a);}");
-    expect(() => new Analyzer(options).checkScopes(code)).not.toThrow();
+    expect(() => new Analyzer().checkScopes(code)).not.toThrow();
     const reordered = [code[1], code[0]];
-    expect(() => new Analyzer(options).checkScopes(reordered)).not.toThrow(); // only checked on finished code
-    expect(() => new Analyzer(options).checkScopes(reordered, true)).toThrow(/moved 'a' at 1:47 with no declaration in scope/);
+    expect(() => new Analyzer().checkScopes(reordered)).not.toThrow(); // only checked on finished code
+    expect(() => new Analyzer().checkScopes(reordered, true)).toThrow(/moved 'a' at 1:47 with no declaration in scope/);
   });
 });

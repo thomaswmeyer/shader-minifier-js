@@ -3,7 +3,6 @@ import * as Ast from "./ast.js";
 import type { Access, Decl, Expr, FunctionType, Ident, Stmt, TopLevel, VarDecl } from "./ast.js";
 import { asOpCall, resolvedVariableUse } from "./ast.js";
 import * as Builtin from "./builtin.js";
-import type { Options } from "./options.js";
 
 // We can visit Var uses in evaluation order (sometimes twice: read then write),
 // and we know if they're read and/or written (by assignment operators or by in/out),
@@ -225,8 +224,15 @@ export enum IdentKind {
   Type = 0b100,
 }
 
+/** Every call of a named function in a statement, as `name/arity` prototypes, in order; builtins and unknown functions included. */
+export function callPrototypes(stmt: Stmt): string[] {
+  const calls: string[] = [];
+  const collect = (_: Ast.MapEnv, e: Expr): Expr => { if (e.kind === "FunCall" && e.fn.kind === "Var") calls.push(Ast.prototypeKey(e.fn.ident.name, e.args.length)); return e; };
+  Ast.visitor(collect).iterStmt(Ast.UnknownLevel, stmt);
+  return calls;
+}
+
 export class Analyzer {
-  constructor(private readonly options: Options) {}
 
   // findFuncInfos finds the call graph, and other related information for function inlining.
   findFuncInfos(code: readonly TopLevel[]): FuncInfo[] {
@@ -238,7 +244,7 @@ export class Analyzer {
         }
         return e;
       };
-      Ast.visitor(this.options, collect).iterStmt(Ast.UnknownLevel, block);
+      Ast.visitor(collect).iterStmt(Ast.UnknownLevel, block);
       return callSites;
     };
     const functions = code.filter((tl): tl is Extract<TopLevel, { kind: "Function" }> => tl.kind === "Function");
@@ -266,7 +272,7 @@ export class Analyzer {
       if (s.kind === "Decl" && s.decl[0].name.kind === "TypeName" && kind & IdentKind.Type) idents.push(s.decl[0].name.ident);
       return s;
     };
-    Ast.visitor(this.options, collectLocalUses, collectLocalUsesInStmt).iterStmt(Ast.UnknownLevel, stmt);
+    Ast.visitor(collectLocalUses, collectLocalUsesInStmt).iterStmt(Ast.UnknownLevel, stmt);
     return idents;
   }
 
@@ -311,7 +317,7 @@ export class Analyzer {
         if (s.kind === "Verbatim" || s.kind === "Directive") hasExternallyVisibleSideEffect = true;
         return s;
       };
-      Ast.visitor(this.options, findExprSideEffects, findStmtSideEffects).iterTopLevel([tl]);
+      Ast.visitor(findExprSideEffects, findStmtSideEffects).iterTopLevel([tl]);
       return hasExternallyVisibleSideEffect;
     };
 
@@ -362,10 +368,10 @@ export class Analyzer {
 
     // First visit all declarations, creating them.
     for (const tl of topLevel) resolveGlobalsAndParameters(tl);
-    Ast.visitor(this.options, undefined, resolveStmt).iterTopLevel(topLevel);
+    Ast.visitor(undefined, resolveStmt).iterTopLevel(topLevel);
     this.unifyAlternativeDeclarations(topLevel);
     // Then, visit all uses and associate them to their declaration.
-    Ast.visitor(this.options, resolveExpr).iterTopLevel(topLevel);
+    Ast.visitor(resolveExpr).iterTopLevel(topLevel);
   }
 
   // A block with conditional directives in it may declare one name twice, in alternative
@@ -459,6 +465,6 @@ export class Analyzer {
       }
       return e;
     };
-    Ast.visitor(this.options, check).iterTopLevel(topLevel);
+    Ast.visitor(check).iterTopLevel(topLevel);
   }
 }

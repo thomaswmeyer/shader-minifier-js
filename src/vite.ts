@@ -77,7 +77,9 @@ export function toMinifierOptions(plugin: ShaderMinifierPluginOptions = {}, file
   // looks up kept and no new overloads, which ANGLE's linker is strict about. Every other setting
   // is the minifier option of the same name.
   const d: Options = { ...defaultOptions(), ...optimizationLevels[o.level ?? 2], outputFormat: "text", webgl: true, preserveExternals: true, noOverloading: true };
-  const { level: _level, noRenamingList, options, ...settings } = o;
+  // Only the settings that are minifier options: the plugin's own keys (`include`, `apply`,
+  // `overrides`) must not land in Options.
+  const { level: _level, noRenamingList, options, include: _include, apply: _apply, overrides: _overrides, ...settings } = o as ShaderMinifierPluginOptions;
   return {
     ...d,
     ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined)),

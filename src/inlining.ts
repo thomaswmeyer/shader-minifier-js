@@ -42,7 +42,7 @@ function hasCall(e: Expr): boolean {
 }
 
 // Return the list of variables used in the statements, with the number of references.
-function countReferences(options: Options, stmtList: readonly Stmt[]): Map<VarDecl, number> {
+function countReferences(stmtList: readonly Stmt[]): Map<VarDecl, number> {
   const counts = new Map<VarDecl, number>();
   const collectLocalUses = (_env: Ast.MapEnv, e: Expr): Expr => {
     const r = resolvedVariableUse(e);
@@ -53,7 +53,7 @@ function countReferences(options: Options, stmtList: readonly Stmt[]): Map<VarDe
     return e;
   };
   for (const expr of stmtList) {
-    Ast.visitor(options, collectLocalUses).iterStmt(Ast.UnknownLevel, expr);
+    Ast.visitor(collectLocalUses).iterStmt(Ast.UnknownLevel, expr);
   }
   return counts;
 }
@@ -82,7 +82,7 @@ export class VariableInlining {
   constructor(private readonly options: Options) {}
 
   private countReferences(stmtList: readonly Stmt[]): Map<VarDecl, number> {
-    return countReferences(this.options, stmtList);
+    return countReferences(stmtList);
   }
 
   private isEffectivelyConst(ident: Ident): boolean {
@@ -112,7 +112,7 @@ export class VariableInlining {
           if (def.init === null) {
             localDefs.set(def.name.name, [def.name, true]);
           } else {
-            const isConst = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init)).every((i) => this.isEffectivelyConst(i));
+            const isConst = new Analyzer().identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init)).every((i) => this.isEffectivelyConst(i));
             localDefs.set(def.name.name, [def.name, isConst]);
           }
         }
@@ -203,7 +203,7 @@ export class VariableInlining {
       if (stmt.kind === "Block") this.markSafelyInlinableLocals(stmt.stmts);
       return stmt;
     };
-    Ast.visitor(this.options, undefined, mapStmt).iterTopLevel(li);
+    Ast.visitor(undefined, mapStmt).iterTopLevel(li);
   }
 
   private markSimpleInlinableVariables(li: readonly TopLevel[]): void {
@@ -213,7 +213,7 @@ export class VariableInlining {
       return stmt;
     };
     // Visit locals
-    Ast.visitor(this.options, undefined, mapStmt).iterTopLevel(li);
+    Ast.visitor(undefined, mapStmt).iterTopLevel(li);
     // Visit globals
     for (const tl of li) {
       if (tl.kind === "TLDecl") this.markUnwrittenVariablesWithSimpleInit("TopLevel", tl.decl);
@@ -249,7 +249,7 @@ export class VariableInlining {
         if (varDecl === null) throw new Error(`unresolved declaration: ${Printer.debugDecl(def)}`);
         if (def.init === null || def.sizes.length > 0 || def.name.toBeInlined || def.name.doNotInline || varDecl.isEverWrittenAfterDecl) continue;
         if ((allReferences.get(varDecl) ?? 0) !== 1 || (outsideLoopReferences.get(varDecl) ?? 0) !== 1) continue;
-        const initIdents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init));
+        const initIdents = new Analyzer().identUsesInStmt(IdentKind.Var, Ast.ExprStmt(def.init));
         if (!initIdents.every((i) => this.isEffectivelyConst(i)) || !Effects.isPure(def.init)) continue;
         candidates.set(varDecl, { def, initIdents });
       }
@@ -260,7 +260,7 @@ export class VariableInlining {
     // work does not move there. An entry point is not such a function: nothing in the file calls
     // it, so its body runs once per invocation. That is a property of the call graph, not of
     // --no-renaming-list, which names what the application calls and may also name a helper.
-    const called = new Set(new Analyzer(this.options).findFuncInfos(li).flatMap((n) => n.callSites.map((c) => c.prototype)));
+    const called = new Set(new Analyzer().findFuncInfos(li).flatMap((n) => n.callSites.map((c) => c.prototype)));
     const usedInHelper = new Set<VarDecl>(); // the use is in a function that may itself run in a loop
     for (const tl of li) {
       if (tl.kind !== "Function" || !called.has(Ast.funPrototype(tl.funcType))) continue;
@@ -269,7 +269,7 @@ export class VariableInlining {
         if (r !== null && candidates.has(r[1])) usedInHelper.add(r[1]);
         return e;
       };
-      Ast.visitor(this.options, visitUse).iterTopLevel([tl]);
+      Ast.visitor(visitUse).iterTopLevel([tl]);
     }
 
     for (const [varDecl, { def }] of candidates) {
@@ -297,7 +297,7 @@ export class VariableInlining {
       const decl = vd.decl;
       if (!decl.name.toBeInlined || decl.init === null || decl.name.name.startsWith("i_")) return e;
       let idents = initIdents.get(vd);
-      if (idents === undefined) { idents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(decl.init)); initIdents.set(vd, idents); }
+      if (idents === undefined) { idents = new Analyzer().identUsesInStmt(IdentKind.Var, Ast.ExprStmt(decl.init)); initIdents.set(vd, idents); }
       // The candidate's own declaration may carry a name its init reads (`float d=map(p,d).x`,
       // the outer d): removing it uncovers that outer variable again, so it is not a capture.
       const capturedAt = (i: Ident): boolean => {
@@ -310,7 +310,7 @@ export class VariableInlining {
       }
       return e;
     };
-    Ast.visitor(this.options, visitUse).iterTopLevel(li);
+    Ast.visitor(visitUse).iterTopLevel(li);
   }
 
   markInlinableVariables(li: readonly TopLevel[]): void {
@@ -379,7 +379,7 @@ export class FunctionInlining {
       }
       return e;
     };
-    Ast.visitor(this.options, visitVarUsesInBody).iterTopLevel([funcInfo.func]);
+    Ast.visitor(visitVarUsesInBody).iterTopLevel([funcInfo.func]);
 
     if (paramIsWritten || // [E]
         shadowedGlobal // [A]
@@ -429,7 +429,7 @@ export class FunctionInlining {
   }
 
   markInlinableFunctions(code: readonly TopLevel[]): void {
-    const funcInfos = new Analyzer(this.options).findFuncInfos(code);
+    const funcInfos = new Analyzer().findFuncInfos(code);
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
       if (canBeRenamed && funcInfo.isResolvable) {
@@ -506,7 +506,7 @@ export class ArgumentInlining {
   // `conditional` are indexed once per findInlinings call rather than once per candidate.
   private argumentCanMoveIntoBody(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt, funcIndex: number, globalPosition: Map<VarDecl, number>, conditional: Set<Ast.DeclElt>): boolean {
     const params = new Set(Ast.funParameters(funcInfo.funcType).map(([, d]) => d.name.name).filter((n) => n !== argDecl.name.name));
-    const idents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr));
+    const idents = new Analyzer().identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr));
     return idents.every((i) => !params.has(i.name)
       && (i.varDecl === null || i.varDecl.scope !== "Global" || ((globalPosition.get(i.varDecl) ?? -1) < funcIndex && !conditional.has(i.varDecl.decl))));
   }
@@ -514,9 +514,9 @@ export class ArgumentInlining {
   // Find when functions are always called with the same trivial expr, that can be inlined into the function body.
   private findInlinings(code: readonly TopLevel[]): Inlining[] {
     const argInlinings: Inlining[] = [];
-    new Analyzer(this.options).resolve(code);
-    new Analyzer(this.options).markWrites(code);
-    const funcInfos = new Analyzer(this.options).findFuncInfos(code);
+    new Analyzer().resolve(code);
+    new Analyzer().markWrites(code);
+    const funcInfos = new Analyzer().findFuncInfos(code);
     const globalPosition = new Map<VarDecl, number>();
     code.forEach((tl, i) => { if (tl.kind === "TLDecl") for (const e of tl.decl[1]) { const vd = e.name.varDecl; if (vd !== null) globalPosition.set(vd, i); } });
     const conditional = Ast.conditionalGlobals(code);
@@ -562,7 +562,7 @@ export class ArgumentInlining {
     const applyTopLevel = (f: TopLevel): TopLevel => {
       if (f.kind !== "Function") return f;
       // Handle argument inlining for other functions called by f.
-      const [, body] = Ast.visitor(this.options, applyExpr).mapStmt(Ast.FunctionRootLevel(f.funcType), f.body);
+      const [, body] = Ast.visitor(applyExpr).mapStmt(Ast.FunctionRootLevel(f.funcType), f.body);
       // Handle argument inlining for f. Remove the parameter from the declaration.
       const fct = { ...f.funcType, args: removeInlined(f, f.funcType.args) };
       // Sampler types can be declared as globals or as function parameters but not as locals.
@@ -577,7 +577,7 @@ export class ArgumentInlining {
       // be written: the local is a writable copy, the global is not. And the global's name
       // must not be captured by another parameter or a local at any use of the parameter.
       if (this.options.inlineSingleUse) {
-        const uses = countReferences(this.options, [body]);
+        const uses = countReferences([body]);
         const captured = new Set<VarDecl>();
         const visitUse = (env: Ast.MapEnv, e: Expr): Expr => {
           const r = resolvedVariableUse(e);
@@ -590,7 +590,7 @@ export class ArgumentInlining {
           }
           return e;
         };
-        Ast.visitor(this.options, visitUse).iterTopLevel([f]);
+        Ast.visitor(visitUse).iterTopLevel([f]);
         for (const inl of argInlinings) {
           if (inl.func !== f || inl.varDecl.isEverWrittenAfterDecl || inl.varDecl.decl.name.hiddenUses) continue;
           const r = resolvedVariableUse(inl.argExpr);

@@ -1,6 +1,5 @@
 // Port of Minifier/ast.fs
 import * as Builtin from "./builtin.js";
-import type { Options } from "./options.js";
 
 export type VarScope = "Global" | "Local" | "Parameter";
 
@@ -224,9 +223,20 @@ export const Switch = (expr: Expr, cases: SwitchCase[]): Stmt => ({ kind: "Switc
 
 export const asStmtList = (s: Stmt): Stmt[] => (s.kind === "Block" ? s.stmts : [s]);
 
-/** A `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif` statement: the statements around it are alternatives the compiler picks from. */
-export const isConditionalDirective = (s: Stmt): boolean =>
-  s.kind === "Directive" && /^#\s*(if|ifdef|ifndef|elif|else|endif)\b/.test(s.parts[0]);
+/**
+ * What a preprocessor line does to the `#if` nesting: `open` for `#if`/`#ifdef`/`#ifndef`,
+ * `alternative` for `#elif`/`#else`, `close` for `#endif`, and null for any other line. The
+ * statements around such a line are alternatives the compiler picks from.
+ */
+export type DirectiveKind = "open" | "alternative" | "close" | null;
+export function directiveKind(line: string): DirectiveKind {
+  const m = /^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b/.exec(line);
+  if (m === null) return null;
+  return m[1] === "endif" ? "close" : m[1] === "else" || m[1] === "elif" ? "alternative" : "open";
+}
+/** The directive line of a `Directive` statement or `TLDirective`, "" for anything else. */
+export const directiveLine = (s: Stmt | TopLevel): string => (s.kind === "Directive" || s.kind === "TLDirective" ? s.parts[0] : "");
+export const isConditionalDirective = (s: Stmt | TopLevel): boolean => directiveKind(directiveLine(s)) !== null;
 
 /**
  * Whether a statement contains a block whose braces are not where the compiler will see them: a
@@ -239,10 +249,10 @@ export function hasConditionalBraces(stmt: Stmt): boolean {
   const unbalanced = (stmts: readonly Stmt[]): boolean => {
     let depth = 0;
     for (const s of stmts) {
-      if (s.kind !== "Directive" || !isConditionalDirective(s)) continue;
-      const d = s.parts[0];
-      if (/^#\s*(if|ifdef|ifndef)\b/.test(d)) depth++;
-      else if (/^#\s*endif\b/.test(d)) { if (--depth < 0) return true; }
+      const kind = directiveKind(directiveLine(s));
+      if (kind === null) continue;
+      if (kind === "open") depth++;
+      else if (kind === "close") { if (--depth < 0) return true; }
       else if (depth === 0) return true; // #else or #elif of a conditional opened outside
     }
     return depth !== 0;
@@ -265,10 +275,10 @@ export function conditionalGlobals(code: readonly TopLevel[]): Set<DeclElt> {
   const out = new Set<DeclElt>();
   let depth = 0;
   for (const tl of code) {
-    if (tl.kind === "TLDirective") {
-      if (/^#\s*(if|ifdef|ifndef)\b/.test(tl.parts[0])) depth++;
-      else if (/^#\s*endif\b/.test(tl.parts[0])) depth = Math.max(0, depth - 1);
-    } else if (tl.kind === "TLDecl" && depth > 0) {
+    const kind = directiveKind(directiveLine(tl));
+    if (kind === "open") depth++;
+    else if (kind === "close") depth = Math.max(0, depth - 1);
+    else if (tl.kind === "TLDecl" && depth > 0) {
       for (const d of tl.decl[1]) out.add(d);
     }
   }
@@ -403,11 +413,10 @@ export class MapEnv {
     // This doesn't support type-based disambiguation of user-defined function overloading
     readonly fns: ReadonlyMap<string, [FunctionType, Stmt][]>,
     readonly blockLevel: BlockLevel,
-    readonly options: Options,
   ) {}
 
   private with(changes: { vars?: ReadonlyMap<string, [Type, DeclElt]>; fns?: ReadonlyMap<string, [FunctionType, Stmt][]>; blockLevel?: BlockLevel }): MapEnv {
-    return new MapEnv(this.fExpr, this.fStmt, changes.vars ?? this.vars, changes.fns ?? this.fns, changes.blockLevel ?? this.blockLevel, this.options);
+    return new MapEnv(this.fExpr, this.fStmt, changes.vars ?? this.vars, changes.fns ?? this.fns, changes.blockLevel ?? this.blockLevel);
   }
 
   withVar(name: string, ty: Type, decl: DeclElt): MapEnv {
@@ -443,16 +452,16 @@ export class MapEnv {
     const regions: { start: MapEnv; branches: MapEnv }[] = [];
     const res = li.map((item) => {
       const p = parts(item);
-      const d = p === null ? "" : p[0];
-      if (/^#\s*(if|ifdef|ifndef)\b/.test(d)) regions.push({ start: env, branches: env });
-      else if (/^#\s*(else|elif)\b/.test(d) && regions.length > 0) {
+      const kind = directiveKind(p === null ? "" : p[0]);
+      if (kind === "open") regions.push({ start: env, branches: env });
+      else if (kind === "alternative" && regions.length > 0) {
         const region = regions[regions.length - 1];
         region.branches = region.branches.withAlternative(env);
         env = region.start;
       }
       const [env2, x] = fct(env, item);
       env = env2;
-      if (/^#\s*endif\b/.test(d)) {
+      if (kind === "close") {
         const region = regions.pop();
         if (region !== undefined) env = region.branches.withAlternative(env);
       }
@@ -587,8 +596,8 @@ export class MapEnv {
 const identityExpr: ExprMapper = (_env, e) => e;
 const identityStmt: StmtMapper = (_env, s) => s;
 
-export function visitor(options: Options, fExpr?: ExprMapper, fStmt?: StmtMapper): MapEnv {
-  return new MapEnv(fExpr ?? identityExpr, fStmt ?? identityStmt, new Map(), new Map(), UnknownLevel, options);
+export function visitor(fExpr?: ExprMapper, fStmt?: StmtMapper): MapEnv {
+  return new MapEnv(fExpr ?? identityExpr, fStmt ?? identityStmt, new Map(), new Map(), UnknownLevel);
 }
 
 /** Active pattern ResolvedVariableUse: a Var whose ident resolves to a variable declaration. */
