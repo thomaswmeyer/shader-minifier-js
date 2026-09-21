@@ -721,6 +721,19 @@ says so. Every site is ported deliberately:
     now, as `reuseExistingVarDecl`'s own output already was (item 9's
     lesson). No golden changes: none combines the flags.
 
+43. *`precision` inside a block.* GLSL allows a precision statement in any
+    scope, setting the default for the declarations after it in that scope.
+    Upstream knows it only at top level and fails to parse it in a function
+    body. The port has a `Precision` statement: printed as written, ignored
+    by the analysis and the renamer (builtin types only), and treated by the
+    block rewrites like a directive, so no declaration is grouped above it
+    and no variable is reused across it, either of which would take the
+    other precision. `--drop-default-precision` tracks the precision in
+    force at top level only, so a function body that changes it keeps every
+    qualifier. Inlining across it is fine: a precision qualifier is a
+    minimum, and evaluating at a higher precision is what the spec allows an
+    implementation anyway.
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the

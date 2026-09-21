@@ -207,7 +207,8 @@ export type Stmt =
   | { kind: "Jump"; keyword: JumpKeyword; expr: Expr | null } // break, continue, return (expr)?, discard
   | { kind: "Verbatim"; text: string }
   | { kind: "Directive"; parts: string[] } // ["#define"; "name"; "value"]
-  | { kind: "Switch"; expr: Expr; cases: SwitchCase[] };
+  | { kind: "Switch"; expr: Expr; cases: SwitchCase[] }
+  | { kind: "Precision"; ty: Type }; // `precision mediump float;` inside a block: the default for the declarations after it in that scope
 
 export const Block = (stmts: Stmt[]): Stmt => ({ kind: "Block", stmts });
 export const DeclStmt = (decl: Decl): Stmt => ({ kind: "Decl", decl });
@@ -220,6 +221,7 @@ export const DoWhile = (cond: Expr, body: Stmt): Stmt => ({ kind: "DoWhile", con
 export const Jump = (keyword: JumpKeyword, expr: Expr | null): Stmt => ({ kind: "Jump", keyword, expr });
 export const Verbatim = (text: string): Stmt => ({ kind: "Verbatim", text });
 export const Directive = (parts: string[]): Stmt => ({ kind: "Directive", parts });
+export const PrecisionStmt = (ty: Type): Stmt => ({ kind: "Precision", ty });
 export const Switch = (expr: Expr, cases: SwitchCase[]): Stmt => ({ kind: "Switch", expr, cases });
 
 export const asStmtList = (s: Stmt): Stmt[] => (s.kind === "Block" ? s.stmts : [s]);
@@ -543,7 +545,7 @@ export class MapEnv {
             stmt.inc === null ? null : env.mapExpr(stmt.inc),
             mapStmtNested(env, stmt.body)[1])];
         case "Jump": return [env, Jump(stmt.keyword, stmt.expr === null ? null : env.mapExpr(stmt.expr))];
-        case "Verbatim": case "Directive": return [env, stmt];
+        case "Verbatim": case "Directive": case "Precision": return [env, stmt];
         case "Switch": {
           const mapCase = (c: SwitchCase): SwitchCase => {
             const label: CaseLabel = c.label.kind === "Case" ? { kind: "Case", expr: env.mapExpr(c.label.expr) } : c.label;

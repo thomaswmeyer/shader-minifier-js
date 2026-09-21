@@ -313,6 +313,7 @@ class PrinterImpl {
       case "Verbatim": // add a space at end when it seems to be needed
         return s.text.length > 0 && isIdentChar(s.text[s.text.length - 1]) ? s.text + " " : s.text;
       case "Directive": return "\n" + this.directiveToS(s.parts);
+      case "Precision": return `precision ${this.typeToS(indent, s.ty)};`;
       case "Switch": {
         const labelToS = (l: Ast.CaseLabel): string => (l.kind === "Case" ? `case ${this.exprToS(indent, l.expr)}:` : "default:");
         const caseToS = (c: Ast.SwitchCase): string => {

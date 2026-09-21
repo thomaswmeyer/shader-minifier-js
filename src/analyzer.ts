@@ -137,7 +137,7 @@ export class VarVisitor {
           this.visitStmt(stmt.body);
           return;
         case "Jump": if (stmt.expr !== null) this.visitExpr(stmt.expr); return;
-        case "Verbatim": case "Directive": return;
+        case "Verbatim": case "Directive": case "Precision": return;
         case "Switch":
           this.visitExpr(stmt.expr);
           for (const c of stmt.cases) {

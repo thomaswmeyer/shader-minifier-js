@@ -73,7 +73,7 @@ function collectExprsOutsideLoops(stmt: Stmt, out: Expr[]): void {
       if (stmt.else !== null) collectExprsOutsideLoops(stmt.else, out);
       break;
     case "Block": for (const s of stmt.stmts) collectExprsOutsideLoops(s, out); break;
-    case "Directive": case "Verbatim": case "ForE": case "ForD": case "While": case "DoWhile": case "Switch": break;
+    case "Directive": case "Verbatim": case "Precision": case "ForE": case "ForD": case "While": case "DoWhile": case "Switch": break;
   }
 }
 

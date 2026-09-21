@@ -229,7 +229,11 @@ compiler owns (`GL_`, `__`), which it leaves undecided since CesiumJS.
   covers the general case.
 - **`#include`.** Not supported; engines resolve it before the shader reaches
   the minifier, so the plugin could too, from the importing file's directory.
-- **`precision` inside a function body.** A parse error today; GLSL allows it.
+- **`precision` inside a function body: done.** It parses as a statement,
+  sets nothing the passes track, and gates the block it stands in the way a
+  directive does, since a declaration grouped above it or a variable reused
+  across it would take the other precision; `--drop-default-precision`
+  leaves such a body's qualifiers alone (`PORTING.md` item 43).
 - **Struct types from another file.** In a multi-file run each file is
   analysed alone, so a struct declared in one file is unknown in the next.
   Sharing declarations across files in `Minifier` would fix `--webgl` and the

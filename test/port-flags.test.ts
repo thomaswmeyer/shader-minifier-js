@@ -39,6 +39,19 @@ describe("--drop-default-precision", () => {
     expect(minifyApi([{ name: "t.frag", content: s }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
       .toContain("struct S{float a;highp float b;};");
   });
+  it("accepts a precision statement inside a function body, and leaves that body's qualifiers alone", () => {
+    // GLSL allows `precision` in any scope; it sets the default for the declarations after it in
+    // that scope, which the pass does not track, so a body that changes precision keeps every
+    // qualifier. Nor may a declaration be grouped above the statement, or a variable reused
+    // across it, since either would take the other precision.
+    const f = "precision highp float;uniform float u;void main(){highp float a=u;precision mediump float;highp float b=a*2.;mediump float c=b;gl_FragColor=vec4(a,b,c,1);}";
+    const opts = { dropDefaultPrecision: true, moveDeclarations: true, inlining: "none" as const, inlineSingleUse: false };
+    expect(minifyApi([{ name: "t.frag", content: f }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
+      .toBe("precision highp float;uniform float u;void main(){highp float a=u;precision mediump float;highp float b=a*2.;mediump float c=b;gl_FragColor=vec4(a,b,c,1);}");
+    const g = "precision highp float;uniform float u;float f(float x){precision mediump float;return x;}void main(){highp float a=u;gl_FragColor=vec4(f(a));}";
+    expect(minifyApi([{ name: "t.frag", content: g }], { ...defaultOptions(), noRenaming: true, noPiSubstitution: true, ...opts }).code)
+      .toBe("precision highp float;uniform float u;float f(float x){precision mediump float;return x;}void main(){float a=u;gl_FragColor=vec4(f(a));}");
+  });
   it("keeps a qualifier a fragment shader has no default for", () => {
     // A fragment shader has no default float precision, so `mediump float b;` is the only thing
     // saying what b is: dropping it would not compile.

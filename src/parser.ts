@@ -807,6 +807,7 @@ class ParserImpl {
       () => this.switchStmt(),
       () => Ast.Verbatim(this.verbatim()),
       () => Ast.Directive(this.macro()),
+      () => { this.keyword("precision"); const ty = this.specifiedType(); this.ch(";"); return Ast.PrecisionStmt(ty); },
       () => { const d = this.declaration(); this.ch(";"); return Ast.DeclStmt(d); },
       () => this.simpleStatement(),
     );

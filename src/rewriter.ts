@@ -923,6 +923,7 @@ class RewriterImpl {
           case "DoWhile": return false;
           case "Verbatim": return false;
           case "Directive": return false;
+          case "Precision": return false;
           case "Switch": return false;
         }
       });
@@ -1125,7 +1126,9 @@ class RewriterImpl {
   private simplifyBlock(blockLevel: BlockLevel, stmts: Stmt[]): Stmt[] {
     let b = stmts;
     // Avoid some optimizations when there are preprocessor directives.
-    const hasPreprocessor = b.some((s) => s.kind === "Verbatim" || s.kind === "Directive");
+    // A precision statement counts too: a declaration moved above it, or a variable reused across
+    // it, would take the other precision.
+    const hasPreprocessor = b.some((s) => s.kind === "Verbatim" || s.kind === "Directive" || s.kind === "Precision");
 
     // Remove dead code after return/break/...
     const endOfCode = b.findIndex((s) => s.kind === "Jump");
@@ -1806,6 +1809,11 @@ export function dropDefaultPrecision(options: Options, code: TopLevel[], stage: 
       case "Function": {
         stripRedundant(tl.funcType.retType);
         for (const a of tl.funcType.args) stripDecl(a);
+        // A body with its own precision statement has a default of its own from that point on,
+        // which nothing here tracks: its qualifiers all stay.
+        let changesPrecision = false;
+        Ast.visitor(undefined, (_: MapEnv, s: Stmt): Stmt => { if (s.kind === "Precision") changesPrecision = true; return s; }).iterStmt(Ast.UnknownLevel, tl.body);
+        if (changesPrecision) break;
         const inBody = (_: MapEnv, s: Stmt): Stmt => {
           if (s.kind === "Decl") stripDecl(s.decl);
           else if (s.kind === "ForD") stripDecl(s.init);

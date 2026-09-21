@@ -388,7 +388,7 @@ class RenamerVisitor {
         return env;
       }
       case "Jump": renOpt(stmt.expr); return env;
-      case "Verbatim": case "Directive": return env;
+      case "Verbatim": case "Directive": case "Precision": return env;
       case "Switch": {
         const renCase = (env: Env, c: Ast.SwitchCase): Env => {
           if (c.label.kind === "Case") this.renExpr(env, c.label.expr);
