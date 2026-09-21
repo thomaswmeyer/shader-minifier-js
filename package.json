@@ -45,7 +45,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "BENCHMARKS.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

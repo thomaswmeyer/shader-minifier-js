@@ -683,9 +683,9 @@ says so. Every site is ported deliberately:
     shader after brotli; CesiumJS -2.0% and -0.5%; three.js -0.9% and
     -0.3%; the others within a few bytes either way (`TODO.md` section 7 has
     the table). No golden changes: the three that keep externals never run
-    out of letters. The `Shader Minifier (.NET)` column of the README's
-    tables, the port limited to upstream's rewrites with externals kept,
-    moves with it, since renaming is not a rewrite a level governs.
+    out of letters. The `Shader Minifier (.NET)` column of `BENCHMARKS.md`,
+    the port limited to upstream's rewrites with externals kept, moves with
+    it, since renaming is not a rewrite a level governs.
 
 41. *Unused uniform blocks.* Under `--remove-unused-uniforms`, a uniform
     block that a stage reads nothing of (no member of a nameless block, nor
