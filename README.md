@@ -4,14 +4,14 @@ A TypeScript port of [Shader Minifier](https://github.com/laurentlb/Shader_Minif
 (Ctrl-Alt-Test, F#, Apache 2.0): a GLSL minifier for size-constrained WebGL
 and demoscene shaders. Zero runtime dependencies, Node >= 20, ESM.
 
-The port tracks upstream version 1.5.1 module for module and is validated by
-upstream's own golden test corpus: all 96 commands in `tests/commands.txt`
-produce byte-identical output. Deliberate deviations are listed in
+The port tracks Shader Minifier version 1.5.1 module for module and is
+validated by Shader Minifier's own golden test corpus: all 96 commands in
+`tests/commands.txt` produce byte-identical output. Deliberate deviations are listed in
 `PORTING.md` section 5.2 and, where they touch a golden file, `tests/DEVIATIONS.md`.
 
 ## CLI
 
-Same flags as upstream, plus the port additions listed below.
+Same flags as Shader Minifier, plus the port additions listed below.
 
 ```sh
 npm run build
@@ -27,7 +27,7 @@ import { minify } from "shader-minifier-js";
 const { code, exportedNames } = minify(source, { preserveExternals: true, webgl: true });
 // or several files, renamed consistently:
 const result = minify([{ name: "a.frag", content: a }, { name: "b.vert", content: b }]);
-result.format("js"); // any upstream output format: text, indented, c-variables, c-array, js, nasm, rust, json
+result.format("js"); // any Shader Minifier output format: text, indented, c-variables, c-array, js, nasm, rust, json
 ```
 
 `Minifier`, `parseOptions`, `Ast`, `Printer` and `runParser` are exported for
@@ -53,20 +53,20 @@ time. Defaults are chosen for WebGL: `webgl`, `preserveExternals`,
 on, so uniform and attribute names are kept, macros and constant builtin calls
 are folded away, unused globals, structs and precision statements go, and the
 output only uses constructs ANGLE accepts. Every other
-upstream flag is available as a camelCased option (`noRenaming`,
+Shader Minifier flag is available as a camelCased option (`noRenaming`,
 `noRenamingList`, `noInlining`, `aggressiveInlining`, `noSequence`,
 `noRemoveUnused`, `preprocess`, `moveDeclarations`), `include` overrides the
 file pattern, and `options` passes any raw minifier option.
 
 ## Port additions
 
-- `--webgl`: skip two upstream rewrites whose output Chrome rejects (`?:` on
+- `--webgl`: skip two Shader Minifier rewrites whose output Chrome rejects (`?:` on
   struct values; a void call folded into a comma sequence, an ES 3.00 rule),
   and fail with an error if the output would still contain either. An
   expression of unknown type counts as unsafe; a call to an overloaded user
   function is known when every overload returns the same type.
 - `--expand-macros`: expand `#define`s so neither the definitions nor the
-  long macro names reach the output (upstream keeps them as feature switches).
+  long macro names reach the output (Shader Minifier keeps them as feature switches).
   Macros used in `#if` conditions or defined inside `#if` blocks are left alone.
 - `--fold-builtins`: evaluate builtin calls on literals (`radians(45.)` →
   `.7853982`, `normalize(vec2(3.,4.))` → `vec2(.6,.8)`) at float32 precision,
@@ -90,7 +90,7 @@ file pattern, and `options` passes any raw minifier option.
 - `--inline-single-use`: inline a never-written global used exactly once
   (outside loops) into that use, and substitute a global passed as an
   always-identical argument straight into the function body instead of
-  declaring a local for it, when that is not longer. Upstream does both only
+  declaring a local for it, when that is not longer. Shader Minifier does both only
   under `--aggressive-inlining`, which also copies every constant to every use.
   Neither happens where a local or parameter at the use would capture a name
   of the inlined value, and a value that calls a function is only inlined
@@ -100,7 +100,7 @@ file pattern, and `options` passes any raw minifier option.
   writes, a struct type that nothing names, and a `precision` statement for a
   sampler type the shader never declares. Uniforms, inputs and outputs stay,
   as do names a kept `#define` uses and a global whose initializer has an
-  effect. Upstream removes unused functions but keeps these; engine shaders
+  effect. Shader Minifier removes unused functions but keeps these; engine shaders
   assembled from chunks carry many (three.js's depth pass keeps seventeen
   sampler precision statements and two light structs for nothing).
 - `--remove-unused-varyings`: remove a varying no fragment shader of the run
@@ -126,21 +126,21 @@ file pattern, and `options` passes any raw minifier option.
   each other; that is the blob's artifact, not a reason to skip it.
 - After every rewrite pass the minifier checks that no variable use was
   copied into a scope where its name means another variable, and fails with
-  an internal error instead of emitting the shader. Upstream rules that could
+  an internal error instead of emitting the shader. Shader Minifier rules that could
   do this are fixed here: inlining a local past a later local of a name its
   value reads, `--move-declarations` hoisting a declaration above an earlier
   use of its name, argument inlining into a body whose other parameter has
   the name, function reordering pulling alternatives out of `#ifdef` blocks,
   and identifiers named in a kept `#define` being renamed or removed (they
   are pinned). `PORTING.md` section 5.2 lists each, and its "Upstream
-  candidates" note lists the ones worth offering back to upstream.
+  candidates" note lists the ones worth offering back to Shader Minifier.
 - `--preprocess` also decides constant `#if` expressions (`#if ( 1 > 0 ) &&
   defined( USE_MAP )`), which engine shaders like three.js's put inside
   argument lists where the parser cannot keep them. A bare identifier in the
   condition still leaves it to the compiler.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Struct fields named like swizzle components (`float q;`, `vec3 rgb;`) are
-  accepted and kept under their names; upstream refuses the declaration.
+  accepted and kept under their names; Shader Minifier refuses the declaration.
 - Prefix `+`/`-` never merge into `++`/`--` (`-(--a)` prints as `- --a`).
 
 ## Results
@@ -148,32 +148,32 @@ file pattern, and `options` passes any raw minifier option.
 `npm run metrics` minifies every corpus three ways and, when spglsl is
 installed, a fourth. The columns:
 
-- **upstream rewrites**: this port limited to the rewrites Shader Minifier
-  1.5.1 performs. This is what the goldens pin; on the tom.to shaders it
-  matches the .NET binary byte for byte. "Upstream" in this README means
-  Shader Minifier, the F# original.
-- **plugin defaults**: this port with the Vite plugin's defaults, so the port
-  additions above are on. "Plugin" and "port" mean this repository.
+- **Shader Minifier (.NET)**: the original, version 1.5.1. The numbers come
+  from this port run with only Shader Minifier's own rewrites, which is what
+  the goldens pin; on the tom.to shaders that output matches the .NET binary
+  byte for byte.
+- **shader-minifier-js**: this repository, with the Vite plugin's defaults,
+  so the port additions above are on.
 - **spglsl (ANGLE)**: ANGLE's shader translator, built to wasm and run
   offline through the `spglsl` package on one shader at a time with its
   minify and mangle options on. The number is the size of the GLSL text it
   emits, externals kept. It gets the same single source as the other columns
   and no link-time or runtime context, so this is a wire-size comparison,
   not the compile ANGLE does in the browser.
-- **plugin vs upstream**, **plugin vs spglsl**: how much smaller the plugin
-  column is.
+- **js vs .NET**, **js vs spglsl**: how much smaller shader-minifier-js's
+  output is than that column.
 
 The corpora: tom.to is six GLSL ES 3.00 shaders from tom.to's ink mark, a
 WebGL2 particle engine, under `test/tomto`; gl-transitions, three.js,
-Babylon.js and PlayCanvas are vendored under `test/corpus`; "upstream
-shadertoy" is the eight Shadertoy shaders in upstream's own test corpus under
-`tests/real`, each wrapped in a Shadertoy header and `main()`.
+Babylon.js and PlayCanvas are vendored under `test/corpus`; the Shadertoy
+row is the eight Shadertoy shaders in Shader Minifier's own test corpus
+under `tests/real`, each wrapped in a Shadertoy header and `main()`.
 
 A minifier that refuses any shader of a corpus gets no total for that
 corpus, only the count of refusals, and its comparison cell stays blank; a
 total over fewer shaders would read as a smaller size. Five PlayCanvas
-shaders declare a function parameter through a macro, which the upstream
-rewrites cannot parse without `--expand-macros`. ANGLE rejects two Shadertoy
+shaders declare a function parameter through a macro, which Shader Minifier
+cannot parse without `--expand-macros`. ANGLE rejects two Shadertoy
 shaders, one for a byte order mark at the top of the file and one for a
 `texture` overload it does not have; WebGL rejects both as well, and the
 pixel test skips them for the same reason.
@@ -181,14 +181,14 @@ pixel test skips them for the same reason.
 Output bytes, externals kept in all of them; three.js runs with
 `--preprocess`:
 
-| corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|--:|
 | tom.to | 6 | 5,381 | 2,438 | 2,378 | 2.5% | 2,484 | 4.3% |
 | gl-transitions | 125 | 169,066 | 69,584 | 67,931 | 2.4% | 79,689 | 14.8% |
 | three.js | 56 | 1,337,454 | 218,851 | 131,598 | 39.9% | 143,890 | 8.5% |
 | Babylon.js | 18 | 276,701 | 106,932 | 57,789 | 46.0% | 59,928 | 3.6% |
 | PlayCanvas | 20 | 191,012 | 5 refused | 48,662 | | 60,037 | 18.9% |
-| upstream shadertoy | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 2 refused | |
+| Shadertoy (Shader Minifier tests) | 8 | 99,447 | 44,812 | 44,116 | 1.6% | 2 refused | |
 
 Shaders ship compressed, so the same corpora after compression. Two
 variables: the codec (brotli -q 11 is what a CDN serves, gzip -9 what an
@@ -209,40 +209,40 @@ bound.
 
 **brotli -q 11, each shader on its own**
 
-| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,755 | 1,623 | 1,591 | 2.0% | 1,621 | 1.9% |
 | gl-transitions | 67,081 | 36,734 | 35,875 | 2.3% | 39,307 | 8.7% |
 | three.js | 269,870 | 68,840 | 43,331 | 37.1% | 46,531 | 6.9% |
 | Babylon.js | 67,148 | 30,703 | 16,070 | 47.7% | 17,418 | 7.7% |
 | PlayCanvas | 47,336 | 5 refused | 17,957 | | 20,615 | 12.9% |
-| upstream shadertoy | 30,115 | 17,372 | 17,008 | 2.1% | 2 refused | |
+| Shadertoy (Shader Minifier tests) | 30,115 | 17,372 | 17,008 | 2.1% | 2 refused | |
 
 **brotli -q 11, whole corpus as one blob**
 
-| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,167 | 1,114 | 1,093 | 1.9% | 1,132 | 3.4% |
 | gl-transitions | 29,088 | 14,401 | 14,104 | 2.1% | 15,188 | 7.1% |
 | three.js | 22,926 | 15,201 | 12,764 | 16.0% | 13,713 | 6.9% |
 | Babylon.js | 15,744 | 10,166 | 6,717 | 33.9% | 7,192 | 6.6% |
 | PlayCanvas | 8,444 | 5 refused | 5,278 | | 5,254 | -0.5% |
-| upstream shadertoy | 25,952 | 14,345 | 14,000 | 2.4% | 2 refused | |
+| Shadertoy (Shader Minifier tests) | 25,952 | 14,345 | 14,000 | 2.4% | 2 refused | |
 
 **gzip -9**
 
-| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |
+| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |
 |---|--:|--:|--:|--:|--:|--:|
 | tom.to | 2,458 | 1,180 | 1,156 | 2.0% | 1,213 | 4.7% |
 | gl-transitions | 35,330 | 16,518 | 16,109 | 2.5% | 17,470 | 7.8% |
 | three.js | 196,245 | 21,310 | 17,050 | 20.0% | 19,536 | 12.7% |
 | Babylon.js | 40,713 | 12,431 | 7,896 | 36.5% | 8,901 | 11.3% |
 | PlayCanvas | 24,421 | 5 refused | 7,072 | | 7,276 | 2.8% |
-| upstream shadertoy | 29,728 | 16,159 | 15,816 | 2.1% | 2 refused | |
+| Shadertoy (Shader Minifier tests) | 29,728 | 16,159 | 15,816 | 2.1% | 2 refused | |
 
 The order of the three minifiers is the same under every codec and unit.
-The unit changes the margin: the plugin's win over the upstream rewrites on
-three.js is 37.1% per shader and 16.0% as a blob, since the blob already
+The unit changes the margin: shader-minifier-js's win over Shader Minifier
+on three.js is 37.1% per shader and 16.0% as a blob, since the blob already
 compresses the repeated chunk text. gzip gives slightly larger margins than
 brotli. As blobs the engine corpora compress 17 to 58 fold, mostly one
 program against another, which makes them useful for finding bugs and a poor
@@ -284,7 +284,7 @@ The spglsl corpus test and the WebGL page look for spglsl's shaders in
 `../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
 `PORTING.md` has the module map and the porting notes.
 
-Three tests guard real output rather than upstream parity:
+Three tests guard real output rather than parity with Shader Minifier:
 
 - `test/pixels.test.ts` is the semantic oracle: every shader is rendered in
   headless Chromium (ANGLE on SwiftShader, Chrome's own WebGL compiler) both
@@ -292,9 +292,9 @@ Three tests guard real output rather than upstream parity:
   and inputs, and the results must match. Fragment shaders are compared by
   pixels, vertex shaders by transform-feedback output. It covers `test/tomto`,
   the semantic fixtures in `test/pixels/` (one per class of bug found), and
-  the WebGL-compatible shaders of upstream's corpus, each under the plugin's
-  defaults and under upstream's rewrites alone. A shader that flips pixels on
-  a one-ulp change of its own literals (a raymarcher at a hit threshold) is
+  the WebGL-compatible shaders of Shader Minifier's corpus, each with the
+  Vite plugin's defaults and with Shader Minifier's rewrites alone. A shader
+  that flips pixels on a one-ulp change of its own literals (a raymarcher at a hit threshold) is
   allowed as many again, since constant folding rounds like that, and a
   difference of at most 8 levels on at most 2% of the pixels counts as
   rounding too (a PMREM convolution drifts that much with every rewrite
@@ -311,19 +311,19 @@ Three tests guard real output rather than upstream parity:
   refresh them from the npm packages; the version is recorded next to each.
 
 - `test/tomto.test.ts` pins the six tom.to shaders above, minified with the
-  plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`
+  Vite plugin's defaults, to `test/tomto/*.expected`. `UPDATE_GOLDEN=1 npm test`
   rewrites them.
 - `test/angle-compile.test.ts` compiles every minified output with ANGLE, the
   compiler behind Chrome's WebGL, through the `spglsl` package: `test/tomto`,
-  the spglsl corpus, and the GLSL ES files among upstream's unit tests. Sources
+  the spglsl corpus, and the GLSL ES files among Shader Minifier's unit tests. Sources
   ANGLE rejects (desktop GLSL, most of the demoscene corpus) and libraries
   without `main()` are skipped. `spglsl` is prebuilt wasm and not a
   dependency; the test skips unless you `npm install --no-save spglsl` first.
 
 ### Reproducing the comparison
 
-The port, with the plugin's flags spelled out (the goldens in
-`test/tomto/*.expected` are this output):
+shader-minifier-js, with the Vite plugin's defaults spelled out as flags
+(the goldens in `test/tomto/*.expected` are this output):
 
 ```sh
 npm run build
@@ -340,9 +340,9 @@ npm install --no-save spglsl
 node scripts/minify-with-spglsl.mjs test/tomto/*.vert test/tomto/*.frag
 ```
 
-Upstream, from a clone at `../shader-minifier`, built and run in a .NET 8 SDK
-container; `--preserve-externals --no-overloading` are the two flags it
-shares with the plugin:
+Shader Minifier (.NET), from a clone at `../shader-minifier`, built and run
+in a .NET 8 SDK container; `--preserve-externals --no-overloading` are the
+two flags it shares with the defaults above:
 
 ```sh
 docker run --rm -v "$PWD/../shader-minifier:/src" -v "$PWD/test/tomto:/glsl" -w /src \
@@ -361,5 +361,5 @@ is `{}`.
 
 ## License
 
-Apache-2.0, like upstream; see `LICENSE` and `NOTICE`. The test corpus in
-`tests/` is upstream's, under `tests/LICENSE-shader-minifier`.
+Apache-2.0, like Shader Minifier; see `LICENSE` and `NOTICE`. The test
+corpus in `tests/` is Shader Minifier's, under `tests/LICENSE-shader-minifier`.

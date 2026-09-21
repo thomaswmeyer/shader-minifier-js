@@ -1,11 +1,12 @@
 // npm run metrics: output bytes over every corpus, as a markdown table.
 //   source  -> bytes of the shader as written
-//   upstream -> the port with upstream's rewrites only (the goldens' behaviour), externals kept
-//   plugin   -> the Vite plugin's defaults
+//   Shader Minifier (.NET) -> the port with only Shader Minifier's rewrites (the goldens'
+//                             behaviour), externals kept
+//   shader-minifier-js     -> the Vite plugin's defaults
 //   spglsl   -> Google ANGLE's minifier, when `npm install --no-save spglsl` was run
 // Corpora: test/tomto, test/corpus/gl-transitions (wrapped as the pixel test wraps them),
 // test/corpus/three (with --preprocess, as the pixel test runs them), and the WebGL-compatible
-// shaders of upstream's corpus. A minifier that refuses any shader of a corpus gets no total for
+// shaders of Shader Minifier's corpus. A minifier that refuses any shader of a corpus gets no total for
 // that corpus, only the refusal count: a total over fewer shaders reads as a smaller size.
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
@@ -47,7 +48,7 @@ if (playcanvas.length > 0) corpora.push({ name: "PlayCanvas", shaders: playcanva
     const file = path.join(repoRoot, "tests/real", base);
     if (fs.existsSync(file)) shaders.push({ name: base, source: header + fs.readFileSync(file, "utf8") + footer });
   }
-  corpora.push({ name: "upstream shadertoy", shaders });
+  corpora.push({ name: "Shadertoy (Shader Minifier tests)", shaders });
 }
 
 const upstream = upstreamOptions();
@@ -89,9 +90,9 @@ const brotli = (parts: string[]): number =>
   zlib.brotliCompressSync(Buffer.from(parts.join("\n"), "utf8"), { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
 const gzip = (parts: string[]): number => zlib.gzipSync(Buffer.from(parts.join("\n"), "utf8"), { level: 9 }).length;
 const rows: string[] = [];
-rows.push(`| corpus | shaders | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |`);
+rows.push(`| corpus | shaders | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |`);
 rows.push(`|---|--:|--:|--:|--:|--:|--:|--:|`);
-const header = `| corpus | source | upstream rewrites | plugin defaults | plugin vs upstream | spglsl (ANGLE) | plugin vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|`;
+const header = `| corpus | source | Shader Minifier (.NET) | shader-minifier-js | js vs .NET | spglsl (ANGLE) | js vs spglsl |\n|---|--:|--:|--:|--:|--:|--:|`;
 const compressed: string[] = [header];
 const compressedGz: string[] = [header];
 const perShader_: string[] = [header];
@@ -131,5 +132,5 @@ console.log(compressed.join("\n"));
 console.log("\nAfter gzip -9, the same:\n");
 console.log(compressedGz.join("\n"));
 console.log("\nLargest shaders of each corpus:\n");
-console.log("| shader | source | upstream rewrites | plugin defaults | spglsl |\n|---|--:|--:|--:|--:|");
+console.log("| shader | source | Shader Minifier (.NET) | shader-minifier-js | spglsl |\n|---|--:|--:|--:|--:|");
 console.log(largest.join("\n"));
