@@ -155,8 +155,13 @@ throughout:
   means Shader Minifier, the F# original this repository ports.
 - **plugin defaults**: this port with the Vite plugin's defaults, so the port
   additions above are on. "Plugin" and "port" always mean this repository.
-- **spglsl (ANGLE)**: Google ANGLE's minifier, C++ built to wasm, through the
-  `spglsl` package.
+- **spglsl (ANGLE)**: Google ANGLE's shader translator, C++ built to wasm
+  and run offline through the `spglsl` package, one shader at a time with its
+  minify and mangle options on. What is measured is the GLSL text it emits,
+  externals kept. It sees the same single source the other two columns see,
+  with no link-time or runtime context, so this is the same over-the-wire
+  question as the other columns, not the compile ANGLE does inside the
+  browser at run time.
 - **plugin vs upstream**, **plugin vs spglsl**: how much smaller the plugin
   column is than that column.
 
