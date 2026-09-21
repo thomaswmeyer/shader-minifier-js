@@ -336,8 +336,9 @@ says so. Every site is ported deliberately:
     that reached the output. Upstream also records a `#define` inside an
     inactive block (`#define ENV_WORLDPOS` under a false condition decided a
     later `#ifdef ENV_WORLDPOS`); the port ignores every non-conditional
-    directive there. The three.js programs in `test/corpus/three` need this
-    flag.
+    directive there. The three.js programs in `test/corpus/three` needed
+    this flag until item 31; `npm run metrics` still uses it for them, so the
+    sizes compare with minifiers that see preprocessed input.
 
 17. *Fields of external structs.* Under `--preserve-externals` the name an
     application looks up for a struct uniform includes the field
@@ -484,6 +485,52 @@ says so. Every site is ported deliberately:
     counts calls in global initializers and array sizes for both. No golden
     has such a global.
 
+31. *Conditionals inside expressions and around list items.* Upstream knows
+    a directive as a statement or a top-level item only. The port parses a
+    `#if`/`#elif`/`#else` chain wherever a primary expression stands
+    (`Expr.kind = "Conditional"`, every branch kept, uses and effects the
+    union over branches), and keeps a chain around list items as opaque
+    text, like a kept `#define` body: a group of struct members
+    (`StructMember.kind = "MemberVerbatim"`), a function whose parameter list
+    holds a directive, and a region whose branches each open a function
+    header over one body (both a `TLVerbatim` of the whole function, whose
+    body is still parsed to find its end). What the text names is pinned so
+    the top-level declarations and fields it refers to keep their names and
+    stay; a local of another function with the same name is not, since the
+    text cannot reach it. When forward declarations make the port reorder
+    functions, such a function is placed after every function its text names
+    and before every caller of a name only it can define. This is what lets
+    the Vite plugin take three.js's shaders with their defines injected at
+    runtime; `TODO.md` section 1 has the count and the cost. No golden has
+    such a directive.
+
+32. *A name declared in both branches of a `#if`.* A block with conditional
+    directives may declare one name twice, in alternatives the compiler
+    picks one of (three.js: `#ifdef FOG_EXP2\n float fogFactor = ...;\n#else\n
+    float fogFactor = ...;\n#endif`), or declare a local of a global's name
+    in one branch (`#ifdef USE_INSTANCING_MORPH\n float
+    morphTargetInfluences[N];` over the uniform). Upstream reads the block
+    as one flat list: every use binds to the last declaration, the others
+    look unused, and each rewrite that acts on one of them is wrong under
+    the other setting of the define: the first declaration removed as
+    unused, the last inlined into a use both share, the two renamed apart.
+    The port makes every declaration of such a name in the list one
+    variable (`Analyzer.unifyAlternativeDeclarations`): later ones point at
+    the first's declaration, none is inlined, a shadowed global or parameter
+    counts as having hidden uses, and the renamer gives them one name
+    (shadowing in the source stays shadowing). Two neighbours of the same
+    bug: a global declared inside a top-level `#if` region is never
+    substituted for a parameter, since the callee's body is compiled
+    whatever the define (three.js passes `lightProbe`, declared under
+    `USE_LIGHT_PROBES`, from a call under the same condition); and a block
+    whose braces are under a conditional (ed-209 opens two loops under
+    `#ifdef AA` and closes them under another) gets no names reused by
+    shadowing, since without the define its declarations belong to the
+    enclosing scope. Found by rendering the three.js corpus without
+    `--preprocess`: 30 of 56 shaders failed to compile, all from this. Three
+    goldens change, two of them because upstream's output was wrong
+    (`tests/DEVIATIONS.md` item 4).
+
 ### Upstream candidates
 
 Several of the deviations above fix bugs that upstream has too, found by the
@@ -514,7 +561,11 @@ shader in this repository:
 - a tab after a macro name glued to the name (item 19);
 - refusing struct fields named like swizzle components (item 20);
 - a global initialized by a call losing its callee, or moving above it
-  (item 30, `test/port-flags.test.ts`).
+  (item 30, `test/port-flags.test.ts`);
+- a name declared in both branches of a `#if` bound to the last declaration
+  alone, so `controllable-machinery`'s `naa` is inlined as `3.` under
+  `#define AA 0` and `orchard` loses one of its two `lookat` values (item
+  32, `test/directive-alternatives.test.ts`).
 
 The scope check itself (item 10) would catch regressions of all of these and
 is a few dozen lines against upstream's analyzer.

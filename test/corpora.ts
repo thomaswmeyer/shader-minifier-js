@@ -4,8 +4,10 @@
 //   gl-transitions (MIT, two BSD): fragment transitions, wrapped the way the project's own runtime
 //     wraps them, with each transition's default parameters.
 //   three.js (MIT): the programs three.js assembles for its materials, dumped from a real renderer
-//     by scripts/dump-three-shaders.ts. They put `#if` blocks inside argument lists, which the
-//     parser cannot represent, so they need --preprocess.
+//     by scripts/dump-three-shaders.ts. They put `#if` blocks inside argument lists, struct bodies
+//     and parameter lists; the parser keeps those for the compiler's preprocessor, and the corpus
+//     still runs them with --preprocess so the sizes compare with the other minifiers, which see
+//     preprocessed input too. test/corpus.test.ts also renders them without it.
 //   PlayCanvas (MIT): a third engine, dumped by scripts/dump-playcanvas-shaders.ts the same way.
 //   Babylon.js (Apache-2.0): the same idea for a second engine, dumped by
 //     scripts/dump-babylon-shaders.ts. Babylon resolves its own conditionals before handing the

@@ -136,55 +136,92 @@ Section 6's rule applies to any size claim here too: judge it compressed.
 ## 1. Directives inside expressions (a fuller parser)
 
 Engine shaders put `#if` blocks inside argument lists, parameter lists and
-initializers (three.js: `getTangentFrame( -vViewPosition, normal,\n#if defined(
-USE_NORMALMAP )\n vNormalMapUv\n#elif ...`). The parser knows a directive only
-as a statement or a top-level item, so such a file needs `--preprocess`, which
-assumes the file is complete and so cannot serve a shader whose defines are
-injected at runtime. Lifting this is the change that would let the Vite plugin
-take engine shaders as they come.
+struct bodies (three.js: `getTangentFrame( -vViewPosition, normal,\n#if defined(
+USE_NORMALMAP )\n vNormalMapUv\n#elif ...`). The parser used to know a directive
+only as a statement or a top-level item, so such a file needed `--preprocess`,
+which assumes the file is complete and so cannot serve a shader whose defines
+are injected at runtime. Lifting that is what lets the Vite plugin take engine
+shaders as they come.
 
-**Done so far.** `Expr.kind = "Conditional"` holds a chain of branches, each
-with its directive line as written and the expression it guards, and the
-parser produces one where an argument of a call is expected. Uses and effects
-are the union over branches, the renamer walks all of them, and the printer
-parenthesises the whole chain when the surrounding precedence needs it, since
-whichever branch survives becomes an operand of what is around it. The
-measured effect on the corpus is small and worth stating honestly:
+**Done.** Every three.js shader now parses without `--preprocess`, in two
+steps of different quality:
 
 | three.js shaders parsing without `--preprocess` | |
 |---|--:|
 | before | 43 of 56 |
-| after | 45 of 56 |
+| `Conditional` expression | 45 of 56 |
+| opaque regions | 56 of 56 |
 
-The eleven that still fail do not fail on expressions. Seven have a `#ifdef`
-around a group of *struct members*, and four have one around a group of
-*parameters*, with an `#else` giving the same parameter a different type.
-Those are conditionals around list items, a different shape from a
-conditional standing where one expression does, and they are what is left:
+1. **A conditional standing where an expression does** is
+   `Expr.kind = "Conditional"`: a chain of branches, each with its directive
+   line as written and the expression it guards, accepted wherever a primary
+   expression is. Uses and effects are the union over branches, the renamer
+   walks all of them, inlining and folding never move an expression into or
+   out of one, and a call with one among its arguments is not a call site
+   for argument inlining. The printer parenthesises the chain only where the
+   surrounding operator binds tighter than a call argument, and the parser
+   takes the parentheses back, so the output re-parses.
+2. **A conditional around list items** is kept as opaque text, the way a
+   kept `#define` body is, in the three shapes the corpus has: a group of
+   struct members (`StructMember.kind = "MemberVerbatim"`, seven shaders), a
+   group of parameters with an `#else` retyping one (the whole function
+   becomes a `TLVerbatim`, four shaders), and a region whose branches each
+   open a different function header over one body (`#ifdef USE_IRIDESCENCE
+   void computeMultiscatteringIridescence(...) {\n#else\nvoid
+   computeMultiscattering(...) {\n#endif`, the seven again, hidden behind
+   the struct). Every identifier the text names is pinned so the top-level
+   declarations and struct fields it refers to keep their names and stay;
+   unlike a `#define` body it cannot reach a local of another function, so
+   those are left alone. The body of an opaque function is still parsed, to
+   find its end and to be sure it is one.
 
-1. **A conditional around list items.** Struct member lists and parameter
-   lists. Keeping every branch's items in one list is wrong where an `#else`
-   redeclares a name, which the `getSunShadow` case does. The cheap and safe
-   representation is to keep such a region as opaque text and pin every
-   identifier in it, reusing the mechanism that already protects a kept
-   `#define` body; that costs bytes on those shaders but stays correct.
-   Representing the alternatives properly is the fuller fix.
-2. **Printing.** Already handled for the expression case.
-4. **Analysis.** The visitor maps every branch. Purity, effects and variable
-   uses are the union over branches. Inlining and folding never move an
-   expression into or out of a `Conditional`, and a call with a `Conditional`
-   among its arguments is not a call site for argument inlining. The scope
-   check visits each branch with the same scope.
-5. **The same for statements and declarations already works**, since they are
-   statements; the remaining gap after 1 to 4 is a directive inside a
-   declarator list (`float a,\n#ifdef X\n b,\n#endif\n c;`), which can be
-   handled last by splitting the declaration.
-6. **Tests:** the three.js corpus without `--preprocess`, the unit cases from
-   `test/preprocessor.test.ts` rewritten to reach the parser, and round-trip
-   idempotence for the new node.
+   Measured on the eleven shaders that needed it, the pinning costs 1,145
+   bytes raw in 371,685 (0.3%) and 91 bytes brotli in 92,753 (0.1%). Cheap
+   enough that the fuller representation, alternatives in the list itself,
+   is not worth building for size; it would be worth building only for what
+   the text hides from the analysis, which today is a handful of functions
+   per shader.
 
-Until then `--preprocess` is the way; item 16 of `PORTING.md` lists what it
-now decides.
+   The whole corpus minified without `--preprocess` is 717,346 bytes against
+   131,598 with it (174,341 against 43,331 brotli, each shader alone). That
+   is the price of keeping every branch for the compiler, which a shader
+   whose defines arrive at runtime pays whatever the minifier does.
+
+3. **What rendering them found.** Parsing was not the only thing standing
+   between the plugin and an engine shader. Rendered without `--preprocess`,
+   30 of the 56 failed to compile, all from one cause the corpus had never
+   exercised because it always ran preprocessed: a name declared in both
+   branches of a `#if` (`float fogFactor` under `FOG_EXP2` and under
+   `#else`; `vec2 uv`; `vec3 shadowWorldNormal`), or a local declared in one
+   branch over a global of the same name (`morphTargetInfluences` under
+   `USE_INSTANCING_MORPH`), was read as one flat list: the uses bound to the
+   last declaration, the first was removed as unused, the last was inlined
+   into a use both shared, and the renamer gave the two different names.
+   Fixed by treating every declaration of such a name in a block as one
+   variable (`PORTING.md` item 32), which also corrected two upstream
+   goldens that had the same bug (`tests/DEVIATIONS.md` item 4). Two
+   smaller causes next to it: argument inlining moving `lightProbe`,
+   declared under `USE_LIGHT_PROBES`, into a function body compiled whatever
+   the define; and the renamer reusing an outer name by shadowing inside a
+   loop whose braces are themselves under `#ifdef` (ed-209), where the
+   shadowing exists only with the define on.
+
+4. **Tests.** `test/opaque-regions.test.ts` covers the three shapes, their
+   pinning, and round-trip idempotence; every three.js shader is minified
+   without `--preprocess` and its output re-parsed;
+   `test/directive-alternatives.test.ts` covers the declarations in
+   alternative branches; and `test/corpus.test.ts` renders each three.js
+   shader without `--preprocess` too, so the compiler's preprocessor decides
+   the kept `#if`s on the minified output the same way it does on the
+   source. All 56 pass.
+
+**Left.** A directive inside a declarator list (`float a,\n#ifdef X\n
+b,\n#endif\n c;`) is still a parse error; splitting the declaration at the
+directive is the fix. A chain that spans several arguments (`f(a,\n#ifdef
+X\n b, c\n#else\n d\n#endif\n)`) is one too. Neither occurs in the corpora.
+The corpus still runs with `--preprocess` in `npm run metrics`, since the
+other minifiers see preprocessed input and the sizes should compare; item 16
+of `PORTING.md` lists what the flag decides.
 
 ## 2. Upstream limits still in place
 
@@ -266,7 +303,10 @@ fragment-only comparison already is the real pair.
   declares a function parameter through a macro
   (`float f(SHADOWMAP_ACCEPT(shadowMap), ...)`), which only `--expand-macros`
   can take, and needed the harness to learn integer samplers.
-- A shader whose defines are injected at runtime, once section 1 lands.
+- A shader whose defines are injected at runtime, rendered under both
+  settings of a define. The three.js pairs without `--preprocess` (section 1)
+  are the first half: the compiler decides the kept `#if`s the same way on
+  the output, but only for the defines the dumped shader carries.
 - A multi-file run in the pixel test (`tests/real/mouton` is one).
 - More seeds where a shader's branches depend on textures rather than
   uniforms, and a larger canvas for shaders with fine detail.

@@ -410,20 +410,20 @@ void mainImage(out vec4 m,vec2 f)
   
 #ifdef AA
 
-  for(float v=0.;v<=1.;v++)
-    for(float y=0.;y<=1.;y++)
+  for(float w=0.;w<=1.;w++)
+    for(float h=0.;h<=1.;h++)
       {
-        vec2 m=f+vec2(v,y)*.5;
+        vec2 o=f+vec2(w,h)*.5;
         
 #else
 
-        vec2 x=f;
+        vec2 o=f;
         
 #endif
 
-        x+=(fract(s()*vec2(23242.2323,978.23465))-.5)*10.;
-        vec2 z=(x-.5*iResolution.xy)/iResolution.y;
-        p+=S(a,n(a,c,z));
+        o+=(fract(s()*vec2(23242.2323,978.23465))-.5)*10.;
+        vec2 t=(o-.5*iResolution.xy)/iResolution.y;
+        p+=S(a,n(a,c,t));
         
 #ifdef AA
 

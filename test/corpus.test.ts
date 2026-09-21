@@ -20,6 +20,10 @@ for (const [corpus, shaders] of [["gl-transitions", glTransitions()], ["three", 
     for (const [label, options] of variants()) {
       cases.push({ name: `${corpus}/${s.name} [${label}]`, file, stage: file.endsWith(".vert") ? "vert" : "frag", source: s.source, options: { ...options, ...s.options }, uniforms: s.uniforms });
     }
+    // three.js injects its defines at runtime, so the plugin sees these with every `#if` still in
+    // place: the `#if` chains around arguments, struct members and parameters are kept for the
+    // compiler's preprocessor to decide, and this checks it decides the same way on the output.
+    if (corpus === "three") cases.push({ name: `${corpus}/${s.name} [plugin without --preprocess]`, file, stage: file.endsWith(".vert") ? "vert" : "frag", source: s.source, options: { ...pluginOptions(), preprocess: false }, uniforms: s.uniforms });
   }
 }
 

@@ -497,15 +497,18 @@ export class ArgumentInlining {
   //   another parameter of the same function would capture one of them;
   //   a global it reads is declared after the function (not in upstream: three.js passes
   //     `uniform sampler2D envMap`, declared after `bilinearCubeUV(sampler2D envMap, ...)`, and a
-  //     sampler parameter can only be replaced by the global itself).
+  //     sampler parameter can only be replaced by the global itself);
+  //   a global it reads is declared inside a `#if` region at top level (three.js: `uniform vec3
+  //     lightProbe[9]` under `#if defined( USE_LIGHT_PROBES )`, passed from a call under the same
+  //     condition into `getLightProbeIrradiance`, whose body is compiled whatever the define).
   //
-  // Both read the same list of identifiers, so it is gathered once. `globalPosition` is indexed
-  // once per findInlinings call rather than once per candidate.
-  private argumentCanMoveIntoBody(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt, funcIndex: number, globalPosition: Map<VarDecl, number>): boolean {
+  // All read the same list of identifiers, so it is gathered once. `globalPosition` and
+  // `conditional` are indexed once per findInlinings call rather than once per candidate.
+  private argumentCanMoveIntoBody(argExpr: Expr, funcInfo: FuncInfo, argDecl: Ast.DeclElt, funcIndex: number, globalPosition: Map<VarDecl, number>, conditional: Set<Ast.DeclElt>): boolean {
     const params = new Set(Ast.funParameters(funcInfo.funcType).map(([, d]) => d.name.name).filter((n) => n !== argDecl.name.name));
     const idents = new Analyzer(this.options).identUsesInStmt(IdentKind.Var, Ast.ExprStmt(argExpr));
     return idents.every((i) => !params.has(i.name)
-      && (i.varDecl === null || i.varDecl.scope !== "Global" || (globalPosition.get(i.varDecl) ?? -1) < funcIndex));
+      && (i.varDecl === null || i.varDecl.scope !== "Global" || ((globalPosition.get(i.varDecl) ?? -1) < funcIndex && !conditional.has(i.varDecl.decl))));
   }
 
   // Find when functions are always called with the same trivial expr, that can be inlined into the function body.
@@ -516,6 +519,7 @@ export class ArgumentInlining {
     const funcInfos = new Analyzer(this.options).findFuncInfos(code);
     const globalPosition = new Map<VarDecl, number>();
     code.forEach((tl, i) => { if (tl.kind === "TLDecl") for (const e of tl.decl[1]) { const vd = e.name.varDecl; if (vd !== null) globalPosition.set(vd, i); } });
+    const conditional = Ast.conditionalGlobals(code);
     for (const funcInfo of funcInfos) {
       const canBeRenamed = !this.options.noRenamingList.includes(funcInfo.name); // noRenamingList includes "main"
       // If the function is overloaded, removing a parameter could conflict with another overload.
@@ -526,7 +530,7 @@ export class ArgumentInlining {
           const varDecl = argDecl.name.varDecl;
           if (varDecl !== null && !Ast.typeIsOutOrInout(varDecl.ty)) { // Only inline 'in' parameters.
             const argExprs = distinctExprs(callSites.map((c) => c.argExprs[argIndex]));
-            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && this.argumentCanMoveIntoBody(argExprs[0], funcInfo, argDecl, code.indexOf(funcInfo.func), globalPosition)) { // The argExpr must always be the same at all call sites.
+            if (argExprs.length === 1 && this.isInlinableExpr(argExprs[0]) && this.argumentCanMoveIntoBody(argExprs[0], funcInfo, argDecl, code.indexOf(funcInfo.func), globalPosition, conditional)) { // The argExpr must always be the same at all call sites.
               const argExpr = argExprs[0];
               trace(this.options, `${locToS(varDecl.decl.name.loc)}: inlining expression '${Printer.exprToS(argExpr)}' into argument '${Printer.debugDecl(varDecl.decl)}' of '${Printer.debugFunc(funcInfo.funcType)}'`);
               argInlinings.unshift({ func: funcInfo.func, argIndex, varDecl, argExpr });

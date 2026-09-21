@@ -135,9 +135,18 @@ file pattern, and `options` passes any raw minifier option.
   are pinned). `PORTING.md` section 5.2 lists each, and its "Upstream
   candidates" note lists the ones worth offering back to Shader Minifier.
 - `--preprocess` also decides constant `#if` expressions (`#if ( 1 > 0 ) &&
-  defined( USE_MAP )`), which engine shaders like three.js's put inside
-  argument lists where the parser cannot keep them. A bare identifier in the
-  condition still leaves it to the compiler.
+  defined( USE_MAP )`), so a shader whose defines are all in the file loses
+  its dead branches. A bare identifier in the condition still leaves it to
+  the compiler.
+- Without it, every `#if` is kept for the compiler, including the ones
+  engine shaders put inside argument lists, struct bodies and parameter
+  lists (three.js: `getTangentFrame( -vViewPosition, normal,\n#if defined(
+  USE_NORMALMAP ) ...`). A chain standing where an expression does is parsed
+  and minified around; one around a group of struct members or parameters is
+  kept as text with what it names pinned. A name declared in both branches
+  of a `#if` is one variable, kept, never inlined and renamed once, where
+  upstream binds every use to the last declaration. So the plugin takes a
+  shader whose defines are injected at runtime as it comes.
 - Float literals above ~7.9e28 (the .NET `decimal` limit) are accepted.
 - Struct fields named like swizzle components (`float q;`, `vec3 rgb;`) are
   accepted and kept under their names; Shader Minifier refuses the declaration.

@@ -1,3 +1,88 @@
+diff --git a/tests/real/controllable-machinery.frag.expected b/tests/real/controllable-machinery.frag.expected
+index ab7baf1..004af87 100644
+--- a/tests/real/controllable-machinery.frag.expected
++++ b/tests/real/controllable-machinery.frag.expected
+@@ -40,8 +40,8 @@ vec4 BPos(float t)
+ }
+ float PrBoxDf(vec3 p,vec3 b)
+ {
+-  p=abs(p)-b;
+-  return min(max(p.x,max(p.y,p.z)),0.)+length(max(p,0.));
++  vec3 d=abs(p)-b;
++  return min(max(d.x,max(d.y,d.z)),0.)+length(max(d,0.));
+ }
+ float PrRoundBoxDf(vec3 p,vec3 b)
+ {
+@@ -468,15 +468,17 @@ void mainImage(out vec4 fragColor,vec2 fragCoord)
+   
+ #if!AA
+ 
++  const float naa=1.;
+   
+ #else
+ 
++  const float naa=3.;
+   
+ #endif
+ 
+   col=vec3(0);
+   sr=2.*mod(dot(mod(floor(.5*(uv+1.)*canvas),2.),vec2(1)),2.)-1.;
+-  for(float a=float(VAR_ZERO);a<3.;a++)
+-    rd=vuMat*normalize(vec3(uv+step(1.5,3.)*Rot2D(vec2(.5/canvas.y,0),sr*(.667*a+.5)*3.1415927),zmFac)),col+=1./3.*ShowScene(ro,rd);
++  for(float a=float(VAR_ZERO);a<naa;a++)
++    rd=vuMat*normalize(vec3(uv+step(1.5,naa)*Rot2D(vec2(.5/canvas.y,0),sr*(.667*a+.5)*3.1415927),zmFac)),col+=1./naa*ShowScene(ro,rd);
+   fragColor=vec4(col,1);
+ }
+diff --git a/tests/real/ed-209.frag.expected b/tests/real/ed-209.frag.expected
+index 5488208..0a2d420 100644
+--- a/tests/real/ed-209.frag.expected
++++ b/tests/real/ed-209.frag.expected
+@@ -410,20 +410,20 @@ void mainImage(out vec4 m,vec2 f)
+   
+ #ifdef AA
+ 
+-  for(float v=0.;v<=1.;v++)
+-    for(float y=0.;y<=1.;y++)
++  for(float w=0.;w<=1.;w++)
++    for(float h=0.;h<=1.;h++)
+       {
+-        vec2 m=f+vec2(v,y)*.5;
++        vec2 o=f+vec2(w,h)*.5;
+         
+ #else
+ 
+-        vec2 x=f;
++        vec2 o=f;
+         
+ #endif
+ 
+-        x+=(fract(s()*vec2(23242.2323,978.23465))-.5)*10.;
+-        vec2 z=(x-.5*iResolution.xy)/iResolution.y;
+-        p+=S(a,n(a,c,z));
++        o+=(fract(s()*vec2(23242.2323,978.23465))-.5)*10.;
++        vec2 t=(o-.5*iResolution.xy)/iResolution.y;
++        p+=S(a,n(a,c,t));
+         
+ #ifdef AA
+ 
+diff --git a/tests/real/orchard.frag.expected b/tests/real/orchard.frag.expected
+index 8209ded..7192ce0 100644
+--- a/tests/real/orchard.frag.expected
++++ b/tests/real/orchard.frag.expected
+@@ -264,11 +264,11 @@ void mainImage(out vec4 fragColour,vec2 fragCoord)
+   
+ #ifdef MOVE_CAMERA
+ 
+-  vec3 camera=getCamPos(time*.2);
++  vec3 camera=getCamPos(time*.2),lookat=getCamPos(time*.2+10.);
+   
+ #else
+ 
+-  vec3 camera=getCamPos(0.);
++  vec3 camera=getCamPos(0.),lookat=getCamPos(0.)+vec3(40.*sin(time*5.28),0,40.*cos(time*.28));
+   
+ #endif
+ 
 diff --git a/tests/unit/decimals.frag b/tests/unit/decimals.frag
 index 48de84b..bdc8769 100644
 --- a/tests/unit/decimals.frag
@@ -29,21 +114,6 @@ index f0cc95c..fdb6526 100644
    x(1e28);
    x(125.663704/180.);
    x(.6981316889);
-diff --git a/tests/real/controllable-machinery.frag.expected b/tests/real/controllable-machinery.frag.expected
-index ab7baf1..214984e 100644
---- a/tests/real/controllable-machinery.frag.expected
-+++ b/tests/real/controllable-machinery.frag.expected
-@@ -40,8 +40,8 @@ vec4 BPos(float t)
- }
- float PrBoxDf(vec3 p,vec3 b)
- {
--  p=abs(p)-b;
--  return min(max(p.x,max(p.y,p.z)),0.)+length(max(p,0.));
-+  vec3 d=abs(p)-b;
-+  return min(max(d.x,max(d.y,d.z)),0.)+length(max(d,0.));
- }
- float PrRoundBoxDf(vec3 p,vec3 b)
- {
 diff --git a/tests/unit/preprocess_if.frag.expected b/tests/unit/preprocess_if.frag.expected
 index f493d3d..8414581 100644
 --- a/tests/unit/preprocess_if.frag.expected

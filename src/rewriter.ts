@@ -3,7 +3,7 @@ import * as Ast from "./ast.js";
 import type { BlockLevel, Decl, DeclElt, Expr, FunctionType, Ident as IdentT, Location, MapEnv, Stmt, StructOrInterfaceBlock, TopLevel, Type, VarDecl } from "./ast.js";
 import {
   Block, DeclStmt, Dot, ExprStmt, Float, ForD, ForE, FunCall, DoWhile, Function as FunctionTL, Ident, If, Int, Jump, OpCall,
-  TLDecl, TLDirective, TLVerbatim, Var, Verbatim, Directive,
+  TLDecl, TLDirective, TLVerbatim, TypeDecl, Var, Verbatim, Directive,
   asOpCall, exprListEquals, funParameters, funPrototype, prototypeKey, resolvedVariableUse,
   typeEquals, typeIsConst, typeIsOutOrInout, typeIsScalar, typeIsScalarOrVector, makeType, asStmtList,
 } from "./ast.js";
@@ -1424,10 +1424,10 @@ class RewriterImpl {
       typeName(d[0]);
       for (const elt of d[1]) { for (const s of elt.sizes) exprVars(s); if (elt.init !== null) exprVars(elt.init); }
     };
-    const members = (block: StructOrInterfaceBlock): void => {
-      for (const m of block.members) declUses(m.decl);
-    };
     const verbatim: string[] = [];
+    const members = (block: StructOrInterfaceBlock): void => {
+      for (const m of block.members) { if (m.kind === "MemberVariable") declUses(m.decl); else verbatim.push(m.text); }
+    };
     for (const tl of code) {
       switch (tl.kind) {
         case "Function":
@@ -1560,6 +1560,9 @@ class RewriterImpl {
           return [TLDecl([this.rwType(t.decl[0]), li])];
         }
         case "TLVerbatim": return [TLVerbatim(this.stripSpaces(t.text))];
+        case "TypeDecl": // a region kept as text inside a struct is squeezed like any other verbatim text
+          if (!t.block.members.some((m) => m.kind === "MemberVerbatim")) return [t];
+          return [TypeDecl({ ...t.block, members: t.block.members.map((m) => (m.kind === "MemberVerbatim" ? { ...m, text: this.stripSpaces(m.text) } : m)) })];
         case "TLDirective": return [TLDirective(this.stripDirectiveSpaces(t.parts), t.loc)];
         case "Function":
           if (t.funcType.fName.toBeInlined) return [];
@@ -1616,7 +1619,31 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   const free = infos.filter((n) => !regionFunctions.has(n.func));
   const freeByProto = new Map(free.map((n) => [funPrototype(n.funcType), n]));
   const freeNodes = free.map((n) => ({ ...n, callSites: n.callSites.filter((c) => freeByProto.has(c.prototype)) }));
-  if (regionFunctions.size === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
+  // Calls are read from the bodies rather than from the analysis's call sites, which leave out a
+  // call to a function it cannot see, such as one kept as text.
+  const callsIn = (body: Stmt): string[] => {
+    const calls: string[] = [];
+    const collect = (_: MapEnv, e: Expr): Expr => { if (e.kind === "FunCall" && e.fn.kind === "Var") calls.push(Ast.prototypeKey(e.fn.ident.name, e.args.length)); return e; };
+    Ast.visitor(options, collect).iterStmt(Ast.UnknownLevel, body);
+    return calls;
+  };
+  // A function kept as text (a conditional in its parameter list, see the parser's opaque regions)
+  // is a unit too, as far as its text can be read: it calls every function whose name it mentions,
+  // and defines every prototype called from a function that no parsed function defines and whose
+  // name it mentions. Other verbatim text stays among the declarations, as before.
+  type Unit = { items: TopLevel[]; defines: Set<string>; calls: Set<string> };
+  const definedByFunctions = new Set(infos.map((n) => funPrototype(n.funcType)));
+  const calledAnywhere = new Set(infos.flatMap((n) => callsIn(n.body)));
+  const textUnits: Unit[] = segments.flatMap((s): Unit[] => {
+    if (s.region || s.tl.kind !== "TLVerbatim") return [];
+    const text = s.tl.text;
+    const mentions = (proto: string): boolean => new RegExp(`\\b${proto.slice(0, proto.indexOf("/"))}\\b`).test(text);
+    const calls = new Set([...definedByFunctions].filter(mentions));
+    const defines = new Set([...calledAnywhere].filter((p) => !definedByFunctions.has(p) && mentions(p)));
+    return calls.size === 0 && defines.size === 0 ? [] : [{ items: [s.tl], defines, calls }];
+  });
+  const textItems = new Set(textUnits.flatMap((u) => u.items));
+  if (regionFunctions.size === 0 && textUnits.length === 0) return [...code.filter((t) => t.kind !== "Function"), ...graphReorder(freeNodes)];
 
   // Every declaration outside a region first, as upstream lays them out, so a function pulled
   // ahead of a region never precedes a global it reads. Then the functions and the regions, each
@@ -1628,19 +1655,19 @@ export function reorderFunctions(options: Options, code: TopLevel[]): TopLevel[]
   // region, and from a free function into a region, as well as upstream's plain callee-first
   // case. The forward declarations the source had are dropped, so an order that needs one is the
   // one thing this cannot express: a cycle through two regions leaves file order, as before.
-  type Unit = { items: TopLevel[]; defines: Set<string>; calls: Set<string> };
   const unitOf = (items: TopLevel[], members: FuncInfo[]): Unit => ({
     items,
     defines: new Set(members.map((n) => funPrototype(n.funcType))),
-    calls: new Set(members.flatMap((n) => n.callSites.map((c) => c.prototype))),
+    calls: new Set(members.flatMap((n) => callsIn(n.body))),
   });
   const byFunc = new Map(infos.map((n) => [n.func, n]));
   const units: Unit[] = segments.map((s) => (s.region
     ? unitOf(s.items, s.items.flatMap((t) => { const n = byFunc.get(t); return n === undefined ? [] : [n]; }))
     : unitOf([s.tl], s.tl.kind === "Function" && byFunc.has(s.tl) ? [byFunc.get(s.tl)!] : [])))
     .filter((u) => u.items.length > 0 && (u.defines.size > 0 || u.items.some((t) => t.kind === "Function")));
+  units.push(...textUnits);
   const defined = new Set(units.flatMap((u) => [...u.defines]));
-  const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" ? [s.tl] : []));
+  const out: TopLevel[] = segments.flatMap((s) => (!s.region && s.tl.kind !== "Function" && !textItems.has(s.tl) ? [s.tl] : []));
   const pending = units.slice();
   const done = new Set<string>();
   while (pending.length > 0) {

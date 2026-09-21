@@ -22,3 +22,16 @@ in `PORTING.md` section 5.2.
    expressions. Upstream keeps `#if DEF ... #endif` as text even with
    `#define DEF 1` in the file; the port decides it (`PORTING.md` 5.2 item
    16), so the two directive lines are gone from the expected output.
+
+4. `tests/real/controllable-machinery.frag.expected`,
+   `tests/real/orchard.frag.expected`, `tests/real/ed-209.frag.expected` — a
+   name declared in both branches of a `#if`. Upstream reads a function body
+   as one flat list, so `#if ! AA const float naa = 1.; #else const float
+   naa = 3.; #endif` binds every use to the second declaration and inlines
+   `3.` whatever `AA` is; `orchard`'s `lookat` is the same. The port keeps
+   both declarations as one variable (`PORTING.md` 5.2 item 32), so
+   `controllable-machinery` keeps `naa` and `orchard` keeps both `lookat`
+   initializers, and `ed-209`'s two `vec2 coord` declarations get one name
+   instead of two. `ed-209`'s loops around them open under `#ifdef AA` and
+   close under another, so the port also stops reusing outer names by
+   shadowing inside them, which renames the loop variables.

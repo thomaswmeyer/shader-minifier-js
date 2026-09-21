@@ -120,6 +120,9 @@ const LocalDeclaration: DeclarationContext = { kind: "LocalDeclaration" };
 class RenamerVisitor {
   constructor(private readonly options: Options) {}
 
+  // Whether each enclosing block, innermost last, holds a conditional directive; see renDecl.
+  private readonly directiveBlocks: boolean[] = [];
+
   private export(env: Env, prefix: ExportPrefix, id: Ident): void {
     if (!id.isUniqueId) {
       env.exportedNames.value = [{ prefix, name: id.oldName, newName: id.name }, ...env.exportedNames.value];
@@ -215,7 +218,15 @@ class RenamerVisitor {
             }
           }
         case "FunctionArgument": return env.newName("VarFunStruct", env, decl.name);
-        case "LocalDeclaration": return env.newName("VarFunStruct", env, decl.name);
+        case "LocalDeclaration": {
+          // In a block with conditional directives a name may be declared twice, in alternative branches, or
+          // redeclare a global or parameter in one branch (Analyzer.unifyAlternativeDeclarations).
+          // The compiler sees one of the declarations; every use is renamed after whichever came
+          // first, so the others take the same name. Shadowing in the source stays shadowing.
+          const same = this.directiveBlocks[this.directiveBlocks.length - 1] === true ? env.identRenames.get(decl.name.name) : undefined;
+          if (same !== undefined) { decl.name.rename(same); return env; }
+          return env.newName("VarFunStruct", env, decl.name);
+        }
       }
     };
 
@@ -250,6 +261,14 @@ class RenamerVisitor {
     return renList(env, (e, m) => this.renStructMember(stru, true, e, m), stru.members);
   }
 
+  // The env for a nested scope, where the names of outer variables the scope never reads may be
+  // reused by shadowing. Not when the scope's braces are under a conditional directive: under the
+  // other setting of the define its declarations belong to the enclosing scope, where those names
+  // are taken.
+  private scope(env: Env, stmt: Stmt): Env {
+    return Ast.hasConditionalBraces(stmt) ? env : env.onEnterScope(env, stmt);
+  }
+
   private renStmt(env: Env, stmt: Stmt): Env {
     const renOpt = (o: Ast.Expr | null): void => { if (o !== null) this.renExpr(env, o); };
     switch (stmt.kind) {
@@ -257,17 +276,18 @@ class RenamerVisitor {
       case "Decl":
         return this.renDecl(LocalDeclaration, null, env, stmt.decl);
       case "Block":
-        renList(env, (e, s) => this.renStmt(e, s), stmt.stmts);
+        this.directiveBlocks.push(stmt.stmts.some(Ast.isConditionalDirective));
+        try { renList(env, (e, s) => this.renStmt(e, s), stmt.stmts); } finally { this.directiveBlocks.pop(); }
         return env;
       case "If":
-        this.renStmt(env.onEnterScope(env, stmt.then), stmt.then);
-        if (stmt.else !== null) this.renStmt(env.onEnterScope(env, stmt.else), stmt.else);
+        this.renStmt(this.scope(env, stmt.then), stmt.then);
+        if (stmt.else !== null) this.renStmt(this.scope(env, stmt.else), stmt.else);
         this.renExpr(env, stmt.cond);
         return env;
       case "ForD": {
         const envForType = env; // Use the outer env to rename the init variable's type! In the inner env the type name might have been removed.
         {
-          let innerEnv = env.onEnterScope(env, stmt); // In the for scope, we use an env that allows shadowing unused outer decls.
+          let innerEnv = this.scope(env, stmt); // In the for scope, we use an env that allows shadowing unused outer decls.
           innerEnv = this.renDecl(LocalDeclaration, envForType, innerEnv, stmt.init); // Use the inner env to rename the init variable.
           this.renStmt(innerEnv, stmt.body);
           if (stmt.cond !== null) this.renExpr(innerEnv, stmt.cond);
@@ -276,7 +296,7 @@ class RenamerVisitor {
         }
       }
       case "ForE": {
-        const innerEnv = env.onEnterScope(env, stmt);
+        const innerEnv = this.scope(env, stmt);
         renOpt(stmt.init);
         renOpt(stmt.cond);
         renOpt(stmt.inc);
@@ -284,13 +304,13 @@ class RenamerVisitor {
         return env;
       }
       case "While": {
-        const innerEnv = env.onEnterScope(env, stmt);
+        const innerEnv = this.scope(env, stmt);
         this.renExpr(innerEnv, stmt.cond);
         this.renStmt(innerEnv, stmt.body);
         return env;
       }
       case "DoWhile": {
-        const innerEnv = env.onEnterScope(env, stmt);
+        const innerEnv = this.scope(env, stmt);
         this.renExpr(innerEnv, stmt.cond);
         this.renStmt(innerEnv, stmt.body);
         return env;

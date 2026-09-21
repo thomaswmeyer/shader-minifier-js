@@ -190,12 +190,13 @@ class PrinterImpl {
       case "VerbatimExp": return e.text;
       case "Conditional": {
         // The directives have to start their own lines for the compiler's preprocessor, whatever
-        // the output format asks for. The chain binds like a comma expression, the loosest thing
-        // there is: whichever branch the preprocessor keeps is then an operand of whatever
-        // surrounds it, so a tighter context has to parenthesise the whole chain. Parentheses may
-        // wrap the directives, since the preprocessor runs first and leaves one expression inside.
+        // the output format asks for. Each branch is printed without a bare comma, so the chain
+        // stands on its own as a call argument or an initializer; whichever branch the
+        // preprocessor keeps is then an operand of whatever surrounds it, so a tighter context has
+        // to parenthesise the whole chain. Parentheses may wrap the directives, since the
+        // preprocessor runs first and leaves one expression inside.
         const chain = e.branches.map((b) => `\n${b.directive}\n${this.exprToSLevel(indent, prec(",") + 1, b.expr)}`).join("") + "\n#endif\n";
-        return level > prec(",") ? `(${chain})` : chain;
+        return level > prec(",") + 1 ? `(${chain})` : chain;
       }
     }
   }
@@ -206,7 +207,12 @@ class PrinterImpl {
 
   private blockToS(indent: number, block: StructOrInterfaceBlock): string {
     const name = block.name === null ? "" : " " + block.name.name;
-    const d = block.members.map((s) => `${this.nl(indent + 1)}${this.structMemberToS(indent + 1, s)};`).join("");
+    let d = "";
+    for (const m of block.members) {
+      // A region's directives need lines of their own, whatever the output format asks for.
+      if (m.kind === "MemberVerbatim") d += `${d.endsWith("\n") ? "" : "\n"}${m.text}\n`;
+      else d += `${this.nl(indent + 1)}${this.structMemberToS(indent + 1, m)};`;
+    }
     const d2 = d === "" ? "" : `${d}${this.nl(indent)}`;
     const prefix = block.blockType.kind === "Struct" ? "struct" : block.blockType.prefix;
     return `${this.sp2(prefix, name)}{${d2}}`;
@@ -245,7 +251,7 @@ class PrinterImpl {
   }
 
   private structMemberToS(indent: number, m: StructMember): string {
-    return this.declToS(indent, m.decl);
+    return m.kind === "MemberVariable" ? this.declToS(indent, m.decl) : m.text;
   }
 
   private directiveToS(d: string[]): string {
@@ -328,7 +334,8 @@ class PrinterImpl {
     switch (tl.kind) {
       case "TLVerbatim": { // add a space at the end when it seems to be needed
         const trailing = tl.text.length > 0 && isIdentChar(tl.text[tl.text.length - 1]) ? " " : "";
-        return `${tl.text}${trailing}`;
+        const leading = tl.text.startsWith("#") ? "\n" : ""; // an opaque region opening on a directive needs its own line
+        return `${leading}${tl.text}${trailing}`;
       }
       case "TLDirective": return this.directiveToS(tl.parts);
       case "Function": return this.funDeclToS(0, tl.funcType, tl.body);

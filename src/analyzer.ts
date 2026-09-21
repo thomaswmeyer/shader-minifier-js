@@ -363,8 +363,66 @@ export class Analyzer {
     // First visit all declarations, creating them.
     for (const tl of topLevel) resolveGlobalsAndParameters(tl);
     Ast.visitor(this.options, undefined, resolveStmt).iterTopLevel(topLevel);
+    this.unifyAlternativeDeclarations(topLevel);
     // Then, visit all uses and associate them to their declaration.
     Ast.visitor(this.options, resolveExpr).iterTopLevel(topLevel);
+  }
+
+  // A block with conditional directives in it may declare one name twice, in alternative
+  // branches the compiler picks one of (three.js: `#ifdef FOG_EXP2\n float fogFactor = ...;\n#else\n
+  // float fogFactor = ...;\n#endif`), or declare a local of a global's or parameter's name in a
+  // branch (`#ifdef USE_INSTANCING_MORPH\n float morphTargetInfluences[N];` over the uniform). Read
+  // as one flat list, the uses bind to the last declaration, the others look unused, and each
+  // rewrite that acts on one of them is wrong under the other setting of the define: the first
+  // declaration removed as unused, the last inlined into a use both share, the two renamed apart.
+  //
+  // So every declaration of such a name in the list is made one variable: the later ones point at
+  // the first's declaration, all of them are kept out of inlining, and a shadowed global or
+  // parameter is treated as having uses this pass cannot see. The renamer then gives them one name
+  // (RenamerVisitor.renDecl). Blocks without a directive cannot redeclare a name, so nothing else
+  // changes.
+  private unifyAlternativeDeclarations(topLevel: readonly TopLevel[]): void {
+    const globals = new Map<string, Ident>();
+    for (const tl of topLevel) if (tl.kind === "TLDecl") for (const d of tl.decl[1]) globals.set(d.name.name, d.name);
+    const unifyList = (stmts: readonly Stmt[], outer: ReadonlyMap<string, Ident>): void => {
+      if (!stmts.some(Ast.isConditionalDirective)) return;
+      const seen = new Map<string, Ident>();
+      for (const s of stmts) {
+        if (s.kind !== "Decl") continue;
+        for (const elt of s.decl[1]) {
+          const name = elt.name.name;
+          const first = seen.get(name);
+          if (first !== undefined) {
+            elt.name.declaration = first.declaration;
+            elt.name.doNotInline = true;
+            first.doNotInline = true;
+            continue;
+          }
+          seen.set(name, elt.name);
+          const shadowed = outer.get(name);
+          if (shadowed !== undefined) {
+            elt.name.doNotInline = true;
+            shadowed.doNotInline = true;
+            shadowed.hiddenUses = true; // its uses in the other setting of the define resolve to the local here
+          }
+        }
+      }
+    };
+    const walk = (s: Stmt, outer: ReadonlyMap<string, Ident>): void => {
+      switch (s.kind) {
+        case "Block": unifyList(s.stmts, outer); for (const x of s.stmts) walk(x, outer); break;
+        case "If": walk(s.then, outer); if (s.else !== null) walk(s.else, outer); break;
+        case "ForD": case "ForE": case "While": case "DoWhile": walk(s.body, outer); break;
+        case "Switch": for (const c of s.cases) { unifyList(c.stmts, outer); for (const x of c.stmts) walk(x, outer); } break;
+        default: break;
+      }
+    };
+    for (const tl of topLevel) {
+      if (tl.kind !== "Function") continue;
+      const outer = new Map(globals);
+      for (const [, elts] of tl.funcType.args) for (const d of elts) outer.set(d.name.name, d.name);
+      walk(tl.body, outer);
+    }
   }
 
   // Every variable use must still name the declaration it was resolved to. A rewrite that copies

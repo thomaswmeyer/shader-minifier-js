@@ -93,6 +93,14 @@ describe("reorderFunctions with #ifdef regions", () => {
     expect(out.indexOf("#ifdef Y")).toBeLessThan(out.indexOf("float mid("));
     expect(out.indexOf("float mid(")).toBeLessThan(out.indexOf("#ifdef X"));
   });
+  it("places a function kept as text after what it calls and before what calls it", () => {
+    // `g` has a conditional in its parameter list, so it is verbatim text (PORTING.md item 31):
+    // its callees are known only by name, and so are its callers.
+    const src = "float h(float x);float g(\n#ifdef A\nfloat x\n#else\nint x\n#endif\n){return h(float(x));}float h(float x){return x*2.;}float k(){return g(1.);}void main(){gl_FragColor=vec4(k());}";
+    const out = minify(src, { noInlining: true });
+    expect(out.indexOf("float h(")).toBeLessThan(out.indexOf("float g("));
+    expect(out.indexOf("float g(")).toBeLessThan(out.indexOf("float k("));
+  });
   it("leaves a cycle through two regions in file order, since the forward declarations are gone", () => {
     const src = "float p();float q();\n#ifdef X\nfloat p(){return q()+1.;}\n#endif\n#ifdef Y\nfloat q(){return p()+2.;}\n#endif\nvoid main(){gl_FragColor=vec4(p());}";
     const out = minify(src, { noInlining: true });

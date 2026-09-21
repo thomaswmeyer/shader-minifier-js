@@ -61,6 +61,7 @@ class ParserImpl {
   forbiddenNames: string[] = [];
   pinnedNames = new Set<string>();
   pinnedFields = new Set<string>();
+  pinnedGlobalNames = new Set<string>();
   reorderFunctions = false;
 
   constructor(private readonly options: Options, private readonly src: string, private readonly streamName: string) {}
@@ -300,6 +301,7 @@ class ParserImpl {
       () => this.parenExp(),
       () => Ast.Var(this.ident()),
       () => this.anyNumber(),
+      () => this.conditionalExpr(),
     );
   }
 
@@ -320,7 +322,7 @@ class ParserImpl {
         e = Ast.Subscript(e, ind);
       } else if (c === "(") {
         this.ch("(");
-        const args = this.sepBy(() => this.argument(), ",");
+        const args = this.sepBy(() => this.exprNoComma(), ",");
         this.ch(")");
         e = Ast.FunCall(e, args);
       } else {
@@ -329,15 +331,11 @@ class ParserImpl {
     }
   }
 
-  // An argument of a call, which may be a `#if`/`#elif`/`#else` chain choosing between
-  // expressions. Engine shaders write one inside an argument list and the preprocessor picks a
-  // branch, so all of them are kept. Only this position is supported so far: a chain that spans
-  // several arguments, or one in an operand position, is still a parse error.
-  private argument(): Ast.Expr {
-    const cond = this.attempt(() => this.conditionalExpr());
-    return cond ?? this.exprNoComma();
-  }
-
+  // A `#if`/`#elif`/`#else` chain choosing between expressions, standing where a primary
+  // expression does. Engine shaders write one inside an argument list and the preprocessor picks a
+  // branch, so all of them are kept. The printer parenthesises a chain in a tighter context, and
+  // the parentheses come back here through parenExp. A chain that spans several arguments is
+  // still a parse error.
   private conditionalExpr(): Ast.Expr {
     const directiveLine = (): string => {
       if (this.peek() !== "#") this.fail("'#'");
@@ -429,6 +427,7 @@ class ParserImpl {
     };
     const structMember = (): Ast.StructMember =>
       this.choice<Ast.StructMember>("struct member",
+        () => this.memberRegion(),
         () => {
           const d = this.declaration();
           this.ch(";");
@@ -441,6 +440,128 @@ class ParserImpl {
     if (name !== null) this.forbiddenNames = [name.name, ...this.forbiddenNames];
     const blockType: Ast.BlockType = prefix === "struct" ? Ast.StructBlockType : { kind: "InterfaceBlock", prefix };
     return { blockType, name, members };
+  }
+
+  // ---- opaque regions ------------------------------------------------------
+  //
+  // Engine shaders put a `#if` around a group of struct members, or around a group of function
+  // parameters with an `#else` giving the same parameter another type (three.js: `float
+  // getSunShadow(\n#if defined( SHADOWMAP_TYPE_PCF )\n sampler2DShadow shadowMap,\n#else\n
+  // sampler2D shadowMap,\n#endif ...`). A Conditional expression cannot stand for a choice between
+  // list items, so such a region is kept as text the minifier does not see into, the way a kept
+  // `#define` body is: printed as written, with every identifier it names pinned so the
+  // declarations it refers to keep their names and stay. That costs bytes on those shaders and
+  // stays correct; representing the alternatives is the fuller fix (TODO.md section 1).
+
+  /**
+   * Comments out, whitespace collapsed, and a line break only where a directive needs one: the
+   * rewriter's verbatim pass then removes the spaces that separate nothing.
+   */
+  private static opaqueText(raw: string): string {
+    let code = "";
+    for (let i = 0; i < raw.length;) {
+      if (raw.startsWith("//", i)) { const e = raw.indexOf("\n", i); i = e < 0 ? raw.length : e; }
+      else if (raw.startsWith("/*", i)) { const e = raw.indexOf("*/", i + 2); code += " "; i = e < 0 ? raw.length : e + 2; }
+      else code += raw[i++];
+    }
+    const lines = code.split("\n").map((l) => l.trim().replace(/\s+/g, " ")).filter((l) => l !== "");
+    let out = "";
+    for (const [i, l] of lines.entries()) {
+      if (i > 0) out += l.startsWith("#") || lines[i - 1].startsWith("#") ? "\n" : " ";
+      out += l;
+    }
+    return out;
+  }
+
+  /** Pin what an opaque region names; `declaresFields` when its plain identifiers are struct members. */
+  private pinOpaque(text: string, declaresFields: boolean): void {
+    const { names, fields } = macroBodyIdents(" " + text); // never function-like: a leading space
+    for (const n of names) {
+      this.pinnedGlobalNames.add(n);
+      if (declaresFields) this.pinnedFields.add(n);
+      // The region keeps its names, so no generated name may take one: a field renamed to the
+      // spelling of a field the region declares would be a duplicate member when it is compiled in.
+      if (!this.forbiddenNames.includes(n)) this.forbiddenNames = [n, ...this.forbiddenNames];
+    }
+    for (const f of fields) this.pinnedFields.add(f);
+  }
+
+  private static readonly opensRegion = /^\s*#\s*(if|ifdef|ifndef)\b/;
+
+  /**
+   * From a `#if`/`#ifdef`/`#ifndef` line to its `#endif`, nesting included; the raw text. Inside a
+   * struct a brace means the region ran out of the member list, so `allowBraces` is off there.
+   */
+  private conditionalRegion(allowBraces: boolean): string {
+    if (this.peek() !== "#" || !ParserImpl.opensRegion.test(this.src.slice(this.pos, this.pos + 16))) this.fail("'#if'");
+    const start = this.pos;
+    let depth = 0;
+    for (;;) {
+      if (this.eof()) this.fail("'#endif'");
+      const end = this.src.indexOf("\n", this.pos);
+      const line = this.src.slice(this.pos, end < 0 ? this.src.length : end);
+      this.pos = end < 0 ? this.src.length : end + 1;
+      if (ParserImpl.opensRegion.test(line)) depth++;
+      else if (/^\s*#\s*endif\b/.test(line)) { if (--depth === 0) break; }
+      else if (!allowBraces && !/^\s*#/.test(line) && /[{}]/.test(line)) this.fail("'#endif'"); // ran out of the list
+    }
+    const raw = this.src.slice(start, this.pos);
+    this.ws();
+    return raw;
+  }
+
+  /** A conditional around struct members. */
+  private memberRegion(): Ast.StructMember {
+    const text = ParserImpl.opaqueText(this.conditionalRegion(false));
+    this.pinOpaque(text, true);
+    return { kind: "MemberVerbatim", text };
+  }
+
+  /** The body of a function whose header was taken as text: parsed to find its end and to be sure it is one. */
+  private opaqueBody(start: number): Ast.TopLevel {
+    this.many(() => this.statement());
+    if (this.peek() !== "}") this.fail("'}'");
+    this.pos++;
+    const text = ParserImpl.opaqueText(this.src.slice(start, this.pos));
+    this.ws();
+    this.pinOpaque(text, false);
+    return Ast.TLVerbatim(text);
+  }
+
+  /**
+   * A conditional whose branches each open a function without closing it (three.js: `#ifdef
+   * USE_IRIDESCENCE\nvoid computeMultiscatteringIridescence(...) {\n#else\nvoid
+   * computeMultiscattering(...) {\n#endif` and one body): the region and the body, as text.
+   */
+  private opaqueHeaderRegion(): Ast.TopLevel {
+    const start = this.pos;
+    const region = ParserImpl.opaqueText(this.conditionalRegion(true));
+    const count = (c: string): number => region.split(c).length - 1;
+    if (count("{") <= count("}")) this.fail("an unclosed function header"); // an ordinary region
+    return this.opaqueBody(start);
+  }
+
+  /** A function whose parameter list holds a directive: the whole function, as text. */
+  private opaqueFunction(): Ast.TopLevel {
+    const start = this.pos;
+    this.specifiedType();
+    this.ident();
+    this.ch("(");
+    let depth = 1;
+    let directive = false;
+    while (depth > 0) {
+      if (this.eof()) this.fail("')'");
+      if (this.commentLine() || this.commentBlock()) continue;
+      const c = this.peek();
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      else if (c === "#" && /^[ \t]*$/.test(this.src.slice(this.src.lastIndexOf("\n", this.pos - 1) + 1, this.pos))) directive = true;
+      this.pos++;
+    }
+    if (!directive) this.fail("a directive among the parameters");
+    this.ws();
+    this.ch("{");
+    return this.opaqueBody(start);
   }
 
   private structSpecifier(): Ast.StructOrInterfaceBlock {
@@ -735,6 +856,7 @@ class ParserImpl {
 
   private topLevelItem(): Ast.TopLevel {
     return this.choice<Ast.TopLevel>("top-level declaration",
+      () => this.opaqueHeaderRegion(),
       () => { const ss = this.macro(); return Ast.TLDirective(ss, this.location()); },
       () => Ast.TLVerbatim(this.verbatim()),
       () => { const d = this.declaration(); this.ch(";"); return Ast.TLDecl(d); },
@@ -743,6 +865,7 @@ class ParserImpl {
       () => Ast.TLVerbatim(this.loneLayoutQualifier()),
       () => this.precision(),
       () => this.pfunction(),
+      () => this.opaqueFunction(),
     );
   }
 
@@ -773,7 +896,7 @@ class ParserImpl {
       const snippet = this.src.slice(this.pos, this.pos + 30).replace(/\n/g, "\\n");
       throw new ParseError(`Error in ${this.streamName}: Ln: ${loc.line} Col: ${loc.col}\n${snippet}\n^\nExpecting: ${this.furthestExpected || "top-level declaration"}`);
     }
-    return { filename: this.streamName, code, forbiddenNames: this.forbiddenNames, pinnedNames: [...this.pinnedNames], pinnedFields: [...this.pinnedFields], reorderFunctions: this.reorderFunctions };
+    return { filename: this.streamName, code, forbiddenNames: this.forbiddenNames, pinnedNames: [...this.pinnedNames], pinnedFields: [...this.pinnedFields], pinnedGlobalNames: [...this.pinnedGlobalNames], reorderFunctions: this.reorderFunctions };
   }
 }
 
@@ -862,20 +985,25 @@ export function macroBodyIdents(rest: string): { names: string[]; fields: string
 // A #define the minifier keeps is text it cannot see into: a variable, function, struct or field
 // the body names must stay declared under that name. Mark every declaration of such a name, and
 // keep the names that were declared out of the renamer's generated list.
+//
+// An opaque region (a conditional around struct members, a function whose parameter list holds
+// one) pins the same way, except that its text can only reach top-level declarations and fields,
+// so a local or parameter of another function that happens to share a name is left alone.
 function pinMacroNames(options: Options, shader: Ast.Shader): void {
   const names = new Set(shader.pinnedNames);
   const fields = new Set(shader.pinnedFields);
-  if (names.size === 0 && fields.size === 0) return;
+  const globals = new Set([...shader.pinnedGlobalNames, ...names]);
+  if (globals.size === 0 && fields.size === 0) return;
   const used = new Set<string>();
   const pin = (id: Ast.Ident, set: Set<string>): void => { if (set.has(id.name)) { id.keepName = true; id.hiddenUses = true; id.doNotInline = true; used.add(id.name); } };
   const pinDecl = ([, elts]: Ast.Decl, set = names): void => { for (const e of elts) pin(e.name, set); };
   const pinBlock = (block: Ast.StructOrInterfaceBlock): void => {
-    if (block.name !== null) pin(block.name, names);
+    if (block.name !== null) pin(block.name, globals);
     for (const m of block.members) if (m.kind === "MemberVariable") pinDecl(m.decl, fields);
   };
   for (const tl of shader.code) {
-    if (tl.kind === "TLDecl") pinDecl(tl.decl);
-    else if (tl.kind === "Function") { pin(tl.funcType.fName, names); for (const d of tl.funcType.args) pinDecl(d); }
+    if (tl.kind === "TLDecl") pinDecl(tl.decl, globals);
+    else if (tl.kind === "Function") { pin(tl.funcType.fName, globals); for (const d of tl.funcType.args) pinDecl(d); }
     else if (tl.kind === "TypeDecl") pinBlock(tl.block);
   }
   const pinStmt = (_env: Ast.MapEnv, s: Ast.Stmt): Ast.Stmt => {

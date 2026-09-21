@@ -148,7 +148,12 @@ export const TypeBlock = (block: StructOrInterfaceBlock): TypeSpec => ({ kind: "
 
 export type StructMember =
   | { kind: "MemberVariable"; decl: Decl }
-;
+  // A `#if`/`#ifdef` region around struct members, kept as the text it was written as (three.js:
+  // `struct PhysicalMaterial { ... #ifdef USE_CLEARCOAT float clearcoat; ... #endif }`). The
+  // compiler's preprocessor decides which members exist, so the minifier cannot know the struct's
+  // layout and treats the region as text it cannot see into: every field it declares keeps its
+  // name, every type it names stays declared, and the text is printed as is on its own lines.
+  | { kind: "MemberVerbatim"; text: string };
 
 export type BlockType = { kind: "Struct" } | { kind: "InterfaceBlock"; prefix: string }; // things like "uniform" or "layout(...)"
 export const StructBlockType: BlockType = { kind: "Struct" };
@@ -219,6 +224,57 @@ export const Switch = (expr: Expr, cases: SwitchCase[]): Stmt => ({ kind: "Switc
 
 export const asStmtList = (s: Stmt): Stmt[] => (s.kind === "Block" ? s.stmts : [s]);
 
+/** A `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif` statement: the statements around it are alternatives the compiler picks from. */
+export const isConditionalDirective = (s: Stmt): boolean =>
+  s.kind === "Directive" && /^#\s*(if|ifdef|ifndef|elif|else|endif)\b/.test(s.parts[0]);
+
+/**
+ * Whether a statement contains a block whose braces are not where the compiler will see them: a
+ * statement list in it opens a conditional it does not close, or closes one it did not open
+ * (ed-209: `#ifdef AA\n for(...){ for(...){ vec2 coord = ...;\n#else\n vec2 coord = fragCoord;\n#endif`
+ * ... `#ifdef AA\n }}\n#endif`). Under the other setting of the define the block's declarations sit in
+ * the enclosing scope, so a name that only shadowing made available inside the block is not free.
+ */
+export function hasConditionalBraces(stmt: Stmt): boolean {
+  const unbalanced = (stmts: readonly Stmt[]): boolean => {
+    let depth = 0;
+    for (const s of stmts) {
+      if (s.kind !== "Directive" || !isConditionalDirective(s)) continue;
+      const d = s.parts[0];
+      if (/^#\s*(if|ifdef|ifndef)\b/.test(d)) depth++;
+      else if (/^#\s*endif\b/.test(d)) { if (--depth < 0) return true; }
+      else if (depth === 0) return true; // #else or #elif of a conditional opened outside
+    }
+    return depth !== 0;
+  };
+  switch (stmt.kind) {
+    case "Block": return unbalanced(stmt.stmts) || stmt.stmts.some(hasConditionalBraces);
+    case "If": return hasConditionalBraces(stmt.then) || (stmt.else !== null && hasConditionalBraces(stmt.else));
+    case "ForD": case "ForE": case "While": case "DoWhile": return hasConditionalBraces(stmt.body);
+    case "Switch": return stmt.cases.some((c) => unbalanced(c.stmts) || c.stmts.some(hasConditionalBraces));
+    default: return false;
+  }
+}
+
+/**
+ * The global declarations inside a `#if` region at top level, which exist only under some setting
+ * of the defines. Anything that moves such a name into unconditional code (argument inlining moves
+ * a call site's expression into the callee's body) would leave a use with no declaration there.
+ */
+export function conditionalGlobals(code: readonly TopLevel[]): Set<DeclElt> {
+  const out = new Set<DeclElt>();
+  let depth = 0;
+  for (const tl of code) {
+    if (tl.kind === "TLDirective") {
+      if (/^#\s*(if|ifdef|ifndef)\b/.test(tl.parts[0])) depth++;
+      else if (/^#\s*endif\b/.test(tl.parts[0])) depth = Math.max(0, depth - 1);
+    } else if (tl.kind === "TLDecl" && depth > 0) {
+      for (const d of tl.decl[1]) out.add(d);
+    }
+  }
+  return out;
+}
+
 export interface FunctionType {
   retType: Type;
   fName: Ident;
@@ -274,6 +330,10 @@ export interface Shader {
   forbiddenNames: string[];
   pinnedNames: string[]; // identifiers named in #define bodies, and the field names after a dot; see Ident.hiddenUses
   pinnedFields: string[];
+  // Identifiers named in an opaque region (a conditional around struct members, or a function whose
+  // parameter list holds one). Such text can only refer to top-level declarations and struct
+  // fields, so unlike a #define body it pins no local or parameter of another function.
+  pinnedGlobalNames: string[];
   reorderFunctions: boolean; // set to true if we saw a forward declaration
 }
 export const shaderMangledFilename = (s: Shader): string => mangleToUnicode(basename(s.filename));
