@@ -352,8 +352,13 @@ fragment-only comparison already is the real pair.
   multiply the eight minutes of browser time for detail the comparison
   already has, so both stay as they are unless a shader turns up that the
   three seeds miss.
-- The upstream candidates of `PORTING.md`, filed upstream with their
-  reproducing shaders.
+- **The upstream candidates: prepared, not yet filed.** `upstream/` holds
+  twelve of them as reports ready to send, each with a minimal shader, the
+  output Shader Minifier itself produces (built from the commit in
+  `tests/UPSTREAM`), and a pointer into the F#. Six make a working shader stop
+  compiling. `npm run upstream:verify` re-runs them all and says which have
+  been fixed since. Three deviations are held back as design choices rather
+  than defects, and five as code shapes no input has been made to break.
 
 ## 6. Size and speed, from `npm run metrics`
 

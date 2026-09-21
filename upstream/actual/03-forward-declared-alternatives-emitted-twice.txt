@@ -1,0 +1,5 @@
+precision highp float;uniform float u;
+#ifdef A
+#else
+#endif
+float g(float x){return x*2.;}float g(float x){return x*3.;}void main(){gl_FragColor=vec4(g(u));}

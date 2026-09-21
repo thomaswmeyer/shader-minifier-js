@@ -1,0 +1,3 @@
+precision highp float;
+#define REvec4(1)
+void main(){gl_FragColor=RE;}

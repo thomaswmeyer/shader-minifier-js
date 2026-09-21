@@ -1,0 +1,1 @@
+precision highp float;struct C{vec3 i;};uniform C light;void main(){gl_FragColor=vec4(light.i,1);}

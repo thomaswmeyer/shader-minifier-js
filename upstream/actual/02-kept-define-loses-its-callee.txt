@@ -1,0 +1,3 @@
+precision highp float;uniform float f;
+#define CALL helper(u)
+void main(){gl_FragColor=vec4(CALL);}

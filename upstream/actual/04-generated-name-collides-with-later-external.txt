@@ -1,0 +1,1 @@
+precision highp float;uniform float u;const float s=sqrt(2.),f=sqrt(3.),g=sqrt(5.),o=sqrt(7.),v=sqrt(11.),C=s+f,F=g+o,Q=v+C,P=F+Q,O=Q+P,N=P+O,M=O+N,t=N+M,K=M+t;out vec4 o;void main(){vec2 d=gl_FragCoord.xy/48.;o=vec4(fract(d.x*s+d.y*f+g*o+v*u),fract(C+F+Q+P),fract(O+N+M+t+K),1);}

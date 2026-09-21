@@ -1,0 +1,1 @@
+precision highp float;uniform float f;float h(float f){float h=f,m=0.;for(int r=0;r<2;r++)m+=h*f;return m;}void main(){gl_FragColor=vec4(fract(h(2.)+h(3.)));}

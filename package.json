@@ -65,6 +65,7 @@
     "corpus:playcanvas": "tsx scripts/dump-playcanvas-shaders.ts",
     "corpus:cesium": "tsx scripts/dump-cesium-shaders.ts",
     "metrics": "tsx scripts/corpus-metrics.ts",
+    "upstream:verify": "tsx scripts/verify-upstream.mts",
     "half": "tsx scripts/half-precision.ts"
   },
   "devDependencies": {

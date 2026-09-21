@@ -1,0 +1,11 @@
+precision highp float;uniform float f;
+#ifdef X
+uniform float X;
+#endif
+void main(){
+#ifdef X
+gl_FragColor=vec4(f+X);
+#else
+gl_FragColor=vec4(f);
+#endif
+}
