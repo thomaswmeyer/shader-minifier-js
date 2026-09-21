@@ -361,6 +361,8 @@ without one. They need Playwright's browser once:
 npx playwright install chromium   # downloads Chromium for the installed Playwright
 npm run pixels                    # test/pixels.test.ts and test/corpus.test.ts, about eight minutes
 npm test                          # runs them too when the browser is there
+npm run test:fast                 # everything else, goldens included, in under a minute (CI's `test` job)
+npm run test:browser              # the browser and ANGLE tests alone (CI's `browser` job)
 ```
 
 On a machine with a Chromium of its own, `CHROMIUM_EXECUTABLE=/path/to/chrome

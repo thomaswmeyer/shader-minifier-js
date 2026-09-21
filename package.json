@@ -51,6 +51,8 @@
     "build": "tsc -p tsconfig.json",
     "prepare": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:fast": "vitest run --exclude test/corpus.test.ts --exclude test/pixels.test.ts --exclude test/angle-compile.test.ts --exclude test/spglsl-corpus.test.ts --exclude test/half.test.ts",
+    "test:browser": "vitest run test/corpus.test.ts test/pixels.test.ts test/angle-compile.test.ts test/spglsl-corpus.test.ts test/half.test.ts",
     "test:watch": "vitest",
     "golden": "tsx test/golden-cli.ts",
     "golden:update": "tsx test/golden-cli.ts --update-golden",

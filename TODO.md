@@ -10,18 +10,18 @@ the size tables measure; **upstream's rewrites** is shader-minifier-js
 limited to the rewrites Shader Minifier itself performs, which reproduces
 its output.
 
-## 0. CI: running
+## 0. CI: running, in two jobs
 
-`.github/workflows/ci.yml` runs on every push to `master` and every pull
-request: typecheck, build and the whole suite with Chromium, about eight and
-a half minutes, the browser tests included (`REQUIRE_BROWSER` turns a
-missing browser into a failure, and the totals match a local full run).
-The `test` check is required on `master` through a repository ruleset, and
-that applies to pushes too: a commit reaches `master` only once the check
-has passed on it. The workflow runs on every branch push for that reason, so
-the way to land work without a pull request is to push the branch, wait for
-green, then fast-forward `master` to the same commit. Left: splitting the
-browser tests into a second job if the run time starts to matter.
+`.github/workflows/ci.yml` runs on every push and pull request: `test`
+(typecheck, build, `npm run test:fast`: everything without a browser, goldens
+included, about a minute) and `browser` (Chromium, `npm run test:browser`:
+the pixel, corpus, half-precision and ANGLE tests, about ten minutes), side
+by side. The `test` check is required on `master` through a repository
+ruleset, and that applies to pushes too: a commit reaches `master` only once
+the check has passed on it, so the way to land work without a pull request
+is to push the branch, wait for green, then fast-forward `master` to the same
+commit. Left: requiring `browser` on `master` as well, a repository setting,
+so a render regression blocks a push the way a golden does.
 
 ## 0b. WebGPU, aimed at TensorFlow.js: measured, and the answer is no
 
