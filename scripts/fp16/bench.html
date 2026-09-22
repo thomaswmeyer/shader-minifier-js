@@ -343,18 +343,28 @@
       body + "}\n";
   }
 
-  // Finds the mantissa width a declared precision really gets: the smallest 2^-k whose addition to
-  // 1.0 still changes it. Ten bits is fp16 and proves the qualifier reached the hardware; twenty-three
-  // means nothing on that path narrowed the value.
+  // Finds the mantissa width a declared precision really gets: the largest k whose 2^-k still
+  // survives being added to 1.0. Ten bits is fp16 and proves the qualifier reached the hardware;
+  // twenty-three means nothing on that path narrowed the value.
+  //
+  // The obvious way to ask -- compute (1 + e) - 1 and see whether it is zero -- cannot be used.
+  // Shader compilers run fast-math by default and fold (a + b) - a back to b, which answers the
+  // question with the input instead of the result. So there is no subtraction here at all: the sum is
+  // widened, scaled by 2^k, and taken mod 2, which is non-linear and cannot be reassociated away. A
+  // bit that survived the add makes an odd integer and lights the pixel; a bit that was rounded off
+  // makes an even one and leaves it dark. The widening also caps the answer at 23 by itself, since
+  // 2^k + 1 stops being representable in fp32 past that, so the probe cannot overstate the result.
   function probeSource(precision) {
     return "precision " + precision + " float;\n" +
       "uniform highp float uEps;\n" +
       "uniform highp float uOne;\n" +
+      "uniform highp float uScale;\n" +
       "void main() {\n" +
-      "  float e = uEps;\n" +
+      "  float e = uEps;\n" +          // narrowed to the declared precision
       "  float one = uOne;\n" +
-      "  float v = one + e;\n" +
-      "  gl_FragColor = vec4((v - one) / e, 0.0, 0.0, 1.0);\n" +
+      "  float v = one + e;\n" +       // the one operation being measured
+      "  highp float w = v;\n" +       // widened without changing what it holds
+      "  gl_FragColor = vec4(mod(w * uScale, 2.0), 0.0, 0.0, 1.0);\n" +
       "}\n";
   }
 
@@ -452,6 +462,7 @@
         var p = link(probeSource(precision));
         p.eps = gl.getUniformLocation(p.program, "uEps");
         p.one = gl.getUniformLocation(p.program, "uOne");
+        p.scale = gl.getUniformLocation(p.program, "uScale");
         probes[precision] = p;
       } catch (e) {
         probes[precision] = null;
@@ -465,11 +476,12 @@
     gl.useProgram(probe.program);
     gl.uniform1f(probe.one, 1);
     var bits = 0;
-    for (var k = 3; k <= 28; k++) {
+    for (var k = 3; k <= 24; k++) {
       gl.uniform1f(probe.eps, Math.pow(2, -k));
+      gl.uniform1f(probe.scale, Math.pow(2, k));
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, readback);
-      if (readback[0] < 64) break; // 1.0 + 2^-k rounded straight back to 1.0
+      if (readback[0] < 128) break; // 1.0 + 2^-k rounded straight back to 1.0
       bits = k;
     }
     return bits;
@@ -535,6 +547,14 @@
     var said = $("probe-said");
     if (bits === null) {
       said.textContent = "The probe could not run on this device, so the timing below is the only evidence.";
+    } else if (measured.highp !== null && measured.highp < 20) {
+      // highp has to come out at fp32. If it does not, the probe is being optimised away rather than
+      // answering, and no reading from it can be trusted -- including the mediump one.
+      said.innerHTML = "<strong>The probe is not working on this device.</strong> highp measured " +
+        measured.highp + " bits, and it has to read 23 — that is what highp means. Something in this " +
+        "browser's shader compiler is folding the measurement away instead of performing it, so the " +
+        "mediump figure beside it means nothing either. The timing above is unaffected.";
+      said.className = "note fail";
     } else if (bits <= 13) {
       said.innerHTML = "<strong>mediump really is " + bits + " bits here</strong>, so the qualifier " +
         "reaches the hardware and the timing above is a fair test of whether that narrower type is faster.";
@@ -699,7 +719,8 @@
       $("said").textContent = "No speed-up from mediump that this device can prove.";
       $("why").textContent = "The best workload reads " + top.toFixed(2) + "×, inside the ±" +
         (100 * noise.threshold).toFixed(0) + "% the control shows is noise. " +
-        (measured.mediump !== null && measured.mediump > 13
+        (measured.mediump !== null && measured.mediump > 13 &&
+         measured.highp !== null && measured.highp >= 20
           ? "The probe below explains it: mediump measured " + measured.mediump + " bits, so no fp16 " +
             "arithmetic happened here at all and there was nothing for the timing to find."
           : "This GPU has no separate fp16 path — normal on desktop — or these shaders are not " +

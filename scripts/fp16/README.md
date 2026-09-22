@@ -46,6 +46,19 @@ value, so there was no fp16 arithmetic for the timing to find. SwiftShader
 measures 23 bits for `mediump`, which is the known-correct answer and what
 validates the probe.
 
+The probe deliberately contains no subtraction. Asking the obvious way --
+compute `(1.0 + e) - 1.0` and see whether it is zero -- does not survive a real
+shader compiler: fast-math is on by default and folds `(a + b) - a` back to
+`b`, which answers the question with the input instead of the result. An iPhone
+running that version reported every precision as having more mantissa bits than
+fp32 has. Instead the sum is widened, scaled by 2^k and taken mod 2, which is
+non-linear and cannot be reassociated away: a bit that survived the add makes an
+odd integer, one that was rounded off makes an even one. The arithmetic is
+checked against a binary16 reference (fp16 gives 10, fp32 gives 23), and the
+page refuses to report anything if its own `highp` row comes out below 20 bits,
+since that can only mean the measurement is being optimised away rather than
+performed.
+
 Two caveats on the probe. A driver is allowed to evaluate at higher precision
 than declared, so a wide reading says the arithmetic was wide, not that the
 hardware lacks fp16. And a browser's shader translator sits between the source
