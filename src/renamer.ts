@@ -656,7 +656,7 @@ class RenamerImpl {
     // other: with the single letters taken, chooseIdent then names a parameter `spotShadowMap`,
     // 13 characters where two would do, and the shadowing hides the uniform for nothing. Measured
     // per shader compressed, keeping such names out is worth 3% on Babylon.js and never costs more
-    // than a few bytes (PORTING.md 5.2 item 40).
+    // than a few bytes (docs/PORTING.md 5.2 item 40).
     reusable = reusable.filter((x) => /^[A-Za-z_]{1,2}$/.test(x));
     const allAvailable = [...new Set([...reusable, ...env.availableNames])];
     return env.with({ identRenames, availableNames: allAvailable });

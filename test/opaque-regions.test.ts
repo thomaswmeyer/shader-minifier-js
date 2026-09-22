@@ -1,7 +1,7 @@
 // A `#if` around list items, which a Conditional expression cannot stand for: a group of struct
 // members, a group of function parameters, or a whole function header. Such a region is kept as
 // text the minifier does not see into, like a kept #define body, with everything it names pinned
-// (TODO.md section 1, PORTING.md 5.2 item 31).
+// (docs/TODO.md section 1, docs/PORTING.md 5.2 item 31).
 import { describe, expect, it } from "vitest";
 import { minify } from "../src/api.js";
 import { defaultOptions } from "../src/options.js";

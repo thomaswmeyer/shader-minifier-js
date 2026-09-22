@@ -1,7 +1,7 @@
 # Benchmarks
 
 How big shader-minifier-js's output is next to Shader Minifier's and spglsl's,
-over seven corpora of shaders that ship on the web. [The README](README.md) has
+over seven corpora of shaders that ship on the web. [The README](../README.md) has
 the summary; this is the measurement behind it, what each column means, and how
 to run it again.
 

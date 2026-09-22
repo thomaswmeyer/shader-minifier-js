@@ -1,4 +1,4 @@
-// Float formatting and paren insertion (PORTING.md 5.2, 5.5).
+// Float formatting and paren insertion (docs/PORTING.md 5.2, 5.5).
 import { describe, expect, it } from "vitest";
 import { defaultOptions } from "../src/options.js";
 import { runParser } from "../src/parser.js";

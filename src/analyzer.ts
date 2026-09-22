@@ -495,7 +495,7 @@ export class Analyzer {
       // The same use moved the other way: a global read before its own declaration. GLSL requires
       // a declaration to precede every use, and `found === undefined` here means nothing of that
       // name is in scope yet, so the capture check above cannot see it. This is the class of bug
-      // PORTING.md item 18 had to be found by hand, since only the capture check existed.
+      // docs/PORTING.md item 18 had to be found by hand, since only the capture check existed.
       if (found === undefined && final) {
         // Nothing of that name is in scope. Either the use was moved above its declaration, or the
         // declaration is gone and the use was left behind; variable reuse can do the second by

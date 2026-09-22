@@ -1,5 +1,5 @@
 // A shader's own flags: `#pragma shader_minifier <flags>` sets the rewrites for that file, on top
-// of the run's flags, and is removed from the output (PORTING.md 5.2 item 35).
+// of the run's flags, and is removed from the output (docs/PORTING.md 5.2 item 35).
 import { describe, expect, it } from "vitest";
 import { minify } from "../src/api.js";
 import { ArgumentError, extractPragmas } from "../src/options.js";

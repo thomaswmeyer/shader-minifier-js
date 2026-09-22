@@ -1,4 +1,4 @@
-// The float constant-folding rule (PORTING.md 5.2) and the --webgl guards.
+// The float constant-folding rule (docs/PORTING.md 5.2) and the --webgl guards.
 import { describe, expect, it } from "vitest";
 import { minify as minifyApi } from "../src/api.js";
 import { defaultOptions, type Options } from "../src/options.js";
@@ -102,7 +102,7 @@ describe("reorderFunctions with #ifdef regions", () => {
     expect(out.indexOf("float mid(")).toBeLessThan(out.indexOf("#ifdef X"));
   });
   it("places a function kept as text after what it calls and before what calls it", () => {
-    // `g` has a conditional in its parameter list, so it is verbatim text (PORTING.md item 31):
+    // `g` has a conditional in its parameter list, so it is verbatim text (docs/PORTING.md item 31):
     // its callees are known only by name, and so are its callers.
     const src = "float h(float x);float g(\n#ifdef A\nfloat x\n#else\nint x\n#endif\n){return h(float(x));}float h(float x){return x*2.;}float k(){return g(1.);}void main(){gl_FragColor=vec4(k());}";
     const out = minify(src, { inlining: "none" });
@@ -194,7 +194,7 @@ describe("float constant folding with --decimal-folds", () => {
 
 // A `#if`/`#elif`/`#else` chain standing where one expression does. Engine shaders write one
 // inside an argument list and leave the choice to the compiler's preprocessor, so all branches
-// are kept and none may be assumed taken (TODO.md section 1, first step).
+// are kept and none may be assumed taken (docs/TODO.md section 1, first step).
 describe("a conditional in an argument position", () => {
   const parse = (src: string): string => Printer.print(runParser(defaultOptions(), "t.frag", src).code);
   const chain = "\n#if defined( X )\nb\n#elif defined( Y )\nc\n#else\nd\n#endif\n";

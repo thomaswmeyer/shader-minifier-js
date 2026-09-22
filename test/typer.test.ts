@@ -1,4 +1,4 @@
-// Overload resolution by argument type (PORTING.md 5.2 item 48): among user functions of one name
+// Overload resolution by argument type (docs/PORTING.md 5.2 item 48): among user functions of one name
 // and arity, a call binds to the one whose parameters have the arguments' types, when every type
 // is known and exactly one overload fits. What the typer knows, and what it refuses, is pinned here.
 import { describe, expect, it } from "vitest";

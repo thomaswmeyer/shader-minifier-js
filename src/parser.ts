@@ -452,7 +452,7 @@ class ParserImpl {
   // list items, so such a region is kept as text the minifier does not see into, the way a kept
   // `#define` body is: printed as written, with every identifier it names pinned so the
   // declarations it refers to keep their names and stay. That costs bytes on those shaders and
-  // stays correct; representing the alternatives is the fuller fix (TODO.md section 1).
+  // stays correct; representing the alternatives is the fuller fix (docs/TODO.md section 1).
 
   /**
    * Comments out, whitespace collapsed, and a line break only where a directive needs one: the

@@ -21,13 +21,13 @@ tools land close together. The high end is an engine's generated shaders, where
 most of the gain is work neither alternative attempts. Those shaders are also
 rendered in a headless browser and compared with the original pixel by pixel,
 so the output is checked for meaning and not only for size.
-[BENCHMARKS.md](BENCHMARKS.md) has the tables and says exactly what each column
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md) has the tables and says exactly what each column
 measures.
 
 The port tracks Shader Minifier version 1.5.1 (Ctrl-Alt-Test, F#, Apache 2.0)
 module for module and is validated by Shader Minifier's own golden test corpus:
 all 96 commands in `tests/commands.txt` produce byte-identical output.
-Deliberate deviations are listed in `PORTING.md` section 5.2 and, where they
+Deliberate deviations are listed in `docs/PORTING.md` section 5.2 and, where they
 touch a golden file, `tests/DEVIATIONS.md`.
 
 ## CLI
@@ -223,7 +223,7 @@ contradicting each other.
   use of its name, argument inlining into a body whose other parameter has
   the name, function reordering pulling alternatives out of `#ifdef` blocks,
   and identifiers named in a kept `#define` being renamed or removed (they
-  are pinned). `PORTING.md` section 5.2 lists each, and its "Upstream
+  are pinned). `docs/PORTING.md` section 5.2 lists each, and its "Upstream
   candidates" note lists the ones worth offering back to Shader Minifier.
 - `--preprocess` also decides constant `#if` expressions (`#if ( 1 > 0 ) &&
   defined( USE_MAP )`), so a shader whose defines are all in the file loses
@@ -246,7 +246,7 @@ contradicting each other.
 ## Results
 
 shader-minifier-js is smaller than both alternatives on every corpus. The
-summary is at the top of this file; [BENCHMARKS.md](BENCHMARKS.md) has the
+summary is at the top of this file; [docs/BENCHMARKS.md](docs/BENCHMARKS.md) has the
 tables, raw and after brotli and gzip, per shader and per corpus, with what
 each column measures, which corpora they run over, and how to reproduce the
 comparison.
@@ -283,11 +283,12 @@ npm test                 # goldens, round-trip, re-parse validity, unit tests, v
 npm run golden [filter]  # golden commands with diffs; --update-golden to regenerate
 npm run webgl-page       # writes tests/out/webgl-compile.html; open in Chrome to compile every corpus shader
 scripts/sync-tests.sh    # re-vendor tests/ from ../shader-minifier and re-apply tests/DEVIATIONS.md
+npm run three:precompile # capture a three.js page's assembled programs, minify and verify them
 ```
 
 The spglsl corpus test and the WebGL page look for spglsl's shaders in
 `../spglsl/project/test/shaders` (or `$SPGLSL_SHADERS`) and skip when absent.
-`PORTING.md` has the module map and the porting notes.
+`docs/PORTING.md` has the module map and the porting notes.
 
 Three tests guard real output rather than parity with Shader Minifier:
 
@@ -332,6 +333,21 @@ Three tests guard real output rather than parity with Shader Minifier:
   ANGLE rejects (desktop GLSL, most of the demoscene corpus) and libraries
   without `main()` are skipped. `spglsl` is prebuilt wasm and not a
   dependency; the test skips unless you `npm install --no-save spglsl` first.
+
+## Docs
+
+Everything longer than this file lives in `docs/`:
+
+- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — size against Shader Minifier and
+  spglsl over all seven corpora, raw and compressed, and how to reproduce it.
+- [docs/MINIFYING_THREE_JS.md](docs/MINIFYING_THREE_JS.md) — three.js builds its
+  shaders in the browser, so they have to be captured from a running page before
+  they can be minified. What that costs, what it saves, and what a build step
+  would still need.
+- [docs/PORTING.md](docs/PORTING.md) — the module map, the port's deviations
+  from Shader Minifier, and the notes behind each.
+- [docs/TODO.md](docs/TODO.md) — what has been tried, what it measured, and what
+  is left.
 
 ## License
 

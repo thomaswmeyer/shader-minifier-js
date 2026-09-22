@@ -1,4 +1,4 @@
-// --drop-default-precision and --inline-single-use (PORTING.md 5.2), and the port flags on the
+// --drop-default-precision and --inline-single-use (docs/PORTING.md 5.2), and the port flags on the
 // whole upstream corpus.
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -392,7 +392,7 @@ describe("--webgl across files", () => {
 });
 
 // The goldens run upstream's flags only. Run every command again with the port flags on, so the
-// additions meet the whole corpus and the scope check (PORTING.md 5.2 item 10) sees each rewrite,
+// additions meet the whole corpus and the scope check (docs/PORTING.md 5.2 item 10) sees each rewrite,
 // once as the plugin runs and once with upstream's aggressive inlining and moved declarations.
 describe("port flags on the upstream corpus", () => {
   const portFlags: Partial<Options> = { expandMacros: true, approximateFolds: true, dropDefaultPrecision: true, inlineSingleUse: true, noPiSubstitution: true };
@@ -407,7 +407,7 @@ describe("port flags on the upstream corpus", () => {
         // Five of these (`many_variables`, `ed-209`, `slisesix`, `endeavour`, `audio-flight-v2`)
         // used to lose a declaration under --move-declarations: the moved declaration's own Ident
         // stood in the assignment that replaced it, and a later reuse renamed the declaration along
-        // with that use (PORTING.md 5.2 item 42). The scope check is what caught it.
+        // with that use (docs/PORTING.md 5.2 item 42). The scope check is what caught it.
         const run = (): Minifier => new Minifier({ ...options, ...portFlags, removeUnused: options.removeUnused === "none" ? "none" : "declarations", ...extra }, files);
         expect(run).not.toThrow();
       });

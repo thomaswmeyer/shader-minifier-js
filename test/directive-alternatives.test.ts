@@ -1,6 +1,6 @@
 // A block with preprocessor directives may declare one name in alternative branches, or redeclare
 // a global's name in one branch. The compiler keeps one declaration; the minifier has to keep them
-// all, as one variable (Analyzer.unifyAlternativeDeclarations, PORTING.md 5.2 item 32). Found by
+// all, as one variable (Analyzer.unifyAlternativeDeclarations, docs/PORTING.md 5.2 item 32). Found by
 // rendering the three.js corpus without --preprocess: 30 of its 56 shaders failed to compile.
 import { describe, expect, it } from "vitest";
 import { defaultOptions } from "../src/options.js";

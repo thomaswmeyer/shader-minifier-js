@@ -374,7 +374,7 @@ class RewriterImpl {
     // Swap operands to get rid of parentheses. Commuting the outer operator is exact: IEEE
     // addition and multiplication give the same number either way round. Reassociating is not,
     // and upstream does that too, turning `x+(y+z)` into `x+y+z` and `x-(y+z)` into `x-y-z`; this
-    // port only commutes (port addition; PORTING.md item 38). GLSL evaluates in the order the
+    // port only commutes (port addition; docs/PORTING.md item 38). GLSL evaluates in the order the
     // expression is written, and Cesium builds a double out of two floats: in
     // `czm_translateRelativeToEye`, `high+(low-c)` keeps the low word that `high+low-c` rounds
     // away, and four of its polyline vertex outputs came out wrong by 4e-5 relative. Subtraction

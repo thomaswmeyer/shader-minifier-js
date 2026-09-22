@@ -1,4 +1,4 @@
-// -O0 to -O3: one flag for a coherent group of the port's additions (PORTING.md 5.2 item 34).
+// -O0 to -O3: one flag for a coherent group of the port's additions (docs/PORTING.md 5.2 item 34).
 import { describe, expect, it } from "vitest";
 import { Minifier } from "../src/api.js";
 import { defaultOptions, flagsHelp } from "../src/options.js";

@@ -36,7 +36,7 @@ export function runCommand(argv: string[], updateGolden = false): GoldenResult {
   try {
     const { options, filenames } = Minifier.parseOptionsWithFiles(argv);
     // The goldens pin upstream's output, and upstream folds float operators in decimal; the port
-    // rounds at float32 by default (PORTING.md 5.2 item 33), so the corpus runs with the flag that
+    // rounds at float32 by default (docs/PORTING.md 5.2 item 33), so the corpus runs with the flag that
     // restores upstream's arithmetic rather than carrying 14 numeric deviations.
     options.decimalFolds = true;
     let expected: string;

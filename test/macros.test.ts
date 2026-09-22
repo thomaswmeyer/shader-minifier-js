@@ -1,4 +1,4 @@
-// Identifiers named in a #define that stays in the output are pinned (PORTING.md 5.2 item 11):
+// Identifiers named in a #define that stays in the output are pinned (docs/PORTING.md 5.2 item 11):
 // the macro's text is a use the minifier cannot see, so they keep their names and declarations.
 import { describe, expect, it } from "vitest";
 import { minify } from "../src/api.js";

@@ -4,7 +4,7 @@ Twelve bugs in [Shader Minifier], the project this one is a port of, each with a
 minimal shader, the output upstream actually produces, and a pointer into the F#.
 Nothing here has been filed yet.
 
-`PORTING.md` section 5.2 is the full record of where the port deviates and why.
+`docs/PORTING.md` section 5.2 is the full record of where the port deviates and why.
 This directory is the subset that looks like a bug rather than a decision, cut
 down to something a maintainer can read in a minute and check in two.
 
@@ -36,7 +36,7 @@ they stand on their own. The rest are worth filing once those have found an
 owner. A patch is easy to offer for most of them, but none is offered unasked;
 the reports say where the code is and leave the fix to the people who maintain it.
 
-Three deviations in `PORTING.md` are deliberately **not** here, because they are
+Three deviations in `docs/PORTING.md` are deliberately **not** here, because they are
 choices rather than defects, and upstream may well have made them on purpose:
 decimal folding of float operators (item 33), reassociating floating-point
 addition (item 38), and resolving overloads by argument type (item 48). Five more

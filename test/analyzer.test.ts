@@ -1,4 +1,4 @@
-// The scope check that runs after every rewrite pass (PORTING.md 5.2 item 10).
+// The scope check that runs after every rewrite pass (docs/PORTING.md 5.2 item 10).
 import { describe, expect, it } from "vitest";
 import { Analyzer } from "../src/analyzer.js";
 import * as Ast from "../src/ast.js";

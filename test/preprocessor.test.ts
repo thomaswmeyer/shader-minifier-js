@@ -6,7 +6,7 @@ import { minify } from "../src/api.js";
 import { defaultOptions } from "../src/options.js";
 import { evalConstantExpression, expandMacros, preprocess } from "../src/preprocessor.js";
 
-describe("--preprocess decides constant #if expressions (PORTING.md 5.2 item 16)", () => {
+describe("--preprocess decides constant #if expressions (docs/PORTING.md 5.2 item 16)", () => {
   const defined = (n: string) => n === "USE_MAP";
   it("evaluates integers, defined() and the C operators", () => {
     expect(evalConstantExpression("( 1 > 0 ) && defined( USE_MAP )", defined)).toBe(1);
