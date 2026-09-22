@@ -590,6 +590,38 @@ under every unit and codec.
   the fastest-pass estimator ignoring all of it: that drift is the reason the
   rig reports a minimum over many rounds rather than an average over a few.
 
+  **What the literature already said, which should have been checked first.**
+  Godot measured this exact trade. Their PR 107119 (2026) added explicit FP16
+  types to the mobile renderer and reports 1.6% on Mali-G78, 4% on Mali-G715,
+  10% on Adreno 640 and 10% in the opaque and shadow passes on Mali-G710. The
+  decisive line is about the attempt before it: PR 99767 used the `mediump`
+  qualifier alone and "did not provide any actual performance benefits unlike
+  this one". The gains needed `half` and `hvec3` in the source, whose stated
+  benefit is a 30-50% cut in register usage.
+
+  That is close to fatal for this proposal, because `mediump` is the only lever
+  a GLSL ES minifier has. Explicit fp16 types are a Vulkan and SPIR-V
+  extension; there is no `half` in WebGL to emit. So the one rewrite available
+  here is the one a real engine measured as worth nothing.
+
+  It is not quite conclusive, and the reason is worth stating rather than
+  assuming. Godot's stated cause is that "SPIR-V Cross does not support relaxed
+  precision when translating to other languages and discards the information",
+  which is a property of a GLSL to SPIR-V to MSL pipeline. WebGL on Android
+  runs GLSL ES through ANGLE to a native driver, which may honour the qualifier
+  where that toolchain does not --- and the probe on a real Android device is
+  what would say. If it reports 10 bits and still times at 1.00x, the case is
+  closed on evidence. If it reports 23 bits, the qualifier is being discarded
+  on the web everywhere and the case is closed more firmly still.
+
+  The order of work here was wrong and is worth remembering: the rig was built
+  before the literature was read, and a search would have found Godot's result
+  in minutes. What the rig earned that a search could not is the iOS number
+  above, for this pipeline rather than someone else's, and one useful
+  correction --- Safari is known to misreport `getShaderPrecisionFormat`, so
+  measuring the mantissa rather than asking the API was the right instrument
+  even though the timing half was over-built.
+
   Two bugs found in the rig before it produced that number are worth recording,
   because both produced confident wrong answers rather than obvious failures.
   Asking for the precision the obvious way, `(1.0 + e) - 1.0`, is folded to `e`
