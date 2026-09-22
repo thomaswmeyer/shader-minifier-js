@@ -579,6 +579,17 @@ under every unit and codec.
   one. Android, where the qualifier reaches a native driver, is the test that
   could still argue for it.
 
+  The timing on that device agrees, from a run that passes all of the rig's own
+  checks: doubling a pass's iteration count took 2.02x as long, a pass ran
+  57ms, the control read 1.000x and single rounds scattered 5% rather than the
+  42% the broken version produced. All three workloads came out at exactly
+  1.000x --- not 0.98 or 1.03, but identical to the millisecond across 57
+  rounds, which is what two programs compiling to the same machine code look
+  like. The same run also caught the phone heating up, `vec4` drifting from
+  67ms to 73ms over forty seconds with both precisions drifting together and
+  the fastest-pass estimator ignoring all of it: that drift is the reason the
+  rig reports a minimum over many rounds rather than an average over a few.
+
   Two bugs found in the rig before it produced that number are worth recording,
   because both produced confident wrong answers rather than obvious failures.
   Asking for the precision the obvious way, `(1.0 + e) - 1.0`, is folded to `e`
