@@ -562,6 +562,37 @@ under every unit and codec.
   which together with the emulation above is what a per-shader opt-in would
   need to justify itself.
 
+  **First result, and it settles iOS: WebGL there has no fp16 at all.** The
+  page does not only time; it measures what precision the hardware actually
+  used, by finding the largest k whose 2^-k still survives being added to 1.0.
+  An iPhone 17 on iOS 18.7 reports 23 bits for `highp`, 23 for `mediump` and 23
+  for `lowp`. Twenty-three is fp32, so the qualifier never became a 16-bit type
+  on the way to the GPU, and the timing on that device is 1.00x for the trivial
+  reason that there is nothing narrower running. The `highp` row reading 23 is
+  what makes the other two trustworthy: a compiler that folded the measurement
+  away would not report fp32 there either. Since every browser on iOS is
+  WebKit, this is a statement about the platform rather than about one browser,
+  and it is about the pipeline rather than the chip -- Apple's GPUs have fp16
+  units, and Metal shaders written by hand can use them. A precision reduction
+  therefore cannot buy anything on iOS whatever the silicon can do, which
+  removes the largest single population of phones from the case for building
+  one. Android, where the qualifier reaches a native driver, is the test that
+  could still argue for it.
+
+  Two bugs found in the rig before it produced that number are worth recording,
+  because both produced confident wrong answers rather than obvious failures.
+  Asking for the precision the obvious way, `(1.0 + e) - 1.0`, is folded to `e`
+  by any compiler running fast-math, so the probe has to reach its answer
+  without a subtraction anywhere (widen, scale by 2^k, take mod 2). And sizing
+  a timed pass by drawing a full-screen triangle N times does not survive a
+  tile-based GPU: with no blend and no depth each triangle covers the last, and
+  a deferred renderer shades only the final one, so sixty draws took the time
+  of one and the resulting millisecond passes fell inside WebKit's timer
+  quantisation. Both are now guarded rather than merely fixed -- the page
+  refuses to report a precision when its own `highp` row is not 23, and refuses
+  to report a ratio when doubling a pass's iteration count does not double its
+  time.
+
 - **Shortest float32 digits for every literal: done, and small.** From
   `-O1` every float literal is printed with the fewest digits that read back
   to the same float32, as ANGLE does (`PORTING.md` item 39); `-O0` and
