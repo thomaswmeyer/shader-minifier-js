@@ -36,6 +36,22 @@ scatters far enough to read anywhere between 0.7× and 1.5×:
 The page shows every round's own ratio as a dot strip around the 1.00× line, so
 the scatter is visible rather than hidden behind a summary statistic.
 
+A 1.00× result is ambiguous on its own — the GPU may have no fp16 path, or the
+qualifier may never have reached it — so the page also probes what precision is
+actually being used. For each of `lowp`, `mediump` and `highp` it finds the
+smallest 2^-k whose addition to 1.0 still changes it, which is the mantissa
+width the hardware really gave that declaration. Ten bits is fp16 and proves
+the qualifier arrived; twenty-three means nothing on that path narrowed the
+value, so there was no fp16 arithmetic for the timing to find. SwiftShader
+measures 23 bits for `mediump`, which is the known-correct answer and what
+validates the probe.
+
+Two caveats on the probe. A driver is allowed to evaluate at higher precision
+than declared, so a wide reading says the arithmetic was wide, not that the
+hardware lacks fp16. And a browser's shader translator sits between the source
+and the driver: iOS Safari reaches the GPU through ANGLE's Metal backend, so a
+wide reading there is a statement about that pipeline, not about the chip.
+
 The file is written for the Claude Artifact runtime, which supplies the
 `<!doctype>`, `<html>`, `<head>` and `<body>` around it along with a viewport
 meta — so serve it wrapped in those if you want to host it yourself.

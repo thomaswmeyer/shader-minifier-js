@@ -234,17 +234,22 @@
   </section>
 
   <section class="card">
-    <h2>Declared precision</h2>
+    <h2>Precision, as declared and as measured</h2>
     <div class="scroller">
       <table id="precisions">
-        <thead><tr><th>Fragment float</th><th>mantissa bits</th><th>range 2^±</th></tr></thead>
-        <tbody><tr><td>reading…</td><td>—</td><td>—</td></tr></tbody>
+        <thead><tr><th>Fragment float</th><th>declared bits</th><th>measured bits</th><th>range 2^±</th></tr></thead>
+        <tbody><tr><td>reading…</td><td>—</td><td>—</td><td>—</td></tr></tbody>
       </table>
     </div>
-    <p class="note" style="margin-top:12px">10 mantissa bits for <code>mediump</code> is both the fp16
-      figure and the floor the spec demands of every implementation, so a driver that computes in fp32
-      anyway reports exactly the same thing. The declaration cannot tell you what the silicon does —
-      only the timing above can.</p>
+    <p class="note" style="margin-top:12px" id="probe-said">measuring…</p>
+    <p class="note" style="margin-top:10px">The declared column is what
+      <code>getShaderPrecisionFormat</code> promises, and it is nearly useless: 10 bits for
+      <code>mediump</code> is both the fp16 figure and the floor the spec demands of everyone, so a
+      driver that computes in fp32 anyway reports exactly the same thing. The measured column asks the
+      GPU instead — it finds the smallest 2<sup>−k</sup> that a declared-precision add can still tell
+      apart from 1.0, which is the mantissa width actually being used. A narrow answer is proof of
+      fp16. A wide one means nothing in that path narrowed the value, which is either genuine fp32
+      hardware or a shader translator that ignored the qualifier.</p>
   </section>
 
   <section class="card note">
@@ -338,10 +343,27 @@
       body + "}\n";
   }
 
+  // Finds the mantissa width a declared precision really gets: the smallest 2^-k whose addition to
+  // 1.0 still changes it. Ten bits is fp16 and proves the qualifier reached the hardware; twenty-three
+  // means nothing on that path narrowed the value.
+  function probeSource(precision) {
+    return "precision " + precision + " float;\n" +
+      "uniform highp float uEps;\n" +
+      "uniform highp float uOne;\n" +
+      "void main() {\n" +
+      "  float e = uEps;\n" +
+      "  float one = uOne;\n" +
+      "  float v = one + e;\n" +
+      "  gl_FragColor = vec4((v - one) / e, 0.0, 0.0, 1.0);\n" +
+      "}\n";
+  }
+
   var SVGNS = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
   var gl = null, fbo = null, ext = null;
   var programs = {};
+  var probes = {};
+  var measured = {};
   var passes = {};
   var results = null;
   var rounds = QUICK_ROUNDS;
@@ -424,6 +446,33 @@
     });
     // Both sides of the control are the same program.
     programs[CONTROL.id] = { highp: programs.scalar.highp, mediump: programs.scalar.highp };
+
+    ["highp", "mediump", "lowp"].forEach(function (precision) {
+      try {
+        var p = link(probeSource(precision));
+        p.eps = gl.getUniformLocation(p.program, "uEps");
+        p.one = gl.getUniformLocation(p.program, "uOne");
+        probes[precision] = p;
+      } catch (e) {
+        probes[precision] = null;
+      }
+    });
+  }
+
+  function measureBits(precision) {
+    var probe = probes[precision];
+    if (!probe) return null;
+    gl.useProgram(probe.program);
+    gl.uniform1f(probe.one, 1);
+    var bits = 0;
+    for (var k = 3; k <= 28; k++) {
+      gl.uniform1f(probe.eps, Math.pow(2, -k));
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, readback);
+      if (readback[0] < 64) break; // 1.0 + 2^-k rounded straight back to 1.0
+      bits = k;
+    }
+    return bits;
   }
 
   function sides(lane) { return lane.control ? ["highp", "highp"] : ["highp", "mediump"]; }
@@ -469,8 +518,11 @@
     var body = document.createElement("tbody");
     kinds.forEach(function (kind) {
       var f = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, kind[1]);
+      measured[kind[0]] = measureBits(kind[0]);
       var tr = document.createElement("tr");
-      [kind[0], f ? String(f.precision) : "—", f ? String(f.rangeMax) : "—"].forEach(function (text) {
+      [kind[0], f ? String(f.precision) : "—",
+       measured[kind[0]] === null ? "—" : String(measured[kind[0]]),
+       f ? String(f.rangeMax) : "—"].forEach(function (text) {
         var td = document.createElement("td");
         td.textContent = text;
         tr.appendChild(td);
@@ -478,6 +530,21 @@
       body.appendChild(tr);
     });
     $("precisions").replaceChild(body, $("precisions").tBodies[0]);
+
+    var bits = measured.mediump;
+    var said = $("probe-said");
+    if (bits === null) {
+      said.textContent = "The probe could not run on this device, so the timing below is the only evidence.";
+    } else if (bits <= 13) {
+      said.innerHTML = "<strong>mediump really is " + bits + " bits here</strong>, so the qualifier " +
+        "reaches the hardware and the timing above is a fair test of whether that narrower type is faster.";
+    } else {
+      said.innerHTML = "<strong>mediump measures " + bits + " bits here, not 10</strong> — nothing on " +
+        "that path narrowed the value, so no fp16 arithmetic happened and the timing above could not " +
+        "have shown a speed-up whatever the GPU is capable of. On a desktop GPU that is the hardware. " +
+        "On a phone it usually means the browser's shader translator emitted a 32-bit type for the " +
+        "qualifier, which is worth checking in another browser before concluding anything about the chip.";
+    }
   }
 
   function buildRows() {
@@ -631,9 +698,12 @@
     } else if (Math.min.apply(null, ratios) > 1 - noise.threshold) {
       $("said").textContent = "No speed-up from mediump that this device can prove.";
       $("why").textContent = "The best workload reads " + top.toFixed(2) + "×, inside the ±" +
-        (100 * noise.threshold).toFixed(0) + "% the control shows is noise. Either this GPU has no " +
-        "separate fp16 path — normal on desktop — or these shaders are not ALU-bound on it. Either " +
-        "way, dropping precision would cost accuracy and return nothing measurable.";
+        (100 * noise.threshold).toFixed(0) + "% the control shows is noise. " +
+        (measured.mediump !== null && measured.mediump > 13
+          ? "The probe below explains it: mediump measured " + measured.mediump + " bits, so no fp16 " +
+            "arithmetic happened here at all and there was nothing for the timing to find."
+          : "This GPU has no separate fp16 path — normal on desktop — or these shaders are not " +
+            "ALU-bound on it. Either way, dropping precision would cost accuracy and return nothing.");
       $("ratio").style.color = "var(--ink-2)";
     } else {
       $("said").textContent = "mediump came out slower on at least one workload.";
@@ -650,6 +720,8 @@
     lines.push("ua:       " + navigator.userAgent);
     lines.push("context:  " + gl.getParameter(gl.VERSION));
     lines.push("method:   " + SIZE + "x" + SIZE + ", " + rounds + " rounds, fastest pass of each");
+    lines.push("measured: highp " + measured.highp + " bits, mediump " + measured.mediump +
+      " bits, lowp " + measured.lowp + " bits (mantissa actually used)");
     lines.push("noise:    control " + (best(results[CONTROL.id].a) / best(results[CONTROL.id].b)).toFixed(3) +
       "x, per-round scatter +/-" + (100 * noise.scatter).toFixed(0) + "%, threshold +/-" + (100 * noise.threshold).toFixed(0) + "%");
     lines.push("");
