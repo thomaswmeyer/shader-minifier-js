@@ -15,10 +15,26 @@ either. Only a phone can answer it, so this is a page rather than a test.
 Method: three ALU-bound fragment shaders (a scalar multiply-add chain, the same
 chain in `vec4`, and a `sin`/`cos` chain), each an unrolled 64-iteration
 dependent loop seeded from `gl_FragCoord` and a uniform so nothing folds away.
-Each is rendered into a 512×512 offscreen target, with a one-pixel `readPixels`
-to force the driver to finish inside the timed window, for five rounds that
-alternate the two precisions so thermal throttling moves both columns together.
-The page reports the median of each and the raw rounds behind it.
+Every program is compiled and drawn several times before any timing starts,
+because drivers finish specialising a shader on its first real draw. Each pass
+then renders into a 512×512 offscreen target enough times to take about 60ms
+and reads one pixel back, which is what forces the driver to finish inside the
+timed window; both precisions of a workload always do the same number of draws.
+
+Two things keep the result from being noise, because on a phone a single round
+scatters far enough to read anywhere between 0.7× and 1.5×:
+
+- **The reported figure is the fastest pass, not the average.** Anything else
+  sharing the GPU can only make a pass slower, so over twenty-one rounds the
+  minimum is the closest thing to the true cost. Rounds alternate which
+  precision goes first, so a clock ramp cannot favour one of them.
+- **A control times `highp` against `highp`** — the same program, twice. Its
+  ratio is 1.00× by construction, so whatever it reads instead is the noise
+  floor, and a workload has to beat that margin before the verdict calls the
+  difference real.
+
+The page shows every round's own ratio as a dot strip around the 1.00× line, so
+the scatter is visible rather than hidden behind a summary statistic.
 
 The file is written for the Claude Artifact runtime, which supplies the
 `<!doctype>`, `<html>`, `<head>` and `<body>` around it along with a viewport
