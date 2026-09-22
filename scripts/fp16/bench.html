@@ -209,7 +209,7 @@
   </section>
 
   <section class="card">
-    <h2>Per workload — fastest draw, milliseconds</h2>
+    <h2>Per workload — fastest pass, milliseconds</h2>
     <div class="rows" id="rows"></div>
     <p class="strip-caption" style="margin-top:16px">Each dot is one round's own
       <code>highp</code> ÷ <code>mediump</code>, on a log scale. The line marks 1.00×. How far the dots
@@ -260,9 +260,15 @@
         nothing folds away at compile time.</li>
       <li>Every program is compiled and run several times before any timing starts, because drivers
         finish specialising a shader on its first real draw.</li>
-      <li>Each pass renders a full-screen triangle into an offscreen RGBA8 target enough times to take
-        about 60ms, then reads one pixel back — the read is what forces the driver to finish the work
-        inside the timed window. Both precisions of a workload always do the identical number of draws.</li>
+      <li>A pass is <em>one</em> draw of a full-screen triangle into an offscreen target, its loop
+        count set by a uniform so the pass takes about 60ms, followed by reading one pixel back — the
+        read is what forces the driver to finish inside the timed window. Both precisions of a workload
+        always run the identical number of iterations. Scaling the work by drawing repeatedly instead
+        does not survive a tile-based GPU: with no blend and no depth each triangle completely covers
+        the last, and a deferred renderer shades only the final one.</li>
+      <li>Before timing anything, the page checks that doubling a pass's iteration count doubles its
+        time. If it does not, the work is being discarded or the clock is too coarse to see it, and the
+        page says so instead of printing a ratio.</li>
       <li><strong>The number reported is the fastest pass, not the average.</strong> Anything else
         sharing the GPU can only make a pass slower, so across many rounds the minimum is the closest
         thing to the true cost. Rounds also swap which precision goes first, so a phone ramping its
@@ -277,6 +283,8 @@
       <li>Speed is only half the question. Whether a given shader still <em>looks</em> right in fp16 is
         what the minifier's half-precision emulation checks offline, shader by shader.</li>
     </ul>
+    <p class="note" style="margin-top:14px;color:var(--ink-3)">build <span id="build"></span> — if a
+      reported figure looks impossible, check this matches the build you were asked to run.</p>
   </section>
 
 </div>
@@ -285,6 +293,7 @@
 (function () {
   "use strict";
 
+  var BUILD = 5;
   var SIZE = 512;
   var TARGET_MS = 60;
   var QUICK_ROUNDS = 21;
@@ -293,38 +302,31 @@
   var WORKLOADS = [
     {
       id: "scalar", short: "scalar", name: "Scalar multiply-add chain",
-      body:
-        "  float a = q.x, b = q.y;\n" +
-        "  for (int i = 0; i < 64; i++) {\n" +
-        "    a = a * 0.5 + b * 0.25 + 0.125;\n" +
-        "    b = b * 0.75 - a * 0.5 + 0.0625;\n" +
-        "    a = a * 0.875 + b * 0.125;\n" +
-        "    b = b * 0.625 - a * 0.25;\n" +
-        "  }\n" +
-        "  gl_FragColor = vec4(a, b, a + b, 1.0);\n"
+      init: "  float a = q.x, b = q.y;\n",
+      step:
+        "    a = fract(a * 1.3 + b * 0.7 + 0.11);\n" +
+        "    b = fract(b * 1.1 - a * 0.9 + 0.07);\n" +
+        "    a = fract(a * 0.9 + b * 1.2 + 0.03);\n" +
+        "    b = fract(b * 1.3 - a * 0.6 + 0.05);\n",
+      out: "  fragColor = vec4(a, b, a + b, 1.0);\n"
     },
     {
       id: "vec4", short: "vec4", name: "vec4 multiply-add chain",
-      body:
-        "  vec4 a = vec4(q, q.y, q.x);\n" +
-        "  vec4 b = vec4(q.y, q.x, q);\n" +
-        "  for (int i = 0; i < 64; i++) {\n" +
-        "    a = a * 0.5 + b * 0.25 + 0.125;\n" +
-        "    b = b * 0.75 - a * 0.5 + 0.0625;\n" +
-        "    a = a * 0.875 + b * 0.125;\n" +
-        "    b = b * 0.625 - a * 0.25;\n" +
-        "  }\n" +
-        "  gl_FragColor = vec4(a.xy + b.zw, a.z, 1.0);\n"
+      init: "  vec4 a = vec4(q, q.y, q.x);\n  vec4 b = vec4(q.y, q.x, q);\n",
+      step:
+        "    a = fract(a * 1.3 + b * 0.7 + 0.11);\n" +
+        "    b = fract(b * 1.1 - a * 0.9 + 0.07);\n" +
+        "    a = fract(a * 0.9 + b * 1.2 + 0.03);\n" +
+        "    b = fract(b * 1.3 - a * 0.6 + 0.05);\n",
+      out: "  fragColor = vec4(a.xy + b.zw, a.z, 1.0);\n"
     },
     {
       id: "trig", short: "sin/cos", name: "sin / cos chain",
-      body:
-        "  float a = q.x, b = q.y;\n" +
-        "  for (int i = 0; i < 64; i++) {\n" +
+      init: "  float a = q.x, b = q.y;\n",
+      step:
         "    a = sin(a + b * 0.5);\n" +
-        "    b = cos(b - a * 0.5);\n" +
-        "  }\n" +
-        "  gl_FragColor = vec4(a, b, a * b, 1.0);\n"
+        "    b = cos(b - a * 0.5);\n",
+      out: "  fragColor = vec4(a, b, a * b, 1.0);\n"
     }
   ];
 
@@ -333,14 +335,27 @@
   var CONTROL = { id: "control", short: "control", name: "Control: highp against itself", control: true };
   var LANES = WORKLOADS.concat([CONTROL]);
 
-  var VS = "attribute vec2 aPos;\nvoid main() { gl_Position = vec4(aPos, 0.0, 1.0); }\n";
+  var VS = "#version 300 es\nin vec2 aPos;\nvoid main() { gl_Position = vec4(aPos, 0.0, 1.0); }\n";
 
-  function fragment(precision, body) {
-    return "precision " + precision + " float;\n" +
+  // One draw does the whole pass, its length set by a uniform the compiler cannot see. Scaling the
+  // work by drawing more times instead does not survive a tile-based GPU: with no blend and no depth,
+  // each full-screen triangle completely covers the last, and a deferred renderer shades only the
+  // final one. An iPhone reported 0.02ms for a pass that way -- sixty draws of which fifty-nine were
+  // discarded. A dynamic loop also stops the body being unrolled and then folded: every step here is
+  // wrapped in fract or a trig call precisely so that a chain of them cannot be collapsed into one
+  // closed form, which a linear chain of multiply-adds can be.
+  function fragment(precision, w) {
+    return "#version 300 es\n" +
+      "precision " + precision + " float;\n" +
       "uniform float uSeed;\n" +
+      "uniform int uIters;\n" +
+      "out vec4 fragColor;\n" +
       "void main() {\n" +
       "  vec2 q = gl_FragCoord.xy * 0.001953125 + uSeed;\n" +
-      body + "}\n";
+      w.init +
+      "  for (int i = 0; i < uIters; i++) {\n" + w.step + "  }\n" +
+      w.out +
+      "}\n";
   }
 
   // Finds the mantissa width a declared precision really gets: the largest k whose 2^-k still
@@ -355,16 +370,18 @@
   // makes an even one and leaves it dark. The widening also caps the answer at 23 by itself, since
   // 2^k + 1 stops being representable in fp32 past that, so the probe cannot overstate the result.
   function probeSource(precision) {
-    return "precision " + precision + " float;\n" +
+    return "#version 300 es\n" +
+      "precision " + precision + " float;\n" +
       "uniform highp float uEps;\n" +
       "uniform highp float uOne;\n" +
       "uniform highp float uScale;\n" +
+      "out highp vec4 fragColor;\n" +
       "void main() {\n" +
       "  float e = uEps;\n" +          // narrowed to the declared precision
       "  float one = uOne;\n" +
       "  float v = one + e;\n" +       // the one operation being measured
       "  highp float w = v;\n" +       // widened without changing what it holds
-      "  gl_FragColor = vec4(mod(w * uScale, 2.0), 0.0, 0.0, 1.0);\n" +
+      "  fragColor = vec4(mod(w * uScale, 2.0), 0.0, 0.0, 1.0);\n" +
       "}\n";
   }
 
@@ -377,6 +394,7 @@
   var passes = {};
   var results = null;
   var rounds = QUICK_ROUNDS;
+  var sanityNote = { scaling: 0, pass: 0 };
 
   function fmt(ms) {
     if (!isFinite(ms)) return "—";
@@ -417,15 +435,22 @@
     gl.bindAttribLocation(p, 0, "aPos");
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || "program failed to link");
-    return { program: p, seed: gl.getUniformLocation(p, "uSeed") };
+    return {
+      program: p,
+      seed: gl.getUniformLocation(p, "uSeed"),
+      iters: gl.getUniformLocation(p, "uIters")
+    };
   }
 
   function setup() {
     var canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     var opts = { antialias: false, depth: false, stencil: false, powerPreference: "high-performance" };
-    gl = canvas.getContext("webgl2", opts) || canvas.getContext("webgl", opts);
-    if (!gl) throw new Error("This browser did not give us a WebGL context.");
+    gl = canvas.getContext("webgl2", opts);
+    if (!gl) {
+      throw new Error("This browser did not give us a WebGL 2 context, which the timing needs to set " +
+        "a shader's workload from a uniform rather than by drawing repeatedly.");
+    }
 
     ext = {
       debug: gl.getExtension("WEBGL_debug_renderer_info"),
@@ -452,7 +477,7 @@
     gl.viewport(0, 0, SIZE, SIZE);
 
     WORKLOADS.forEach(function (w) {
-      programs[w.id] = { highp: link(fragment("highp", w.body)), mediump: link(fragment("mediump", w.body)) };
+      programs[w.id] = { highp: link(fragment("highp", w)), mediump: link(fragment("mediump", w)) };
     });
     // Both sides of the control are the same program.
     programs[CONTROL.id] = { highp: programs.scalar.highp, mediump: programs.scalar.highp };
@@ -491,14 +516,14 @@
 
   var readback = new Uint8Array(4);
 
-  function timePass(entry, n) {
+  function timePass(entry, iters) {
     gl.useProgram(entry.program);
     gl.uniform1f(entry.seed, Math.random() * 0.25);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1i(entry.iters, iters);
     var t0 = performance.now();
-    for (var i = 0; i < n; i++) gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, readback);
-    return (performance.now() - t0) / n;
+    return performance.now() - t0;
   }
 
   function breathe() {
@@ -743,10 +768,12 @@
     lines.push("method:   " + SIZE + "x" + SIZE + ", " + rounds + " rounds, fastest pass of each");
     lines.push("measured: highp " + measured.highp + " bits, mediump " + measured.mediump +
       " bits, lowp " + measured.lowp + " bits (mantissa actually used)");
+    lines.push("scaling:  2x iterations took " + sanityNote.scaling.toFixed(2) + "x as long (needs ~2), " +
+      "one pass " + fmt(sanityNote.pass) + "ms");
     lines.push("noise:    control " + (best(results[CONTROL.id].a) / best(results[CONTROL.id].b)).toFixed(3) +
       "x, per-round scatter +/-" + (100 * noise.scatter).toFixed(0) + "%, threshold +/-" + (100 * noise.threshold).toFixed(0) + "%");
     lines.push("");
-    lines.push("workload   draws  fastest a  fastest b     ratio");
+    lines.push("workload    iters  fastest a  fastest b     ratio");
     LANES.forEach(function (lane) {
       var cell = results[lane.id];
       if (cell.a.length === 0) return;
@@ -773,11 +800,31 @@
     // Drivers finish specialising a shader on its first real draw, so pay that for every program
     // before anything is timed, and size each workload's pass to TARGET_MS on its own cost.
     WORKLOADS.forEach(function (w) {
-      ["highp", "mediump"].forEach(function (p) { for (var i = 0; i < 3; i++) timePass(programs[w.id][p], 1); });
-      var one = Math.min(timePass(programs[w.id].highp, 1), timePass(programs[w.id].mediump, 1));
-      passes[w.id] = Math.max(1, Math.min(64, Math.round(TARGET_MS / Math.max(one, 0.05))));
+      ["highp", "mediump"].forEach(function (p) {
+        for (var i = 0; i < 3; i++) timePass(programs[w.id][p], 64);
+      });
+      var iters = 64;
+      for (var tries = 0; tries < 6; tries++) {
+        var t = Math.min(timePass(programs[w.id].highp, iters), timePass(programs[w.id].highp, iters));
+        if (t > TARGET_MS * 0.7 && t < TARGET_MS * 1.5) break;
+        iters = Math.max(16, Math.min(1 << 20, Math.round(iters * TARGET_MS / Math.max(t, 0.02))));
+      }
+      passes[w.id] = iters;
     });
     passes[CONTROL.id] = passes.scalar;
+  }
+
+  /**
+   * The timing is only worth reading if the GPU actually did what it was asked. Doubling the
+   * iteration count has to roughly double the time; when it does not, the work is being discarded or
+   * the clock is too coarse to see it, and every number below it is meaningless. An iPhone measuring
+   * 0.02ms for a 512x512 pass is what this exists to catch.
+   */
+  function workIsReal() {
+    var entry = programs.scalar.highp, n = passes.scalar;
+    var one = Math.min(timePass(entry, n), timePass(entry, n));
+    var two = Math.min(timePass(entry, n * 2), timePass(entry, n * 2));
+    return { scaling: two / Math.max(one, 0.001), pass: one, ok: two / Math.max(one, 0.001) > 1.6 && one > 8 };
   }
 
   async function run(howMany) {
@@ -793,6 +840,22 @@
     LANES.forEach(function (lane) { results[lane.id] = { a: [], b: [] }; });
 
     warmUp();
+    var sanity = sanityNote = workIsReal();
+    if (!sanity.ok) {
+      $("verdict").classList.remove("running");
+      $("ratio").textContent = "—";
+      $("said").textContent = "This device is not doing the work we asked for.";
+      $("said").className = "said fail";
+      $("why").textContent = "Doubling a pass's iteration count changed its time by " +
+        sanity.scaling.toFixed(2) + "×, and it has to be about 2×. A pass measured " +
+        fmt(sanity.pass) + "ms. Either the driver is discarding the work or the clock is too coarse " +
+        "to see it, and any ratio measured on top of that would be noise dressed up as a result, so " +
+        "the page is not going to print one. The precision probe below does not depend on timing and " +
+        "is unaffected.";
+      ["rerun", "long"].forEach(function (id) { $(id).disabled = false; });
+      return;
+    }
+    $("said").className = "said";
     await breathe();
 
     var total = LANES.length * rounds * 2;
@@ -835,6 +898,7 @@
     $("why").textContent = String(err && err.message ? err.message : err);
   }
 
+  $("build").textContent = String(BUILD);
   buildRows();
   try {
     setup();

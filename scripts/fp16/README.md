@@ -13,13 +13,28 @@ the figure the spec demands of every implementation, so it proves nothing
 either. Only a phone can answer it, so this is a page rather than a test.
 
 Method: three ALU-bound fragment shaders (a scalar multiply-add chain, the same
-chain in `vec4`, and a `sin`/`cos` chain), each an unrolled 64-iteration
-dependent loop seeded from `gl_FragCoord` and a uniform so nothing folds away.
-Every program is compiled and drawn several times before any timing starts,
-because drivers finish specialising a shader on its first real draw. Each pass
-then renders into a 512×512 offscreen target enough times to take about 60ms
-and reads one pixel back, which is what forces the driver to finish inside the
-timed window; both precisions of a workload always do the same number of draws.
+chain in `vec4`, and a `sin`/`cos` chain), each a dependent loop seeded from
+`gl_FragCoord` and a uniform. Every program is compiled and drawn several times
+before any timing starts, because drivers finish specialising a shader on its
+first real draw. A pass is then *one* draw into a 512×512 offscreen target, its
+iteration count set by a uniform so the draw takes about 60ms, followed by
+reading one pixel back, which is what forces the driver to finish inside the
+timed window; both precisions of a workload always run the same iteration count.
+
+Two things about the shaders are deliberate and were arrived at the hard way.
+Sizing the work by *drawing repeatedly* does not survive a tile-based GPU: with
+no blend and no depth each full-screen triangle completely covers the last, and
+a deferred renderer shades only the final one. An iPhone measured 0.02ms for a
+pass that way — sixty draws, fifty-nine discarded. And a loop body of plain
+multiply-adds is a chain of affine maps, which an optimiser is entitled to
+collapse into a single closed form; every step is wrapped in `fract` or a trig
+call so that it cannot. The dynamic loop count also keeps the body from being
+unrolled and then folded.
+
+So the page checks its own premise before reporting: doubling a pass's
+iteration count has to roughly double its time. When it does not, the work is
+being discarded or the clock is too coarse to see it, and the page says that
+instead of printing a ratio built on nothing.
 
 Two things keep the result from being noise, because on a phone a single round
 scatters far enough to read anywhere between 0.7× and 1.5×:
