@@ -555,6 +555,13 @@ under every unit and codec.
   fields and array elements are read unrounded, and a loop variable stays
   fp32 because ES 1.00 wants constant loop bounds.
 
+  The speed half now has a rig of its own: `scripts/fp16/bench.html` times a
+  `highp` and a `mediump` copy of the same ALU-bound shader against each other
+  on whatever GPU opens the page, since no oracle in this repository runs on
+  hardware with an fp16 path. It answers "is the narrower type faster *here*",
+  which together with the emulation above is what a per-shader opt-in would
+  need to justify itself.
+
 - **Shortest float32 digits for every literal: done, and small.** From
   `-O1` every float literal is printed with the fewest digits that read back
   to the same float32, as ANGLE does (`PORTING.md` item 39); `-O0` and

@@ -1,0 +1,666 @@
+<title>Shader Precision Timer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #eceff3;
+    --surface: #ffffff;
+    --sunken: #e1e6ec;
+    --ink: #121a22;
+    --ink-2: #4d5b69;
+    --ink-3: #788694;
+    --rule: #c7d0da;
+    --highp: #1c4fc0;
+    --mediump: #a8560d;
+    --good: #196e45;
+    --warn: #8c4a12;
+    --shadow: 0 1px 2px rgba(18, 26, 34, .08), 0 8px 24px -16px rgba(18, 26, 34, .35);
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1319;
+      --surface: #151e27;
+      --sunken: #1d2832;
+      --ink: #e3eaf1;
+      --ink-2: #9aa8b6;
+      --ink-3: #6d7d8c;
+      --rule: #29353f;
+      --highp: #74a0ff;
+      --mediump: #e6a052;
+      --good: #4cc08a;
+      --warn: #e6a052;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1319;
+    --surface: #151e27;
+    --sunken: #1d2832;
+    --ink: #e3eaf1;
+    --ink-2: #9aa8b6;
+    --ink-3: #6d7d8c;
+    --rule: #29353f;
+    --highp: #74a0ff;
+    --mediump: #e6a052;
+    --good: #4cc08a;
+    --warn: #e6a052;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 28px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+  h1 {
+    font-size: clamp(1.6rem, 5.4vw, 2.1rem);
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    margin: 0 0 .35em;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: .74rem;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 .9em;
+  }
+  p { margin: 0 0 .8em; }
+  p:last-child { margin-bottom: 0; }
+  .lede { color: var(--ink-2); max-width: 36em; }
+  code, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 18px 18px 20px;
+    box-shadow: var(--shadow);
+  }
+
+  /* device strip */
+  .device { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: .76rem;
+    color: var(--ink-2);
+    background: var(--sunken);
+    border-radius: 999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* verdict */
+  .verdict { display: flex; flex-direction: column; gap: 4px; }
+  .verdict .eyebrow { font-size: .72rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); }
+  .verdict .ratio {
+    font-family: var(--mono);
+    font-size: clamp(2.4rem, 12vw, 3.4rem);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.03em;
+  }
+  .verdict .said { font-size: 1.02rem; font-weight: 500; }
+  .verdict .why { color: var(--ink-2); font-size: .92rem; }
+  .running .ratio { color: var(--ink-3); }
+
+  /* progress */
+  .bar-track {
+    height: 3px;
+    background: var(--sunken);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 14px;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--ink-3);
+    transition: width .2s linear;
+  }
+  @media (prefers-reduced-motion: reduce) { .bar-fill { transition: none; } }
+
+  /* results */
+  .rows { display: flex; flex-direction: column; gap: 18px; }
+  .row { display: flex; flex-direction: column; gap: 7px; }
+  .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .row-name { font-weight: 500; font-size: .96rem; }
+  .row-ratio { font-family: var(--mono); font-size: .92rem; font-weight: 600; }
+  .series { display: grid; grid-template-columns: 4.6rem 1fr 5.2rem; align-items: center; gap: 10px; }
+  .series-key { font-family: var(--mono); font-size: .78rem; }
+  .series-key.hi { color: var(--highp); }
+  .series-key.med { color: var(--mediump); }
+  .track { display: block; height: 12px; background: var(--sunken); border-radius: 2px; overflow: hidden; }
+  .fill { display: block; height: 100%; width: 0%; border-radius: 2px; transition: width .35s ease-out; }
+  @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+  .fill.hi { background: var(--highp); }
+  .fill.med { background: var(--mediump); }
+  .series-val { font-family: var(--mono); font-size: .82rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .spread { color: var(--ink-3); font-size: .74rem; }
+
+  /* actions */
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  button {
+    font-family: inherit;
+    font-size: .92rem;
+    font-weight: 500;
+    color: var(--surface);
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: 7px;
+    padding: 9px 16px;
+    cursor: pointer;
+    min-height: 40px;
+  }
+  button.ghost { color: var(--ink); background: transparent; border-color: var(--rule); }
+  button[disabled] { opacity: .45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--highp); outline-offset: 2px; }
+
+  /* detail table */
+  .scroller { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .82rem; }
+  th, td { text-align: right; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-3); font-weight: 500; font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; }
+  td { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td:first-child { font-family: var(--sans); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { font-size: .88rem; color: var(--ink-2); }
+  .note ul { margin: 0; padding-left: 1.1em; }
+  .note li { margin-bottom: .5em; }
+  .note li:last-child { margin-bottom: 0; }
+  .fail { color: var(--warn); font-weight: 500; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <h1>Does <span class="mono">mediump</span> actually run faster here?</h1>
+    <p class="lede">A minifier can drop a shader from <code>highp</code> to <code>mediump</code>, which is
+      fp16 on most phone GPUs and fp32 on most desktop ones. That trade is only worth its accuracy risk
+      if the hardware in your hand really is quicker at the narrower type. This page times both on it.</p>
+  </header>
+
+  <section class="card" aria-live="polite">
+    <h2>This device</h2>
+    <div class="device" id="device">
+      <span class="chip">reading GPU…</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Result</h2>
+    <div class="verdict running" id="verdict">
+      <div class="eyebrow">best case across the three workloads</div>
+      <div class="ratio mono" id="ratio">—</div>
+      <div class="said" id="said">Warming up the GPU…</div>
+      <div class="why" id="why">Three ALU workloads, each timed at both precisions, five interleaved rounds apiece.</div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="progress"></div></div>
+  </section>
+
+  <section class="card">
+    <h2>Per workload — milliseconds per 512×512 pass</h2>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <div class="actions">
+    <button id="rerun" disabled>Run again</button>
+    <button id="copy" class="ghost" disabled>Copy report</button>
+  </div>
+
+  <section class="card">
+    <h2>Declared precision</h2>
+    <div class="scroller">
+      <table id="precisions">
+        <thead><tr><th>Fragment float</th><th>mantissa bits</th><th>range 2^±</th></tr></thead>
+        <tbody><tr><td>reading…</td><td>—</td><td>—</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px">10 mantissa bits for <code>mediump</code> is both the fp16
+      figure and the floor the spec demands of every implementation, so a driver that computes in fp32
+      anyway reports exactly the same thing. The declaration cannot tell you what the silicon does —
+      only the timing above can.</p>
+  </section>
+
+  <section class="card">
+    <h2>Every round</h2>
+    <div class="scroller">
+      <table id="raw">
+        <thead><tr><th>Workload</th><th>precision</th><th>r1</th><th>r2</th><th>r3</th><th>r4</th><th>r5</th></tr></thead>
+        <tbody><tr><td>waiting for the first run</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px">Rounds alternate <code>highp</code>, <code>mediump</code>,
+      <code>highp</code>… so that a phone heating up under the load shifts both columns together. A drift
+      down the row is throttling; the medians are what the verdict uses.</p>
+  </section>
+
+  <section class="card note">
+    <h2>How it measures</h2>
+    <ul>
+      <li>Two programs per workload, byte-identical but for the <code>precision</code> line, each an
+        unrolled 64-iteration dependent chain seeded from <code>gl_FragCoord</code> and a uniform, so
+        nothing folds away at compile time.</li>
+      <li>Each pass renders a full-screen triangle into an offscreen RGBA8 target several times, then
+        reads one pixel back — the read is what forces the driver to finish the work inside the window
+        being timed.</li>
+      <li>Timing is <code>performance.now()</code> around that block. <code>EXT_disjoint_timer_query</code>
+        would be cleaner but almost no mobile browser exposes it; the device strip says whether yours does.</li>
+      <li>A ratio near 1.00 means the two precisions cost the same here. That is the normal answer on
+        desktop GPUs, which have no fp16 path, and it is also what you get when a workload is bound by
+        something other than ALU throughput.</li>
+      <li>Speed is only half the question. Whether a given shader still <em>looks</em> right in fp16 is
+        what the minifier's half-precision emulation checks offline, shader by shader.</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SIZE = 512;
+  var ROUNDS = 5;
+  var TARGET_MS = 22;
+
+  var WORKLOADS = [
+    {
+      id: "scalar",
+      name: "Scalar multiply-add chain",
+      short: "scalar",
+      body:
+        "  float a = q.x, b = q.y;\n" +
+        "  for (int i = 0; i < 64; i++) {\n" +
+        "    a = a * 0.5 + b * 0.25 + 0.125;\n" +
+        "    b = b * 0.75 - a * 0.5 + 0.0625;\n" +
+        "    a = a * 0.875 + b * 0.125;\n" +
+        "    b = b * 0.625 - a * 0.25;\n" +
+        "  }\n" +
+        "  gl_FragColor = vec4(a, b, a + b, 1.0);\n"
+    },
+    {
+      id: "vec4",
+      name: "vec4 multiply-add chain",
+      short: "vec4",
+      body:
+        "  vec4 a = vec4(q, q.y, q.x);\n" +
+        "  vec4 b = vec4(q.y, q.x, q);\n" +
+        "  for (int i = 0; i < 64; i++) {\n" +
+        "    a = a * 0.5 + b * 0.25 + 0.125;\n" +
+        "    b = b * 0.75 - a * 0.5 + 0.0625;\n" +
+        "    a = a * 0.875 + b * 0.125;\n" +
+        "    b = b * 0.625 - a * 0.25;\n" +
+        "  }\n" +
+        "  gl_FragColor = vec4(a.xy + b.zw, a.z, 1.0);\n"
+    },
+    {
+      id: "trig",
+      name: "sin / cos chain",
+      short: "sin/cos",
+      body:
+        "  float a = q.x, b = q.y;\n" +
+        "  for (int i = 0; i < 64; i++) {\n" +
+        "    a = sin(a + b * 0.5);\n" +
+        "    b = cos(b - a * 0.5);\n" +
+        "  }\n" +
+        "  gl_FragColor = vec4(a, b, a * b, 1.0);\n"
+    }
+  ];
+
+  var VS =
+    "attribute vec2 aPos;\n" +
+    "void main() { gl_Position = vec4(aPos, 0.0, 1.0); }\n";
+
+  function fragment(precision, body) {
+    return "precision " + precision + " float;\n" +
+      "uniform float uSeed;\n" +
+      "void main() {\n" +
+      "  vec2 q = gl_FragCoord.xy * 0.001953125 + uSeed;\n" +
+      body +
+      "}\n";
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var gl = null, canvas = null, fbo = null, quad = null, ext = null;
+  var programs = {};
+  var results = null;
+  var passes = 1;
+
+  function chip(text) {
+    var el = document.createElement("span");
+    el.className = "chip";
+    el.textContent = text;
+    return el;
+  }
+
+  function fmt(ms) {
+    if (!isFinite(ms)) return "—";
+    return ms >= 100 ? ms.toFixed(0) : ms >= 10 ? ms.toFixed(1) : ms.toFixed(2);
+  }
+
+  function median(xs) {
+    var s = xs.slice().sort(function (a, b) { return a - b; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  // ---- GL setup -----------------------------------------------------------
+
+  function compile(type, src) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(sh) || "shader failed to compile");
+    }
+    return sh;
+  }
+
+  function link(fsSrc) {
+    var p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.bindAttribLocation(p, 0, "aPos");
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(p) || "program failed to link");
+    }
+    return { program: p, seed: gl.getUniformLocation(p, "uSeed") };
+  }
+
+  function setup() {
+    canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    var opts = { antialias: false, depth: false, stencil: false, powerPreference: "high-performance" };
+    gl = canvas.getContext("webgl2", opts) || canvas.getContext("webgl", opts);
+    if (!gl) throw new Error("This browser did not give us a WebGL context.");
+
+    ext = {
+      debug: gl.getExtension("WEBGL_debug_renderer_info"),
+      timer: gl.getExtension("EXT_disjoint_timer_query_webgl2") || gl.getExtension("EXT_disjoint_timer_query")
+    };
+
+    quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SIZE, SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error("Could not create a " + SIZE + "×" + SIZE + " render target.");
+    }
+    gl.viewport(0, 0, SIZE, SIZE);
+
+    for (var i = 0; i < WORKLOADS.length; i++) {
+      var w = WORKLOADS[i];
+      programs[w.id] = {
+        highp: link(fragment("highp", w.body)),
+        mediump: link(fragment("mediump", w.body))
+      };
+    }
+  }
+
+  var readback = new Uint8Array(4);
+
+  function timePass(entry, n) {
+    gl.useProgram(entry.program);
+    gl.uniform1f(entry.seed, Math.random() * 0.25);
+    var t0 = performance.now();
+    for (var i = 0; i < n; i++) gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, readback);
+    return (performance.now() - t0) / n;
+  }
+
+  function breathe() {
+    return new Promise(function (resolve) { requestAnimationFrame(function () { setTimeout(resolve, 12); }); });
+  }
+
+  // ---- rendering the page -------------------------------------------------
+
+  function describeDevice() {
+    var box = $("device");
+    box.textContent = "";
+    var renderer = ext.debug ? gl.getParameter(ext.debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    box.appendChild(chip(renderer || "GPU not disclosed"));
+    box.appendChild(chip(gl.getParameter(gl.VERSION).indexOf("2.0") >= 0 ? "WebGL 2" : "WebGL 1"));
+    box.appendChild(chip(Math.round(window.devicePixelRatio * 100) / 100 + "× DPR"));
+    box.appendChild(chip(ext.timer ? "GPU timer available" : "no GPU timer, wall clock"));
+
+    var rows = [["highp", gl.HIGH_FLOAT], ["mediump", gl.MEDIUM_FLOAT], ["lowp", gl.LOW_FLOAT]];
+    var body = document.createElement("tbody");
+    for (var i = 0; i < rows.length; i++) {
+      var f = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, rows[i][1]);
+      var tr = document.createElement("tr");
+      var cells = [rows[i][0], f ? String(f.precision) : "—", f ? String(f.rangeMax) : "—"];
+      for (var c = 0; c < cells.length; c++) {
+        var td = document.createElement("td");
+        td.textContent = cells[c];
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+    var table = $("precisions");
+    table.replaceChild(body, table.tBodies[0]);
+  }
+
+  function buildRows() {
+    var host = $("rows");
+    host.textContent = "";
+    WORKLOADS.forEach(function (w) {
+      var row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML =
+        '<div class="row-head"><span class="row-name"></span><span class="row-ratio mono">—</span></div>' +
+        '<div class="series"><span class="series-key hi">highp</span>' +
+        '<span class="track"><span class="fill hi" data-k="hi"></span></span>' +
+        '<span class="series-val" data-v="hi">—</span></div>' +
+        '<div class="series"><span class="series-key med">mediump</span>' +
+        '<span class="track"><span class="fill med" data-k="med"></span></span>' +
+        '<span class="series-val" data-v="med">—</span></div>';
+      row.querySelector(".row-name").textContent = w.name;
+      row.id = "row-" + w.id;
+      host.appendChild(row);
+    });
+  }
+
+  function paintRow(w, cell) {
+    var row = $("row-" + w.id);
+    var hi = median(cell.highp), med = median(cell.mediump);
+    var worst = Math.max(hi, med);
+    row.querySelector('[data-k="hi"]').style.width = (100 * hi / worst) + "%";
+    row.querySelector('[data-k="med"]').style.width = (100 * med / worst) + "%";
+    row.querySelector('[data-v="hi"]').textContent = fmt(hi);
+    row.querySelector('[data-v="med"]').textContent = fmt(med);
+    var r = hi / med;
+    row.querySelector(".row-ratio").textContent = (r >= 1 ? r.toFixed(2) + "× faster" : (1 / r).toFixed(2) + "× slower");
+    row.querySelector(".row-ratio").style.color = r >= 1.12 ? "var(--good)" : r <= 0.9 ? "var(--warn)" : "var(--ink-3)";
+  }
+
+  function paintRaw() {
+    var body = document.createElement("tbody");
+    WORKLOADS.forEach(function (w) {
+      ["highp", "mediump"].forEach(function (p) {
+        var tr = document.createElement("tr");
+        var cells = [w.short, p].concat(results[w.id][p].map(fmt));
+        for (var c = 0; c < cells.length; c++) {
+          var td = document.createElement("td");
+          td.textContent = cells[c];
+          tr.appendChild(td);
+        }
+        body.appendChild(tr);
+      });
+    });
+    var table = $("raw");
+    table.replaceChild(body, table.tBodies[0]);
+  }
+
+  function verdict() {
+    var ratios = WORKLOADS.map(function (w) {
+      return median(results[w.id].highp) / median(results[w.id].mediump);
+    });
+    var best = Math.max.apply(null, ratios);
+    var box = $("verdict");
+    box.classList.remove("running");
+    $("ratio").textContent = best.toFixed(2) + "×";
+
+    if (best >= 1.12) {
+      var which = WORKLOADS[ratios.indexOf(best)].name.toLowerCase();
+      $("said").textContent = "mediump is genuinely faster on this GPU.";
+      $("why").textContent = "Best case is the " + which + ", where the narrower type finishes a pass " +
+        Math.round((best - 1) * 100) + "% sooner. A precision reduction buys frame time here, so the " +
+        "question becomes which shaders still look right in fp16.";
+      $("ratio").style.color = "var(--good)";
+    } else if (best >= 0.9) {
+      $("said").textContent = "No measurable speed-up from mediump.";
+      $("why").textContent = "Every workload lands within noise of its highp twin. Either this GPU has no " +
+        "separate fp16 path — normal on desktop — or it is not ALU-bound on these shaders. Dropping " +
+        "precision would cost accuracy and return nothing.";
+      $("ratio").style.color = "var(--ink-2)";
+    } else {
+      $("said").textContent = "mediump came out slower.";
+      $("why").textContent = "That usually means conversion instructions around a float16 register file, " +
+        "and it is a reason not to reduce precision on this hardware at all.";
+      $("ratio").style.color = "var(--warn)";
+    }
+  }
+
+  function report() {
+    var lines = [];
+    var renderer = ext.debug ? gl.getParameter(ext.debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    lines.push("shader precision timing");
+    lines.push("gpu:      " + (renderer || "undisclosed"));
+    lines.push("ua:       " + navigator.userAgent);
+    lines.push("context:  " + gl.getParameter(gl.VERSION));
+    lines.push("target:   " + SIZE + "x" + SIZE + ", " + passes + " draw(s) per pass, " + ROUNDS + " rounds");
+    lines.push("");
+    lines.push("workload                     highp   mediump   ratio");
+    WORKLOADS.forEach(function (w) {
+      var hi = median(results[w.id].highp), med = median(results[w.id].mediump);
+      var pad = (w.name + "                              ").slice(0, 28);
+      lines.push(pad + ("       " + fmt(hi)).slice(-7) + ("        " + fmt(med)).slice(-9) +
+        ("       " + (hi / med).toFixed(2)).slice(-8));
+    });
+    lines.push("");
+    WORKLOADS.forEach(function (w) {
+      lines.push(w.id + " highp   " + results[w.id].highp.map(fmt).join(" "));
+      lines.push(w.id + " mediump " + results[w.id].mediump.map(fmt).join(" "));
+    });
+    return lines.join("\n");
+  }
+
+  // ---- the run ------------------------------------------------------------
+
+  function calibrate() {
+    var entry = programs[WORKLOADS[0].id].highp;
+    for (var i = 0; i < 4; i++) timePass(entry, 1);
+    var one = timePass(entry, 1);
+    passes = Math.max(1, Math.min(32, Math.round(TARGET_MS / Math.max(one, 0.05))));
+  }
+
+  async function run() {
+    $("rerun").disabled = true;
+    $("copy").disabled = true;
+    $("verdict").classList.add("running");
+    $("ratio").style.color = "";
+    $("ratio").textContent = "—";
+    $("said").textContent = "Warming up the GPU…";
+    $("why").textContent = "Three ALU workloads, each timed at both precisions, five interleaved rounds apiece.";
+
+    results = {};
+    WORKLOADS.forEach(function (w) { results[w.id] = { highp: [], mediump: [] }; });
+
+    calibrate();
+    await breathe();
+
+    var total = WORKLOADS.length * ROUNDS * 2;
+    var done = 0;
+
+    for (var r = 0; r < ROUNDS; r++) {
+      for (var i = 0; i < WORKLOADS.length; i++) {
+        var w = WORKLOADS[i];
+        for (var p = 0; p < 2; p++) {
+          var prec = p === 0 ? "highp" : "mediump";
+          results[w.id][prec].push(timePass(programs[w.id][prec], passes));
+          done++;
+          $("progress").style.width = (100 * done / total) + "%";
+          $("said").textContent = "Round " + (r + 1) + " of " + ROUNDS + " — " + w.name.toLowerCase() + ", " + prec;
+          await breathe();
+        }
+        if (r >= 1) paintRow(w, results[w.id]);
+      }
+    }
+
+    WORKLOADS.forEach(function (w) { paintRow(w, results[w.id]); });
+    paintRaw();
+    verdict();
+    $("progress").style.width = "100%";
+    $("rerun").disabled = false;
+    $("copy").disabled = false;
+  }
+
+  function fail(err) {
+    $("verdict").classList.remove("running");
+    $("ratio").textContent = "—";
+    $("said").textContent = "Could not measure on this device.";
+    $("said").className = "said fail";
+    $("why").textContent = String(err && err.message ? err.message : err);
+  }
+
+  buildRows();
+  try {
+    setup();
+    describeDevice();
+  } catch (e) {
+    fail(e);
+    return;
+  }
+
+  $("rerun").addEventListener("click", function () { run().catch(fail); });
+  $("copy").addEventListener("click", function () {
+    var text = report();
+    var done = function () {
+      $("copy").textContent = "Copied";
+      setTimeout(function () { $("copy").textContent = "Copy report"; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { window.prompt("Copy this:", text); });
+    } else {
+      window.prompt("Copy this:", text);
+    }
+  });
+
+  requestAnimationFrame(function () { run().catch(fail); });
+})();
+</script>
