@@ -67,7 +67,8 @@
     "corpus:cesium": "tsx scripts/dump-cesium-shaders.ts",
     "metrics": "tsx scripts/corpus-metrics.ts",
     "upstream:verify": "tsx scripts/verify-upstream.mts",
-    "half": "tsx scripts/half-precision.ts"
+    "half": "tsx scripts/half-precision.ts",
+    "three:precompile": "tsx scripts/three/precompile.mts"
   },
   "devDependencies": {
     "@shaderfrog/glsl-parser": "^7.0.1",
