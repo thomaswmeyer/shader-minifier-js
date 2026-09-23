@@ -221,6 +221,7 @@
     <button id="rerun" disabled>Run again (15s)</button>
     <button id="long" class="ghost" disabled>Long run (40s)</button>
     <button id="copy" class="ghost" disabled>Copy report</button>
+    <button id="save" class="ghost" disabled>Send to Claude</button>
   </div>
 
   <section class="card">
@@ -293,7 +294,7 @@
 (function () {
   "use strict";
 
-  var BUILD = 5;
+  var BUILD = 7;
   var SIZE = 512;
   var TARGET_MS = 60;
   var QUICK_ROUNDS = 21;
@@ -369,6 +370,27 @@
   // bit that survived the add makes an odd integer and lights the pixel; a bit that was rounded off
   // makes an even one and leaves it dark. The widening also caps the answer at 23 by itself, since
   // 2^k + 1 stops being representable in fp32 past that, so the probe cannot overstate the result.
+  // A scalar add is the one shape fp16 cannot make faster: Mali and Adreno pack two fp16 lanes into
+  // each fp32 lane, so the throughput is in vector math and a compiler has no reason to narrow a lone
+  // scalar. Asking only the scalar question can therefore report fp32 on a GPU that is really using
+  // fp16 for everything that matters. This asks the same question four components wide, with four
+  // distinct exponents so that nothing is gained by scalarising it back.
+  function probeSource4(precision) {
+    return "#version 300 es\n" +
+      "precision " + precision + " float;\n" +
+      "uniform highp vec4 uEps4;\n" +
+      "uniform highp float uOne;\n" +
+      "uniform highp vec4 uScale4;\n" +
+      "out highp vec4 fragColor;\n" +
+      "void main() {\n" +
+      "  vec4 e = uEps4;\n" +          // narrowed to the declared precision
+      "  vec4 one = vec4(uOne);\n" +
+      "  vec4 v = one + e;\n" +        // the operation being measured, four wide
+      "  highp vec4 w = v;\n" +
+      "  fragColor = mod(w * uScale4, vec4(2.0));\n" +
+      "}\n";
+  }
+
   function probeSource(precision) {
     return "#version 300 es\n" +
       "precision " + precision + " float;\n" +
@@ -493,6 +515,16 @@
         probes[precision] = null;
       }
     });
+    try {
+      var v4 = link(probeSource4("mediump"));
+      v4.eps4 = gl.getUniformLocation(v4.program, "uEps4");
+      v4.one = gl.getUniformLocation(v4.program, "uOne");
+      v4.scale4 = gl.getUniformLocation(v4.program, "uScale4");
+      v4.wide = true;
+      probes["mediump4"] = v4;
+    } catch (e) {
+      probes["mediump4"] = null;
+    }
   }
 
   function measureBits(precision) {
@@ -502,8 +534,15 @@
     gl.uniform1f(probe.one, 1);
     var bits = 0;
     for (var k = 3; k <= 24; k++) {
-      gl.uniform1f(probe.eps, Math.pow(2, -k));
-      gl.uniform1f(probe.scale, Math.pow(2, k));
+      if (probe.wide) {
+        // Four adjacent exponents at once, so the components differ and nothing is won by
+        // scalarising the vector back into four separate operations.
+        gl.uniform4f(probe.eps4, Math.pow(2, -k), Math.pow(2, -k - 1), Math.pow(2, -k - 2), Math.pow(2, -k - 3));
+        gl.uniform4f(probe.scale4, Math.pow(2, k), Math.pow(2, k + 1), Math.pow(2, k + 2), Math.pow(2, k + 3));
+      } else {
+        gl.uniform1f(probe.eps, Math.pow(2, -k));
+        gl.uniform1f(probe.scale, Math.pow(2, k));
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, readback);
       if (readback[0] < 128) break; // 1.0 + 2^-k rounded straight back to 1.0
@@ -551,13 +590,14 @@
     box.appendChild(chip(Math.round(window.devicePixelRatio * 100) / 100 + "× DPR"));
     box.appendChild(chip(ext.timer ? "GPU timer available" : "no GPU timer, wall clock"));
 
-    var kinds = [["highp", gl.HIGH_FLOAT], ["mediump", gl.MEDIUM_FLOAT], ["lowp", gl.LOW_FLOAT]];
+    var kinds = [["highp", gl.HIGH_FLOAT], ["mediump", gl.MEDIUM_FLOAT], ["lowp", gl.LOW_FLOAT],
+                 ["mediump4", gl.MEDIUM_FLOAT]];
     var body = document.createElement("tbody");
     kinds.forEach(function (kind) {
       var f = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, kind[1]);
       measured[kind[0]] = measureBits(kind[0]);
       var tr = document.createElement("tr");
-      [kind[0], f ? String(f.precision) : "—",
+      [kind[0] === "mediump4" ? "mediump, in a vec4" : kind[0], f ? String(f.precision) : "—",
        measured[kind[0]] === null ? "—" : String(measured[kind[0]]),
        f ? String(f.rangeMax) : "—"].forEach(function (text) {
         var td = document.createElement("td");
@@ -580,6 +620,13 @@
         "browser's shader compiler is folding the measurement away instead of performing it, so the " +
         "mediump figure beside it means nothing either. The timing above is unaffected.";
       said.className = "note fail";
+    } else if (bits > 13 && measured.mediump4 !== null && measured.mediump4 <= 13) {
+      said.innerHTML = "<strong>mediump is 16-bit here, but only inside a vector.</strong> A lone " +
+        "scalar add kept " + bits + " bits while the same add four components wide narrowed to " +
+        measured.mediump4 + ". That is what a GPU looks like when it packs two fp16 lanes into each " +
+        "fp32 lane: there is nothing to gain by narrowing one scalar, and a factor of two to gain on " +
+        "every vector. It also means the timing above should show a speed-up on the vec4 workload and " +
+        "none on the scalar one, which is the shape to check before believing any of it.";
     } else if (bits <= 13) {
       said.innerHTML = "<strong>mediump really is " + bits + " bits here</strong>, so the qualifier " +
         "reaches the hardware and the timing above is a fair test of whether that narrower type is faster.";
@@ -736,11 +783,19 @@
 
     if (top - 1 > noise.threshold) {
       $("said").textContent = "mediump is genuinely faster on this GPU.";
-      $("why").textContent = "The " + which.name.toLowerCase() + " finishes " + pct(top - 1) +
-        " sooner in mediump, and that is outside what the control can explain. A precision reduction " +
-        "buys frame time here, so the question becomes which shaders still look right in fp16.";
+      $("why").textContent = "The " + which.name.toLowerCase() + " runs " + top.toFixed(2) +
+        "× faster in mediump — it takes " + (100 * (1 - 1 / top)).toFixed(0) + "% less time — and that " +
+        "is outside what the control can explain. A precision reduction buys frame time here, so the " +
+        "question becomes which shaders still look right in fp16." +
+        (measured.mediump !== null && measured.mediump > 13 && measured.mediump4 !== null && measured.mediump4 <= 13
+          ? " The probe below says where it comes from: scalar mediump stayed 32-bit while mediump " +
+            "inside a vec4 narrowed to " + measured.mediump4 + " bits, which is a GPU that packs two " +
+            "fp16 lanes into each fp32 lane and so gains on vector math only."
+          : "");
       $("ratio").style.color = "var(--good)";
-    } else if (Math.min.apply(null, ratios) > 1 - noise.threshold) {
+    } else if (Math.min.apply(null, ratios) > 1 - 2 * noise.threshold) {
+      // Just outside the noise band on one lane is not evidence of anything; a real regression has to
+      // clear the margin by a good distance before the page calls it one.
       $("said").textContent = "No speed-up from mediump that this device can prove.";
       $("why").textContent = "The best workload reads " + top.toFixed(2) + "×, inside the ±" +
         (100 * noise.threshold).toFixed(0) + "% the control shows is noise. " +
@@ -753,10 +808,55 @@
       $("ratio").style.color = "var(--ink-2)";
     } else {
       $("said").textContent = "mediump came out slower on at least one workload.";
-      $("why").textContent = "That usually means conversion instructions around a float16 register " +
-        "file, and it is a reason not to reduce precision on this hardware at all.";
+      $("why").textContent = "The worst lane reads " + Math.min.apply(null, ratios).toFixed(2) +
+        "×, well outside the ±" + (100 * noise.threshold).toFixed(0) + "% the control can explain. " +
+        "That usually means conversion instructions around a float16 register file, and it is a " +
+        "reason not to reduce precision on this hardware at all.";
       $("ratio").style.color = "var(--warn)";
     }
+  }
+
+  /** The whole run as one JSON document, for the artifact's own store. */
+  function payload() {
+    var noise = noiseFloor();
+    var lanes = {};
+    LANES.forEach(function (lane) {
+      var cell = results[lane.id];
+      if (cell.a.length === 0) return;
+      lanes[lane.id] = {
+        iterations: passes[lane.id],
+        a: cell.a, b: cell.b,
+        bestA: best(cell.a), bestB: best(cell.b),
+        ratio: best(cell.a) / best(cell.b)
+      };
+    });
+    return {
+      at: new Date().toISOString(),
+      build: BUILD,
+      gpu: rendererName(),
+      userAgent: navigator.userAgent,
+      context: gl.getParameter(gl.VERSION),
+      target: SIZE,
+      rounds: rounds,
+      measuredBits: {
+        highp: measured.highp, mediump: measured.mediump,
+        lowp: measured.lowp, mediumpVec4: measured.mediump4
+      },
+      scalingCheck: { factor: sanityNote.scaling, passMs: sanityNote.pass },
+      noise: { control: best(results[CONTROL.id].a) / best(results[CONTROL.id].b),
+               scatter: noise.scatter, threshold: noise.threshold },
+      lanes: lanes
+    };
+  }
+
+  var dbPromise = null;
+  function store() {
+    if (dbPromise === null) {
+      dbPromise = (typeof claude !== "undefined" && claude && claude.use)
+        ? claude.use("db").catch(function () { return null; })
+        : Promise.resolve(null);
+    }
+    return dbPromise;
   }
 
   function report() {
@@ -767,7 +867,8 @@
     lines.push("context:  " + gl.getParameter(gl.VERSION));
     lines.push("method:   " + SIZE + "x" + SIZE + ", " + rounds + " rounds, fastest pass of each");
     lines.push("measured: highp " + measured.highp + " bits, mediump " + measured.mediump +
-      " bits, lowp " + measured.lowp + " bits (mantissa actually used)");
+      " bits, lowp " + measured.lowp + " bits, mediump-in-vec4 " + measured.mediump4 +
+      " bits (mantissa actually used)");
     lines.push("scaling:  2x iterations took " + sanityNote.scaling.toFixed(2) + "x as long (needs ~2), " +
       "one pass " + fmt(sanityNote.pass) + "ms");
     lines.push("noise:    control " + (best(results[CONTROL.id].a) / best(results[CONTROL.id].b)).toFixed(3) +
@@ -829,7 +930,7 @@
 
   async function run(howMany) {
     rounds = howMany;
-    ["rerun", "long", "copy"].forEach(function (id) { $(id).disabled = true; });
+    ["rerun", "long", "copy", "save"].forEach(function (id) { $(id).disabled = true; });
     $("verdict").classList.add("running");
     $("ratio").style.color = "";
     $("ratio").textContent = "—";
@@ -887,7 +988,8 @@
     paintRaw();
     verdict();
     $("progress").style.width = "100%";
-    ["rerun", "long", "copy"].forEach(function (id) { $(id).disabled = false; });
+    ["rerun", "long", "copy", "save"].forEach(function (id) { $(id).disabled = false; });
+    $("save").textContent = "Send to Claude";
   }
 
   function fail(err) {
@@ -922,6 +1024,21 @@
       window.prompt("Copy this:", text);
     }
   });
+  $("save").addEventListener("click", function () {
+    var button = $("save");
+    button.disabled = true;
+    button.textContent = "Sending…";
+    store().then(function (db) {
+      if (!db) throw new Error("db unavailable in this view");
+      return db.collection("runs").add(payload());
+    }).then(function () {
+      button.textContent = "Sent";
+    }).catch(function () {
+      button.textContent = "Could not send — use Copy report";
+      button.disabled = false;
+    });
+  });
+
   window.addEventListener("resize", function () {
     if (results) LANES.forEach(function (lane) { if (results[lane.id].a.length) paintStrip(lane, results[lane.id]); });
   });
