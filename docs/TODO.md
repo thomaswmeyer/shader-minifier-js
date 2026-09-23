@@ -614,6 +614,37 @@ under every unit and codec.
   closed on evidence. If it reports 23 bits, the qualifier is being discarded
   on the web everywhere and the case is closed more firmly still.
 
+  **Android answers, and it is neither: the qualifier survives, but only
+  inside a vector.** A Galaxy Tab A11 (Mali-G57 MC2, Chrome 152) measures 23
+  bits for scalar `mediump` and 10 bits for the same `mediump` four components
+  wide. The timing agrees, and only where it should:
+
+  | lane | iterations | highp | mediump | ratio |
+  |---|--:|--:|--:|--:|
+  | control (highp vs highp) | 829 | 50.9ms | 51.5ms | 0.99x |
+  | scalar multiply-add | 829 | 52.4ms | 53.2ms | 0.99x |
+  | sin / cos | 500 | 47.8ms | 45.2ms | 1.06x |
+  | vec4 multiply-add | 179 | 44.8ms | 24.8ms | **1.81x** |
+
+  with the scaling check at 1.89x, the control at 0.99x and single rounds
+  scattering 10%. The vec4 lane is the only one outside the noise band, and it
+  takes 45% less time.
+
+  That is a packed vector ALU doing exactly what it is built to do. Mali and
+  Adreno fit two fp16 lanes into each fp32 lane, so narrowing a lone scalar
+  wins nothing and narrowing a vector wins a factor of two; 1.81x is most of
+  the 2x on the table. Transcendentals get nothing either, which fits, since
+  they run on a separate unit that does not pack.
+
+  So Godot's result above is about their pipeline, not about the qualifier:
+  where SPIR-V Cross discards relaxed precision, ANGLE on a native Mali driver
+  honours it. The proposal is alive on Android, and sharper than it was --- not
+  "reduce precision", but "reduce precision on vector arithmetic", which is
+  where an engine shader keeps its colours, positions and normals anyway. What
+  has not changed is the accuracy side: four shaders in ten move visibly under
+  the fp16 emulation, so this can still only be a per-shader opt-in that the
+  harness validates, and it still buys nothing at all on iOS.
+
   The order of work here was wrong and is worth remembering: the rig was built
   before the literature was read, and a search would have found Godot's result
   in minutes. What the rig earned that a search could not is the iOS number
